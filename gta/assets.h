@@ -1,0 +1,29 @@
+// genere par tools/build_assets.py -- NE PAS editer
+#pragma once
+#include <stdint.h>
+
+#define NUM_TILES 8
+#define TILE_W 8
+#define TILE_H 8
+#define PLAYER_W 8
+#define PLAYER_H 8
+#define PLAYER_FRAMES 2
+#define PLAYER_TRANSPARENT 0xF81F
+
+enum TileId : uint8_t {
+  TILE_GRASS,
+  TILE_ROAD_H,
+  TILE_ROAD_V,
+  TILE_ROAD_CROSS,
+  TILE_PAVEMENT,
+  TILE_WATER,
+  TILE_BUILDING_A,
+  TILE_BUILDING_B
+};
+
+enum Dir : uint8_t { DIR_NORTH=0, DIR_EAST, DIR_SOUTH, DIR_WEST };
+
+#define TILE_SOLID 0x01
+extern const uint16_t tileset[NUM_TILES][TILE_W*TILE_H];
+extern const uint8_t tileFlags[NUM_TILES];
+extern const uint16_t playerSprite[4][PLAYER_FRAMES][PLAYER_W*PLAYER_H];
