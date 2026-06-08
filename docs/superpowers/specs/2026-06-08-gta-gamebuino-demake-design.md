@@ -114,14 +114,13 @@ testable indépendamment.
 - **Sortie :**
   - `gta/assets.h` (déclarations) + `gta/assets_data.cpp` (données `const`) :
     - `enum TileId : uint8_t { TILE_GRASS=0, TILE_ROAD_H, ... NUM_TILES };`
-    - `tilesetImg` : Gamebuino `Image` 8×8 à `NUM_TILES` frames (format image-transcoder).
+    - `const uint16_t tileset[NUM_TILES][8*8];` : pixels **RGB565** bruts (flash).
     - `const uint8_t tileFlags[NUM_TILES];` (`bit0 = TILE_SOLID`).
-    - `playerImg` : Image 8×8, 8 frames (`dir*2 + animFrame`), couleur transparente.
+    - `const uint16_t playerSprite[4][PLAYER_FRAMES][8*8];` + `PLAYER_TRANSPARENT`.
     - `enum Dir : uint8_t { DIR_NORTH=0, DIR_EAST, DIR_SOUTH, DIR_WEST };`
   - `assets/tiles8/*.png` (mêmes tuiles 8×8 en PNG, pour `preview.py`).
-- **Note d'implémentation :** le header exact d'`Image` Gamebuino (largeur, hauteur,
-  frames, frameLoop, transparentColor, colorMode) sera calé sur la source de la lib
-  installée (1.3.3) ; fallback = blit manuel ligne-par-ligne dans `gb.display`.
+- **Choix de rendu :** tableaux RGB565 bruts blittés via `gb.display.drawPixel` côté
+  sketch → **aucune dépendance au format binaire `Image`** de la lib (un risque en moins).
 
 ### 5.4 `city.txt` (DSL) + `tools/build_city.py` — compilateur de ville
 DSL ligne-à-ligne, déterministe (PRNG à graine fixe), commandes appliquées dans
@@ -177,9 +176,9 @@ player <x> <y> <north|south|east|west>   ; spawn (doit être sur une tuile non-s
   2. `tryMove` (collision) ; mise à jour orientation + frame de marche.
   3. **Caméra** : `cam = clampCamera(playerPx + size/2 - ecran/2, worldPx, ecranPx)`.
   4. **Rendu tuiles** : `col0 = cam.x>>3, offX = cam.x&7` ; boucle **11×9** tuiles
-     (10×8 visibles + 1 de marge par axe pour le scroll sub-tuile) :
-     `tilesetImg.setFrame(cityMap[…]); gb.display.drawImage(px,py,tilesetImg);` (~99 blits/frame).
-  5. **Perso** : `playerImg.setFrame(dir*2+anim); gb.display.drawImage(px,py,playerImg);`
+     (10×8 visibles + 1 de marge par axe pour le scroll sub-tuile) ; chaque pixel via
+     `gb.display.drawPixel(px, py, (Color)tileset[id][i])` (~6300 px/frame, OK à 25 fps).
+  5. **Perso** : `drawPixel` des pixels de `playerSprite[dir][anim]` ≠ `PLAYER_TRANSPARENT`.
   6. **Debug série** (périodique) : pos perso (tuile), cam, FPS (`gb.getCpuLoad()`), heap libre.
 
 ## 6. Budgets
@@ -225,9 +224,10 @@ M1→M3 sont 100 % PC : un **GIF du perso qui marche** arrive avant tout passage
 - TDD pour les modules logiques (compilateur, moteur).
 
 ## 9. Hypothèses & risques
-- **H1** Format d'`Image` Gamebuino 1.3.3 : calé sur la source de la lib ; fallback blit manuel.
-- **H2** Perf : ~99 `drawImage` 8×8/frame visés à ≥20 FPS ; si insuffisant → blit direct
-  framebuffer (memcpy par ligne) ou réduire la fenêtre visible. Mesuré via série au M4.
+- **H1** Rendu via `drawPixel` (API garantie) → on évite toute dépendance au format
+  binaire `Image` ; si la perf l'exige, optimisation ultérieure par accès direct au buffer.
+- **H2** Perf : ~6300 `drawPixel`/frame (tuiles) + perso, visés à ≥20 FPS ; si insuffisant
+  → blit par lignes / accès direct au buffer, ou réduire la fenêtre. Mesuré via série au M4.
 - **H3** Le port série natif ré-énumère après reset/upload ; prévoir une petite
   attente/re-détection avant lecture série.
 - **H4** Lisibilité d'un sprite à 8×8 : un piéton GTA1 réduit reste minuscule ; si peu
