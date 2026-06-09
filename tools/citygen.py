@@ -220,119 +220,58 @@ def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14):
     return out
 
 
-def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, density=0.85):
-    """Genere la geographie de la ville dans `city` (grass/eau/grille/trottoirs)."""
-    w, h = city.w, city.h
+# --- couche BLOCS / TROTTOIRS / SPAWN ---------------------------------------
 
-    # 1. resolution des tuiles requises
-    def _ti(name):
-        if name not in tile_index:
-            raise ValueError("citygen: tuile manquante: '%s'" % name)
-        return tile_index[name]
 
-    grass = _ti("grass")
-    road_h = _ti("road_h")
-    road_v = _ti("road_v")
-    road_cross = _ti("road_cross")
-    pavement = _ti("pavement")
-    water_t = _ti("water")
-    building_a = _ti("building_a")
-    building_b = _ti("building_b")
-    road_ids = {road_h, road_v, road_cross}
-
-    # 2. base grass
-    city.grid = [grass] * (w * h)
-
-    # 3. blob d'eau (noise)
-    nw = noise_field(seed + 1, w, h, scale=max(6.0, w / 8.0), octaves=3)
-    thr = _quantile_threshold(nw, water)
+def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx):
+    """Remplit les blocs par zone (eau/parc/batiments/grass) en sautant les routes."""
+    rng = random.Random(seed + 6)
     for y in range(h):
         for x in range(w):
-            if nw[y][x] < thr:
-                city.set(x, y, water_t)
-
-    # 4. riviere serpentante
-    xf = w * 0.5
-    rw = max(3, w // 28)
-    for y in range(h):
-        xf += (_value_noise(seed + 2, y * 0.15, 0.0) - 0.5) * 2.2
-        cx = int(xf)
-        for dx in range(-(rw // 2), rw - rw // 2):
-            city.set(cx + dx, y, water_t)
-
-    # 5. grille de rues irreguliere (sur la terre)
-    rng = random.Random(seed + 3)
-    cols = set()
-    pos = 3
-    while pos < w:
-        wd = 2 if rng.random() < 0.35 else 1
-        for i in range(pos, pos + wd):
-            if 0 <= i < w:
-                cols.add(i)
-        step = 10 + rng.randint(-3, 4)
-        pos += max(4, step)
-    rows = set()
-    pos = 3
-    while pos < h:
-        wd = 2 if rng.random() < 0.35 else 1
-        for i in range(pos, pos + wd):
-            if 0 <= i < h:
-                rows.add(i)
-        step = 10 + rng.randint(-3, 4)
-        pos += max(4, step)
-    for y in range(h):
-        on_row = y in rows
-        for x in range(w):
-            if city.get(x, y) == water_t:
+            i = y * w + x
+            if road_grid[i] != '.':
                 continue
-            on_col = x in cols
-            if on_col and on_row:
-                city.set(x, y, road_cross)
-            elif on_col:
-                city.set(x, y, road_v)
-            elif on_row:
-                city.set(x, y, road_h)
+            zone = zone_grid[i]
+            if zone == Z_WATER:
+                grid[i] = idx['water']
+            elif zone == Z_PARK:
+                grid[i] = idx['grass']
+            elif zone == Z_DOWNTOWN:
+                pbuild = density
+                b = idx['building_b'] if _value_noise(seed + 7, x * 0.2, y * 0.2) > 0.35 else idx['building_a']
+                grid[i] = b if rng.random() < pbuild else idx['grass']
+            elif zone == Z_RESIDENTIAL:
+                pbuild = density * 0.5
+                b = idx['building_a'] if _value_noise(seed + 7, x * 0.2, y * 0.2) > 0.4 else idx['building_b']
+                grid[i] = b if rng.random() < pbuild else idx['grass']
 
-    # 6. trottoirs (autour des rues, hors eau, sans chainage)
-    to_pave = []
+
+def add_pavement(grid, w, h, idx):
+    """Pose des trottoirs autour des routes (snapshot, sans chainage)."""
+    road_ids = {idx['road_h'], idx['road_v'], idx['road_cross']}
+    water = idx['water']
+    buildings = {idx['building_a'], idx['building_b']}
+    targets = []
     for y in range(h):
         for x in range(w):
-            t = city.get(x, y)
-            if t in road_ids or t == water_t:
+            i = y * w + x
+            t = grid[i]
+            if t in road_ids or t == water or t in buildings:
                 continue
             for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                if 0 <= nx < w and 0 <= ny < h and city.get(nx, ny) in road_ids:
-                    to_pave.append((x, y))
+                if 0 <= nx < w and 0 <= ny < h and grid[ny * w + nx] in road_ids:
+                    targets.append(i)
                     break
-    for x, y in to_pave:
-        city.set(x, y, pavement)
+    for i in targets:
+        grid[i] = idx['pavement']
 
-    # 7. batiments (densite variable: gradient centre + bruit)
-    nd = noise_field(seed + 4, w, h, scale=max(5.0, w / 10.0))
-    brng = random.Random(seed + 5)
-    cx, cy = w / 2.0, h / 2.0
-    maxd = math.hypot(cx, cy)
-    for y in range(h):
-        for x in range(w):
-            if city.get(x, y) != grass:
-                continue
-            g = 1.0 - (math.hypot(x - cx, y - cy) / maxd)
-            p = density * (0.4 + 0.6 * g) * nd[y][x]
-            if brng.random() < p:
-                t = building_b if _value_noise(seed + 6, x * 0.2, y * 0.2) > 0.5 else building_a
-                city.set(x, y, t)
 
-    # 8. parcs (taches vertes dispersees a travers les blocs)
-    npf = noise_field(seed + 7, w, h, scale=max(5.0, w / 12.0))
-    pthr = _quantile_threshold(npf, parks)
-    block_ids = {grass, building_a, building_b}
-    for y in range(h):
-        for x in range(w):
-            if npf[y][x] < pthr and city.get(x, y) in block_ids:
-                city.set(x, y, grass)
-
-    # 9. spawn deterministe (spirale depuis le centre, tier de preference)
+def pick_spawn(grid, w, h, solid_index, zone_grid, idx):
+    """Spawn deterministe: spirale Chebyshev depuis le centre, tier de preference."""
     ox, oy = w // 2, h // 2
+    pavement = idx['pavement']
+    road_ids = {idx['road_h'], idx['road_v'], idx['road_cross']}
+    grass = idx['grass']
     found = {}
     rmax = max(w, h)
     for r in range(rmax + 1):
@@ -343,7 +282,7 @@ def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, d
                 sx, sy = ox + dx, oy + dy
                 if not (0 <= sx < w and 0 <= sy < h):
                     continue
-                t = city.get(sx, sy)
+                t = grid[sy * w + sx]
                 if t in solid_index:
                     continue
                 if t == pavement:
@@ -358,11 +297,54 @@ def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, d
                     found[tier] = (sx, sy)
         if found:
             break
-    spawn = None
     for tier in (0, 1, 2, 3):
         if tier in found:
             sx, sy = found[tier]
-            spawn = (sx, sy, 2)
-            break
-    city.spawn = spawn
-    return spawn
+            return (sx, sy, 2)
+    return None
+
+
+def generate_into(city, seed, tile_index, solid_index,
+                  water=0.18, parks=0.10, density=0.85, districts=8):
+    """Genere la ville en couches: zones -> routes -> ponts -> blocs -> routes -> trottoirs -> spawn."""
+    # 1. resolution des tuiles requises
+    names = ('grass', 'road_h', 'road_v', 'road_cross', 'pavement',
+             'water', 'building_a', 'building_b')
+    idx = {}
+    for name in names:
+        if name not in tile_index:
+            raise ValueError("citygen: tuile manquante: '%s'" % name)
+        idx[name] = tile_index[name]
+
+    # 2. dimensions
+    w, h = city.w, city.h
+
+    # 3. zones
+    z = build_zones(seed, w, h, water, parks, districts)
+
+    # 4. routes + ponts
+    r = draw_roads(z, seed, w, h)
+    r = add_bridges(z, r, seed, w, h)
+
+    # 5. base grass
+    city.grid = [idx['grass']] * (w * h)
+
+    # 6. blocs par zone (saute les routes)
+    fill_blocks(city.grid, z, r, seed, w, h, density, idx)
+
+    # 7. routes par-dessus la grille
+    for i in range(w * h):
+        c = r[i]
+        if c == 'h':
+            city.grid[i] = idx['road_h']
+        elif c == 'v':
+            city.grid[i] = idx['road_v']
+        elif c == 'x':
+            city.grid[i] = idx['road_cross']
+
+    # 8. trottoirs
+    add_pavement(city.grid, w, h, idx)
+
+    # 9. spawn
+    city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
+    return city.spawn

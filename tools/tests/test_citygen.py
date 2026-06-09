@@ -106,3 +106,33 @@ def test_bridges_add_road_over_water():
 def test_draw_roads_deterministic():
     z, r = _zone_and_roads(); _, r2 = _zone_and_roads()
     assert r == r2
+
+
+TI = {"grass":0,"road_h":1,"road_v":2,"road_cross":3,"pavement":4,"water":5,"building_a":6,"building_b":7}
+SI = {5, 6, 7}
+def _gen(seed=7, w=96, h=96, **kw):
+    c = CompiledCity(w, h); citygen.generate_into(c, seed, TI, SI, **kw); return c
+
+def test_full_all_tiles_present():
+    n = Counter(_gen().grid)
+    for t in (0,1,2,3,4,5,6,7):
+        assert n[t] > 0, "tuile %d absente" % t
+
+def test_downtown_denser_buildings_than_residential():
+    c = _gen(); z = build_zones(7, 96, 96, 0.18, 0.10, 8)
+    def bfrac(t):
+        idx = [i for i,zz in enumerate(z) if zz==t]
+        return sum(1 for i in idx if c.grid[i] in (6,7))/max(1,len(idx))
+    assert bfrac(Z_DOWNTOWN) > bfrac(Z_RESIDENTIAL)
+
+def test_spawn_walkable():
+    c = _gen(); sx,sy,sd = c.spawn
+    assert 0<=sx<c.w and 0<=sy<c.h and c.get(sx,sy) not in SI and sd==2
+
+def test_generate_deterministic():
+    assert _gen(seed=11).grid == _gen(seed=11).grid
+    assert _gen(seed=11).spawn == _gen(seed=11).spawn
+
+def test_missing_tile_raises():
+    with pytest.raises(ValueError):
+        citygen.generate_into(CompiledCity(8,8), 1, {"grass":0}, set())
