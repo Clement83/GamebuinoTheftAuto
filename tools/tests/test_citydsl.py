@@ -154,3 +154,27 @@ def test_bad_direction():
     with pytest.raises(CityError) as e:
         _compile("size 3 3\nfill grass\nplayer 0 0 up\n")
     assert "up" in str(e.value)
+
+
+def test_organic_fills_and_autospawn():
+    c = _compile("size 64 64\nseed 7\norganic water 0.18 parks 0.1 density 0.85\n")
+    assert c.spawn is not None
+    from collections import Counter
+    n = Counter(c.grid)
+    assert n[5] > 0 and (n[6] + n[7]) > 0 and (n[1] + n[2] + n[3]) > 0
+
+
+def test_organic_deterministic():
+    src = "size 48 48\nseed 3\norganic\n"
+    assert _compile(src).grid == _compile(src).grid
+
+
+def test_organic_bad_param_lined_error():
+    with pytest.raises(CityError) as e:
+        _compile("size 32 32\norganic water abc\n")
+    assert e.value.line_no == 2
+
+
+def test_player_still_required_without_spawn():
+    with pytest.raises(CityError):
+        _compile("size 8 8\nfill grass\n")

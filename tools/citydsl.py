@@ -4,6 +4,8 @@ Aucune I/O de fichier ici (lecture city.txt + écriture headers/PNG = build_city
 """
 import random
 
+from tools import citygen
+
 MAX_DIM = 256
 DIRS = {"north": 0, "east": 1, "south": 2, "west": 3}
 
@@ -101,6 +103,7 @@ def compile_city(text, tile_index, solid_index):
     """Compile le DSL. tile_index: {nom: index}. solid_index: set d'index solides."""
     city = None
     rng = random.Random(1)  # seed par defaut ; 'seed' la reinitialise
+    seed_int = 1  # seed entier par defaut ; 'seed' le met a jour
 
     for line_no, raw in enumerate(text.splitlines(), start=1):
         # retirer commentaire (; ou #) puis trim
@@ -143,7 +146,8 @@ def compile_city(text, tile_index, solid_index):
         elif cmd == "seed":
             if len(tok) != 2:
                 raise CityError(line_no, "usage: seed <N>")
-            rng = random.Random(_int(tok[1], line_no, "seed"))
+            seed_int = _int(tok[1], line_no, "seed")
+            rng = random.Random(seed_int)
 
         elif cmd == "player":
             if len(tok) != 4:
@@ -220,6 +224,28 @@ def compile_city(text, tile_index, solid_index):
                 for x in range(city.w):
                     if city.get(x, y) == base and rng.random() < density:
                         city.set(x, y, t)
+
+        elif cmd == "organic":
+            kv = _kwargs(tok[1:])
+            water, parks, density = 0.18, 0.10, 0.85
+            if "water" in kv:
+                try:
+                    water = float(kv["water"])
+                except ValueError:
+                    raise CityError(line_no, "water: nombre attendu, recu '%s'" % kv["water"])
+            if "parks" in kv:
+                try:
+                    parks = float(kv["parks"])
+                except ValueError:
+                    raise CityError(line_no, "parks: nombre attendu, recu '%s'" % kv["parks"])
+            if "density" in kv:
+                try:
+                    density = float(kv["density"])
+                except ValueError:
+                    raise CityError(line_no, "density: nombre attendu, recu '%s'" % kv["density"])
+            districts = _int(kv["districts"], line_no, "districts") if "districts" in kv else 8
+            citygen.generate_into(city, seed_int, tile_index, solid_index,
+                                  water, parks, density, districts)
 
         else:
             raise CityError(line_no, "commande inconnue: '%s'" % cmd)
