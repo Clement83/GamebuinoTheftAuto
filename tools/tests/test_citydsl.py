@@ -53,7 +53,9 @@ def test_malformed_commands_raise_cityerror():
     # arite invalide -> CityError ligne, jamais IndexError
     for src in ("size 3 3\nfill\n",
                 "size 3 3\nfill grass\nrect water 0 0 1\n",
-                "size 3 3\nseed\n"):
+                "size 3 3\nseed\n",
+                "size 3 3\nfill grass\nhline pavement 1 3\nplayer 0 0 south\n",
+                "size 3 3\nfill grass\nvline pavement 0\nplayer 0 0 south\n"):
         with pytest.raises(CityError):
             _compile(src)
 
@@ -63,11 +65,16 @@ def test_double_size_is_error():
         _compile("size 3 3\nsize 4 4\nfill grass\nplayer 0 0 south\n")
 
 
-def test_hline_vline():
-    c = _compile("size 5 5\nfill grass\nhline pavement 1 3 2\n"
-                 "vline pavement 0 4 4\nplayer 0 0 south\n")
-    assert [c.get(x, 2) for x in range(5)] == [0, 4, 4, 4, 4]
+def test_hline_isolated():
+    c = _compile("size 5 5\nfill grass\nhline pavement 1 3 2\nplayer 0 0 south\n")
+    # hline peint x=1..3 inclus ; x=0 et x=4 restent grass
+    assert [c.get(x, 2) for x in range(5)] == [0, 4, 4, 4, 0]
+
+
+def test_vline_isolated():
+    c = _compile("size 5 5\nfill grass\nvline pavement 0 4 4\nplayer 0 0 south\n")
     assert [c.get(4, y) for y in range(5)] == [4, 4, 4, 4, 4]
+    assert [c.get(x, 2) for x in range(4)] == [0, 0, 0, 0]   # colonnes 0..3 intactes
 
 
 def test_river_vertical_and_horizontal():

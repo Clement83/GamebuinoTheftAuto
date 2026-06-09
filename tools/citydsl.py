@@ -110,6 +110,8 @@ def compile_city(text, tile_index, solid_index):
             city.spawn = (x, y, DIRS[d])
 
         elif cmd == "hline":
+            if len(tok) != 5:
+                raise CityError(line_no, "usage: hline <tile> <x0> <x1> <y>")
             t = _tile(tok[1], tile_index, line_no)
             x0 = _int(tok[2], line_no, "x0"); x1 = _int(tok[3], line_no, "x1")
             y = _int(tok[4], line_no, "y")
@@ -117,6 +119,8 @@ def compile_city(text, tile_index, solid_index):
                 city.set(x, y, t)
 
         elif cmd == "vline":
+            if len(tok) != 5:
+                raise CityError(line_no, "usage: vline <tile> <y0> <y1> <x>")
             t = _tile(tok[1], tile_index, line_no)
             y0 = _int(tok[2], line_no, "y0"); y1 = _int(tok[3], line_no, "y1")
             x = _int(tok[4], line_no, "x")
