@@ -101,3 +101,27 @@ def test_roadgrid_roads_crossings_pavement():
     assert c.get(1, 1) == 4          # pavement (voisin de (0,1) et (1,0))
     # case loin de toute route reste grass
     assert c.get(2, 2) == 0
+
+
+def test_blocks_only_on_base_tile_and_deterministic():
+    src = ("size 8 8\nseed 42\nfill grass\n"
+           "rect water 0 0 7 0\n"                # ligne d'eau en haut
+           "blocks building_a density 0.5 on grass\nplayer 0 1 south\n")
+    c1 = _compile(src)
+    c2 = _compile(src)
+    assert c1.grid == c2.grid, "compilation non deterministe"
+    # aucune eau n'a ete ecrasee par un building
+    assert all(c1.get(x, 0) == 5 for x in range(8))
+    # au moins un building a ete pose sur du grass
+    assert any(v == 6 for v in c1.grid)
+
+
+def test_blocks_default_base_is_grass():
+    # density 1.0 -> tout le grass devient building_b (solide) ; on rouvre (0,0)
+    # en grass apres coup pour pouvoir y spawner.
+    c = _compile("size 6 6\nseed 1\nfill grass\n"
+                 "blocks building_b density 1.0\n"
+                 "rect grass 0 0 0 0\nplayer 0 0 south\n")
+    assert c.get(0, 0) == 0                        # case rouverte en grass
+    assert all(c.get(x, y) == 7 for y in range(6) for x in range(6)
+               if not (x == 0 and y == 0))          # le reste = building_b

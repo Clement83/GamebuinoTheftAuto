@@ -203,6 +203,22 @@ def compile_city(text, tile_index, solid_index):
             margin = _int(kv.get("margin", "0"), line_no, "margin")
             _roadgrid(city, spacing, width, margin, tile_index, line_no)
 
+        elif cmd == "blocks":
+            t = _tile(tok[1], tile_index, line_no)
+            kv = _kwargs(tok[2:])
+            if "density" not in kv:
+                raise CityError(line_no, "usage: blocks <tile> density <D> [on <baseTile>]")
+            try:
+                density = float(kv["density"])
+            except ValueError:
+                raise CityError(line_no, "density: nombre attendu, recu '%s'" % kv["density"])
+            base_name = kv.get("on", "grass")
+            base = _tile(base_name, tile_index, line_no)
+            for y in range(city.h):
+                for x in range(city.w):
+                    if city.get(x, y) == base and rng.random() < density:
+                        city.set(x, y, t)
+
         else:
             raise CityError(line_no, "commande inconnue: '%s'" % cmd)
 
