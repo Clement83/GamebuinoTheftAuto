@@ -19,6 +19,7 @@
 #include "assets.h"
 #include "citymap.h"
 #include "engine.h"
+#include "car.h"
 
 // Pointeur direct sur le framebuffer RGB565 80x64 (gb.display._buffer).
 // On ecrit dedans sans passer par drawPixel (pas d'appel virtuel ni de
@@ -148,16 +149,28 @@ static void drawPlayer(int sx, int sy) {
   }
 }
 
-// Voiture : rectangle oriente rempli (avance en jaune = phares), ecriture directe.
+// Voiture : blit de la frame de rotation pre-bakee la plus proche de l'angle
+// (sprites en flash, cf. tools/build_car.py). Ecriture directe framebuffer.
 static void drawCar(int camX, int camY) {
-  float cs = cosf(car.angle), sn = sinf(car.angle);
-  const float L = 5.0f, W = 3.0f;   // demi-longueur / demi-largeur
-  for (float t = -L; t <= L + 0.01f; t += 1.0f) {
-    uint16_t body = (t > L - 1.5f) ? (uint16_t)Color::yellow : (uint16_t)Color::red;
-    for (float u = -W; u <= W + 0.01f; u += 1.0f) {
-      int x = (int)(car.x + t * cs - u * sn) - camX;
-      int y = (int)(car.y + t * sn + u * cs) - camY;
-      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = body;
+  // angle [0,2pi) -> indice de frame le plus proche
+  float a = car.angle;
+  int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);
+  idx %= CAR_FRAMES;
+  if (idx < 0) idx += CAR_FRAMES;
+
+  const uint16_t *src = carFrames[idx];
+  int ox = (int)car.x - camX - CAR_BOX / 2;   // coin haut-gauche ecran
+  int oy = (int)car.y - camY - CAR_BOX / 2;
+  for (int ry = 0; ry < CAR_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * CAR_BOX;
+    for (int rx = 0; rx < CAR_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == CAR_TRANSPARENT) continue;
+      int x = ox + rx;
+      if (x >= 0 && x < SCREEN_W) row[x] = c;
     }
   }
 }
