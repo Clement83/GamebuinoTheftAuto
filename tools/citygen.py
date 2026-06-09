@@ -58,10 +58,10 @@ Z_PARK = 1
 Z_DOWNTOWN = 2
 Z_RESIDENTIAL = 3
 
-# Themes POI (couche parallele aux zones : n'altere ni routes ni densite de
-# base, seulement le choix des tuiles de remplissage des blocs concernes).
+# Theme "aucun" (defaut de la couche theme parallele aux zones). Les identifiants
+# de themes concrets et leurs palettes sont definis dans tools/pois.py ; ici
+# fill_blocks reste agnostique (il recoit un dict de palettes deja resolu).
 THEME_NONE = 0
-THEME_CHINATOWN = 1
 
 
 def voronoi_districts(seed, w, h, districts):
@@ -244,15 +244,17 @@ def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14, margin=3):
 # --- couche BLOCS / TROTTOIRS / SPAWN ---------------------------------------
 
 
-def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx, theme=None):
+def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx,
+                theme=None, palettes=None):
     """Remplit les blocs par zone (eau/parc/batiments/grass) en sautant les routes.
 
-    `theme` (optionnel) : liste w*h de themes POI ; les cellules THEME_CHINATOWN
-    recoivent des facades dorees (+ enseignes eparses) au lieu des batiments
-    standards. Sans theme, comportement strictement identique a l'origine."""
+    `theme` (optionnel) : liste w*h de themes POI. `palettes` : dict
+    {theme_id: {'a','b','sign' (index de tuiles), 'sign_p','build_p'}}. Une
+    cellule dont le theme figure dans palettes recoit les tuiles du theme (facade
+    'a'/'b' choisie par bruit, enseigne 'sign' eparse) avec sa propre densite.
+    Sans theme/palettes, comportement strictement identique a l'origine."""
     rng = random.Random(seed + 6)
-    cn = theme is not None and all(k in idx for k in
-                                   ('cn_facade_a', 'cn_facade_b', 'cn_sign'))
+    palettes = palettes or {}
     for y in range(h):
         for x in range(w):
             i = y * w + x
@@ -263,14 +265,15 @@ def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx, theme=None
                 grid[i] = idx['water']
             elif zone == Z_PARK:
                 grid[i] = idx['grass']
-            elif cn and theme[i] == THEME_CHINATOWN:
-                if rng.random() < max(density, 0.9):
-                    if rng.random() < 0.12:
-                        grid[i] = idx['cn_sign']
+            elif theme is not None and theme[i] in palettes:
+                p = palettes[theme[i]]
+                if rng.random() < p['build_p']:
+                    if rng.random() < p['sign_p']:
+                        grid[i] = p['sign']
                     else:
-                        grid[i] = (idx['cn_facade_a']
+                        grid[i] = (p['a']
                                    if _value_noise(seed + 7, x * 0.2, y * 0.2) > 0.5
-                                   else idx['cn_facade_b'])
+                                   else p['b'])
                 else:
                     grid[i] = idx['grass']
             elif zone == Z_DOWNTOWN:
@@ -362,16 +365,13 @@ def generate_into(city, seed, tile_index, solid_index,
     # 2. dimensions
     w, h = city.w, city.h
 
-    # 2b. POI : actifs seulement si TOUTES les tuiles POI sont presentes dans le
-    # tileset (sinon la generation reste strictement celle d'avant -> compat).
-    poi_names = ('cn_facade_a', 'cn_facade_b', 'cn_sign',
-                 'police_facade', 'police_sign', 'police_door')
-    poi = all(n in tile_index for n in poi_names)
-    poi_idx = dict(idx)
-    if poi:
-        for n in poi_names:
-            poi_idx[n] = tile_index[n]
-        from tools import pois
+    # 2b. POI : couche optionnelle, pilotee par les tuiles disponibles. Themes
+    # (quartiers) et stamps (batiments-reperes) s'activent independamment selon
+    # que leurs tuiles existent. Tileset minimal (8 tuiles) -> aucun POI ->
+    # generation strictement identique a l'historique.
+    from tools import pois
+    palettes = pois.resolve_palettes(tile_index)        # {theme_id: palette resolue}
+    stamps_avail = pois.has_any_stamp(tile_index)
 
     # 3. zones + districts (les districts servent aussi au placement POI)
     district_id, seed_type, _ = voronoi_districts(seed, w, h, districts)
@@ -381,16 +381,17 @@ def generate_into(city, seed, tile_index, solid_index,
     r = draw_roads(z, seed, w, h)
     r = add_bridges(z, r, seed, w, h)
 
-    # 4b. theme Chinatown (avant le remplissage des blocs)
+    # 4b. affectation des themes de quartier (avant remplissage des blocs)
     theme = None
-    if poi:
-        theme, _ = pois.build_chinatown_theme(seed, z, district_id, seed_type, w, h)
+    if palettes:
+        theme, _ = pois.assign_themes(seed, z, district_id, seed_type,
+                                      w, h, set(palettes))
 
     # 5. base grass
     city.grid = [idx['grass']] * (w * h)
 
-    # 6. blocs par zone (saute les routes)
-    fill_blocks(city.grid, z, r, seed, w, h, density, poi_idx, theme)
+    # 6. blocs par zone (saute les routes ; themes appliques via palettes)
+    fill_blocks(city.grid, z, r, seed, w, h, density, idx, theme, palettes)
 
     # 7. routes par-dessus la grille
     for i in range(w * h):
@@ -408,8 +409,8 @@ def generate_into(city, seed, tile_index, solid_index,
     # 8b. stamps POI (APRES les trottoirs : sinon la passe trottoir ecrase les
     # tuiles du stamp bordant la route, dont la porte). Acces+orientation : une
     # route doit se trouver juste au sud de la porte.
-    if poi:
-        pois.place_police(city.grid, z, district_id, seed_type, seed, w, h, poi_idx)
+    if stamps_avail:
+        pois.place_stamps(city.grid, z, district_id, seed_type, seed, w, h, tile_index)
 
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)

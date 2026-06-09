@@ -32,6 +32,26 @@ TILE_PICKS = [
     ("police_facade", 140, 0, 1), # facade bleue LCPD
     ("police_sign",   103, 0, 1), # ecusson LCPD bleu
     ("police_door",    49, 0, 0), # arche sombre = entree franchissable
+    # Hopital (stamp) : signature claire + croix rouge. door non-solide.
+    ("hosp_facade", 152, 0, 1),   # facade claire
+    ("hosp_sign",    11, 0, 1),   # croix rouge sur blanc
+    ("hosp_door",    84, 0, 0),   # entree franchissable
+    # Caserne pompiers (stamp) : signature rouge/saumon. door non-solide.
+    ("fire_facade",  26, 0, 1),   # facade saumon
+    ("fire_sign",   131, 0, 1),   # neon FIRE rouge vif
+    ("fire_door",   145, 0, 0),   # entree (porte rouge)
+    # Port (quartier) : industriel gris + enseigne DOCKS verte.
+    ("port_facade_a", 56, 0, 1),  # poutrelle/hangar gris
+    ("port_facade_b", 94, 0, 1),  # structure industrielle
+    ("port_sign",    171, 0, 1),  # panneau DOCKS vert
+    # Chantier (quartier) : echafaudage vert + rubalise jaune/noir.
+    ("cons_facade_a", 333, 0, 1), # echafaudage vert
+    ("cons_facade_b", 351, 0, 1), # rubalise jaune/noir
+    ("cons_sign",     350, 0, 1), # rubalise (accent)
+    # Casse auto (quartier) : rouille + grillage.
+    ("junk_facade_a", 348, 0, 1), # carcasse rouillee (AUTO)
+    ("junk_facade_b", 172, 0, 1), # grillage
+    ("junk_sign",     260, 0, 1), # barriere (X)
 ]
 PLAYER_ID = 851  # piéton vu de dessus (tête en haut = orienté nord)
 
