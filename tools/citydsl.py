@@ -230,4 +230,6 @@ def compile_city(text, tile_index, solid_index):
 def _finalize(city, solid_index, tile_index):
     if city is None:
         raise CityError(0, "fichier vide: 'size' manquant")
+    if city.spawn is None:
+        raise CityError(0, "commande 'player' manquante")
     return city

@@ -131,3 +131,26 @@ def test_blocks_default_base_is_grass():
     assert c.get(0, 0) == 0                        # case rouverte en grass
     assert all(c.get(x, y) == 7 for y in range(6) for x in range(6)
                if not (x == 0 and y == 0))          # le reste = building_b
+
+
+def test_player_required():
+    with pytest.raises(CityError) as e:
+        _compile("size 3 3\nfill grass\n")
+    assert "player" in str(e.value)
+
+
+def test_player_on_solid_is_error():
+    with pytest.raises(CityError) as e:
+        _compile("size 3 3\nfill water\nplayer 1 1 south\n")
+    assert e.value.line_no == 3
+
+
+def test_player_out_of_bounds():
+    with pytest.raises(CityError):
+        _compile("size 3 3\nfill grass\nplayer 9 9 south\n")
+
+
+def test_bad_direction():
+    with pytest.raises(CityError) as e:
+        _compile("size 3 3\nfill grass\nplayer 0 0 up\n")
+    assert "up" in str(e.value)
