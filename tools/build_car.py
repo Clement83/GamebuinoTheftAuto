@@ -11,12 +11,12 @@ import math
 import os
 
 CAR_FRAMES = 24          # pas de rotation (15 deg) -- assez fin, snap invisible
-CAR_BOX = 19             # boite englobante (diagonale voiture ~17.9 px)
+CAR_BOX = 16             # boite englobante (diagonale voiture ~15.2 px)
 CAR_TRANSP = 0xF81F      # magenta = transparent
 HDR = "gta/car.h"
 SRC = "gta/car_data.cpp"
 
-L, W = 8.0, 4.0
+L, W = 7.0, 3.0          # demi-longueur / demi-largeur (voiture compacte)
 
 
 def _rgb565(r, g, b):

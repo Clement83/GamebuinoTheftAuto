@@ -20,6 +20,7 @@
 #include "citymap.h"
 #include "engine.h"
 #include "car.h"
+#include "player.h"
 
 // Pointeur direct sur le framebuffer RGB565 80x64 (gb.display._buffer).
 // On ecrit dedans sans passer par drawPixel (pas d'appel virtuel ni de
@@ -134,16 +135,21 @@ static void drawTile(uint8_t id, int sx, int sy) {
   }
 }
 
-static void drawPlayer(int sx, int sy) {
-  const uint16_t *px = playerSprite[playerDir][playerFrame];
-  for (int ry = 0; ry < PLAYER_H; ry++) {
-    int y = sy + ry;
+// Piéton : sprite procedural baké (gta/player.{h,cpp}), centre sur la boite de
+// collision PLAYER_W x PLAYER_H. Ecriture directe framebuffer, transparence.
+static void drawPlayer(int camX, int camY) {
+  const uint16_t *src = playerFrames[playerDir][playerFrame];
+  int ox = playerX + PLAYER_W / 2 - camX - PLAYER_BOX / 2;
+  int oy = playerY + PLAYER_H / 2 - camY - PLAYER_BOX / 2;
+  for (int ry = 0; ry < PLAYER_BOX; ry++) {
+    int y = oy + ry;
     if (y < 0 || y >= SCREEN_H) continue;
     uint16_t *row = fb + y * SCREEN_W;
-    for (int rx = 0; rx < PLAYER_W; rx++) {
-      uint16_t c = px[ry * PLAYER_W + rx];
-      if (c == PLAYER_TRANSPARENT) continue;
-      int x = sx + rx;
+    const uint16_t *srow = src + ry * PLAYER_BOX;
+    for (int rx = 0; rx < PLAYER_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == PLAYER_TRANSP) continue;
+      int x = ox + rx;
       if (x >= 0 && x < SCREEN_W) row[x] = c;
     }
   }
@@ -240,7 +246,7 @@ void loop() {
 
   // Voiture toujours visible ; perso seulement a pied (sinon il est dedans).
   drawCar(camX, camY);
-  if (!driving) drawPlayer(playerX - camX, playerY - camY);
+  if (!driving) drawPlayer(camX, camY);
 
   // Debug serie periodique (~1/s).
   static uint32_t frame = 0;
