@@ -5,5 +5,6 @@
 #define PLAYER_BOX 7
 #define PLAYER_WALK 2
 #define PLAYER_TRANSP 0xF81F
+#define PLAYER_SHIRT_KEY 0x07E0
 
 extern const uint16_t playerFrames[4][PLAYER_WALK][PLAYER_BOX*PLAYER_BOX];

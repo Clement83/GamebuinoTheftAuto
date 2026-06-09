@@ -12,13 +12,12 @@ import os
 PLAYER_BOX = 7
 PLAYER_WALK = 2
 PLAYER_TRANSP = 0xF81F
+PLAYER_SHIRT_KEY = 0x07E0   # vert pur = t-shirt recolore au blit (couleur entite)
 DIRS = [(0, -1), (1, 0), (0, 1), (-1, 0)]   # N, E, S, W
 HDR = "gta/player.h"
 SRC = "gta/player_data.cpp"
 
 SKIN = (238, 205, 165)
-SHIRT = (190, 40, 40)
-ARM = (150, 30, 30)
 HAIR = (50, 38, 30)
 PANTS = (40, 40, 50)
 
@@ -29,24 +28,26 @@ def _rgb565(c):
 
 
 def ped_pixel(u, v, frame):
-    """Couleur (u = avant+, v = cote) ou None. Vu de dessus."""
+    """Couleur RGB565 (u = avant+, v = cote) ou None. Vu de dessus.
+
+    Le t-shirt + les bras sont emis en PLAYER_SHIRT_KEY : recolores au blit par
+    la couleur de l'entite (joueur = teinte fixe, IA = teinte aleatoire).
+    """
     av = abs(v)
     # epaules : larges (cote), courtes (avant/arriere), un peu en arriere
     if ((u + 0.3) / 1.3) ** 2 + (v / 2.2) ** 2 < 1.0:
-        if av > 1.5:
-            return ARM                       # bras (bords)
-        return SHIRT
+        return PLAYER_SHIRT_KEY              # t-shirt + bras (recolore)
     # tete : dessus = cheveux, posee sur les epaules vers l'avant
     if (u - 1.0) ** 2 + v * v < 1.7:
         if u > 1.6 and av < 0.7:
-            return SKIN                       # nez/visage -> marque la direction
-        return HAIR
+            return _rgb565(SKIN)             # nez/visage -> marque la direction
+        return _rgb565(HAIR)
     # pieds derriere, alternance de marche
     sw = 0.6 if frame == 0 else -0.6
     if abs(v - 0.7) < 0.55 and abs(u + 1.8 - sw) < 0.6:
-        return PANTS
+        return _rgb565(PANTS)
     if abs(v + 0.7) < 0.55 and abs(u + 1.8 + sw) < 0.6:
-        return PANTS
+        return _rgb565(PANTS)
     return None
 
 
@@ -60,7 +61,7 @@ def render_frame(fx, fy, frame):
             u = dx * fx + dy * fy
             v = dx * sx + dy * sy
             col = ped_pixel(u, v, frame)
-            out.append(PLAYER_TRANSP if col is None else _rgb565(col))
+            out.append(PLAYER_TRANSP if col is None else col)
     return out
 
 
@@ -74,7 +75,8 @@ def build():
         f.write("#pragma once\n#include <stdint.h>\n\n")
         f.write("#define PLAYER_BOX %d\n" % PLAYER_BOX)
         f.write("#define PLAYER_WALK %d\n" % PLAYER_WALK)
-        f.write("#define PLAYER_TRANSP 0x%04X\n\n" % PLAYER_TRANSP)
+        f.write("#define PLAYER_TRANSP 0x%04X\n" % PLAYER_TRANSP)
+        f.write("#define PLAYER_SHIRT_KEY 0x%04X\n\n" % PLAYER_SHIRT_KEY)
         f.write("extern const uint16_t playerFrames[4][PLAYER_WALK][PLAYER_BOX*PLAYER_BOX];\n")
 
     with open(SRC, "w") as f:

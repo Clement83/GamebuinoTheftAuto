@@ -13,6 +13,7 @@ import os
 CAR_FRAMES = 24          # pas de rotation (15 deg) -- assez fin, snap invisible
 CAR_BOX = 16             # boite englobante (diagonale voiture ~15.2 px)
 CAR_TRANSP = 0xF81F      # magenta = transparent
+CAR_BODY_KEY = 0x07E0    # vert pur = "corps" recolore au blit (couleur entite)
 HDR = "gta/car.h"
 SRC = "gta/car_data.cpp"
 
@@ -43,10 +44,10 @@ def car_pixel(x, y):
     if -4.0 < x < -2.0 and ay < W - 1.0:
         return _rgb565(90, 150, 180)                 # lunette AR
     if -2.0 <= x <= 1.0 and ay < W - 1.0:
-        return _rgb565(150, 22, 22)                  # toit
+        return CAR_BODY_KEY                          # toit (recolore)
     if edge:
-        return _rgb565(110, 10, 10)                  # contour
-    return _rgb565(205, 30, 30)                      # carrosserie
+        return CAR_BODY_KEY                          # contour (recolore)
+    return CAR_BODY_KEY                              # carrosserie (recolore)
 
 
 def render_frame(angle):
@@ -72,7 +73,8 @@ def build():
         f.write("#pragma once\n#include <stdint.h>\n\n")
         f.write("#define CAR_FRAMES %d\n" % CAR_FRAMES)
         f.write("#define CAR_BOX %d\n" % CAR_BOX)
-        f.write("#define CAR_TRANSPARENT 0x%04X\n\n" % CAR_TRANSP)
+        f.write("#define CAR_TRANSPARENT 0x%04X\n" % CAR_TRANSP)
+        f.write("#define CAR_BODY_KEY 0x%04X\n\n" % CAR_BODY_KEY)
         f.write("extern const uint16_t carFrames[CAR_FRAMES][CAR_BOX*CAR_BOX];\n")
 
     with open(SRC, "w") as f:

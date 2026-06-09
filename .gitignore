@@ -11,3 +11,6 @@ venv/
 .DS_Store
 Thumbs.db
 assets/car_preview/
+
+# Apercus de validation (non versionnes)
+previews/
