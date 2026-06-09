@@ -51,8 +51,39 @@ int main() {
   check_move(376, 368, 0, 1, 376, 368);// bloque en y
   check_move(376, 368, 1, 1, 377, 368);// glisse : x bouge, y bloque
 
+  // --- voiture : invariants physique arcade ---
+  // Place la voiture sur le spawn (non-solide), cap est, plein gaz : avance en +x.
+  {
+    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    float x0 = c.x;
+    for (int i = 0; i < 20; i++) carUpdate(c, 1.0f, 0.0f, false);
+    if (!(c.x > x0 + 5.0f)) { printf("FAIL car accelere : x %.1f -> %.1f\n", x0, c.x); failures++; }
+    if (!(c.vx > 0.5f)) { printf("FAIL car vitesse avant trop faible vx=%.2f\n", c.vx); failures++; }
+  }
+  // Drift : a vitesse, frein a main + braquage -> vitesse laterale non nulle.
+  {
+    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    for (int i = 0; i < 15; i++) carUpdate(c, 1.0f, 0.0f, false);   // lance tout droit
+    for (int i = 0; i < 8; i++) carUpdate(c, 1.0f, 1.0f, true);     // braque + handbrake
+    float cs = cosf(c.angle), sn = sinf(c.angle);
+    float lat = -c.vx * sn + c.vy * cs;
+    if (!(fabsf(lat) > 0.1f)) { printf("FAIL car ne drifte pas, lat=%.3f\n", lat); failures++; }
+  }
+  // Collision : depuis le spawn (non-solide), cap ouest plein gaz vers l'eau
+  // -> jamais dans une tuile solide (collision bloque/glisse).
+  {
+    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
+    for (int i = 0; i < 80; i++) {
+      carUpdate(c, 1.0f, 0.0f, false);
+      if (carBoxHitsSolid(c.x, c.y, CAR_HALF)) {
+        printf("FAIL car dans le solide a la frame %d x=%.1f y=%.1f\n", i, c.x, c.y);
+        failures++; break;
+      }
+    }
+  }
+
   if (failures == 0) {
-    printf("OK : parite engine.h <-> engine.py verifiee\n");
+    printf("OK : parite engine.h <-> engine.py + physique voiture verifiees\n");
     return 0;
   }
   printf("%d echec(s)\n", failures);
