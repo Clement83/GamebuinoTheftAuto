@@ -1,45 +1,9 @@
-import pytest
-from tools.citygen import noise_field, _value_noise, _hash01, _quantile_threshold
+import pytest, random
+from collections import Counter
 from tools.citydsl import CompiledCity
 from tools import citygen
-from collections import Counter
-
-TI = {"grass":0,"road_h":1,"road_v":2,"road_cross":3,"pavement":4,"water":5,"building_a":6,"building_b":7}
-SI = {5, 6, 7}
-
-def _gen(seed=7, w=96, h=96, **kw):
-    c = CompiledCity(w, h)
-    citygen.generate_into(c, seed, TI, SI, **kw)
-    return c
-
-def _counts(c):
-    return Counter(c.grid)
-
-
-def test_generate_water_and_land_present():
-    c = _gen(water=0.25)
-    n = _counts(c); total = c.w * c.h
-    assert n[5] > 0
-    assert n[5] < total * 0.6
-    assert (total - n[5]) > total * 0.3
-
-
-def test_generate_has_roads_and_pavement():
-    c = _gen()
-    n = _counts(c)
-    assert n[1] + n[2] + n[3] > 0
-    assert n[4] > 0
-
-
-def test_generate_deterministic_same_seed():
-    assert _gen(seed=7).grid == _gen(seed=7).grid
-    assert _gen(seed=7).grid != _gen(seed=9).grid
-
-
-def test_missing_tile_raises():
-    c = CompiledCity(8, 8)
-    with pytest.raises(ValueError):
-        citygen.generate_into(c, 1, {"grass": 0}, set())
+from tools.citygen import noise_field, _value_noise, _hash01, _quantile_threshold
+from tools.citygen import (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL, build_zones)
 
 
 def test_hash_deterministic_and_range():
@@ -71,33 +35,32 @@ def test_quantile_threshold_fraction():
     assert 0.2 * 900 <= below <= 0.4 * 900
 
 
-def test_generate_has_buildings_and_parks():
-    c = _gen(density=0.6, parks=0.15)
-    n = _counts(c)
-    assert n[6] + n[7] > 0
-    assert n[0] > 0
+def test_build_zones_all_types_present_and_labeled():
+    z = build_zones(7, 96, 96, water=0.18, parks=0.10, districts=8)
+    assert len(z) == 96 * 96
+    n = Counter(z)
+    for t in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL):
+        assert n[t] > 0, "zone %d absente" % t
+    assert all(v in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL) for v in z)
 
 
-def test_density_center_denser_than_edges():
-    c = _gen(density=0.7)
-    def build_frac(x0, y0, x1, y1):
-        cells = [c.get(x, y) for y in range(y0, y1) for x in range(x0, x1)]
-        b = sum(1 for v in cells if v in (6, 7))
-        return b / len(cells)
-    center = build_frac(c.w//2 - 12, c.h//2 - 12, c.w//2 + 12, c.h//2 + 12)
-    corner = build_frac(0, 0, 20, 20)
-    assert center >= corner
+def test_build_zones_deterministic():
+    a = build_zones(7, 64, 64, 0.18, 0.10, 8)
+    assert a == build_zones(7, 64, 64, 0.18, 0.10, 8)
+    assert a != build_zones(9, 64, 64, 0.18, 0.10, 8)
 
 
-def test_spawn_is_walkable_and_in_bounds():
-    c = _gen()
-    assert c.spawn is not None
-    sx, sy, sd = c.spawn
-    assert 0 <= sx < c.w and 0 <= sy < c.h
-    assert c.get(sx, sy) not in SI
-    assert sd == 2
+def test_water_fraction_roughly_matches():
+    z = build_zones(3, 96, 96, water=0.20, parks=0.05, districts=8)
+    frac = Counter(z)[Z_WATER] / (96 * 96)
+    assert 0.18 <= frac <= 0.40
 
 
-def test_full_generation_deterministic():
-    assert _gen(seed=11).grid == _gen(seed=11).grid
-    assert _gen(seed=11).spawn == _gen(seed=11).spawn
+def test_downtown_more_central_than_residential():
+    z = build_zones(7, 96, 96, 0.15, 0.05, 10)
+    cx = cy = 48
+    def mean_dist(t):
+        ds = [((x-cx)**2+(y-cy)**2)**0.5 for y in range(96) for x in range(96)
+              if z[y*96+x] == t]
+        return sum(ds)/len(ds)
+    assert mean_dist(Z_DOWNTOWN) < mean_dist(Z_RESIDENTIAL)

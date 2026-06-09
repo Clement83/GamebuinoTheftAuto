@@ -51,7 +51,71 @@ def _quantile_threshold(field, frac):
     return vals[i]
 
 
-def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, density=0.6):
+# --- couche ZONES ------------------------------------------------------------
+
+Z_WATER = 0
+Z_PARK = 1
+Z_DOWNTOWN = 2
+Z_RESIDENTIAL = 3
+
+
+def build_zones(seed, w, h, water, parks, districts):
+    """Carte de zones (eau, fleuve, quartiers Voronoi, parcs) -> liste plate w*h."""
+    zones = [Z_RESIDENTIAL] * (w * h)
+
+    # 1. blob d'eau (noise)
+    nw = noise_field(seed + 1, w, h, scale=max(6.0, w / 8.0))
+    thr = _quantile_threshold(nw, water)
+    for y in range(h):
+        for x in range(w):
+            if nw[y][x] < thr:
+                zones[y * w + x] = Z_WATER
+
+    # 2. fleuve serpentant
+    xf = w * 0.5
+    rw = max(3, w // 28)
+    for y in range(h):
+        xf += (_value_noise(seed + 2, y * 0.15, 0.0) - 0.5) * 2.2
+        cx = int(xf)
+        for dx in range(-(rw // 2), rw - rw // 2):
+            if 0 <= cx + dx < w:
+                zones[y * w + (cx + dx)] = Z_WATER
+
+    # 3. quartiers Voronoi (sur la terre)
+    rng = random.Random(seed + 3)
+    seeds = [(rng.randrange(w), rng.randrange(h)) for _ in range(districts)]
+    ccx, ccy = w / 2.0, h / 2.0
+    order = sorted(
+        range(districts),
+        key=lambda i: (seeds[i][0] - ccx) ** 2 + (seeds[i][1] - ccy) ** 2,
+    )
+    n_dt = math.ceil(districts * 0.4)
+    seed_type = [Z_RESIDENTIAL] * districts
+    for rank, i in enumerate(order):
+        seed_type[i] = Z_DOWNTOWN if rank < n_dt else Z_RESIDENTIAL
+    for y in range(h):
+        for x in range(w):
+            if zones[y * w + x] == Z_WATER:
+                continue
+            best_i, best_d = 0, None
+            for i, (gx, gy) in enumerate(seeds):
+                d = (gx - x) ** 2 + (gy - y) ** 2
+                if best_d is None or d < best_d:
+                    best_d, best_i = d, i
+            zones[y * w + x] = seed_type[best_i]
+
+    # 4. parcs (taches)
+    npf = noise_field(seed + 4, w, h, scale=max(5.0, w / 12.0))
+    thr = _quantile_threshold(npf, parks)
+    for y in range(h):
+        for x in range(w):
+            if zones[y * w + x] != Z_WATER and npf[y][x] < thr:
+                zones[y * w + x] = Z_PARK
+
+    return zones
+
+
+def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, density=0.85):
     """Genere la geographie de la ville dans `city` (grass/eau/grille/trottoirs)."""
     w, h = city.w, city.h
 
