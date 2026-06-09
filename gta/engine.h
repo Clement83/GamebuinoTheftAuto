@@ -65,15 +65,20 @@ struct CarState {
 };
 
 // Reglages (px/frame @ ~25 fps). Ajustables pour le feeling.
-static const float CAR_ACCEL        = 0.10f;  // poussee moteur
+static const float CAR_ACCEL        = 0.18f;  // poussee moteur (plus de peche)
 static const float CAR_DRAG         = 0.96f;  // trainee sur l'avancee
-static const float CAR_MAX_FWD      = 2.6f;   // vitesse avant max
+static const float CAR_BRAKE        = 0.80f;  // freinage : decel forte sur l'avancee
+static const float CAR_MAX_FWD      = 2.3f;   // vitesse avant max
 static const float CAR_MAX_REV      = 1.0f;   // marche arriere max
 static const float CAR_STEER        = 0.14f;  // taux de braquage max (rad)
 static const float CAR_STEER_REF    = 1.2f;   // vitesse de braquage "plein"
-static const float CAR_GRIP         = 0.85f;  // amortissement lateral normal
-static const float CAR_DRIFT_GRIP   = 0.975f; // frein a main : peu de grip -> drift
+static const float CAR_PIVOT_MIN    = 0.5f;   // autorite de braquage mini sous gaz (pivote contre un mur)
+static const float CAR_GRIP         = 0.93f;  // amortissement lateral normal (moins savonneux)
+static const float CAR_DRIFT_GRIP   = 0.975f; // drift : peu de grip lateral -> glisse
 static const int   CAR_HALF         = 3;      // demi-boite de collision (px)
+// Seuils d'aide a la conduite (utilises par l'appelant : input -> throttle/brake).
+static const float CAR_REVERSE_EPS  = 0.15f;  // sous cette vitesse avant, B = marche arriere
+static const float CAR_DRIFT_MIN    = 1.0f;   // vitesse avant mini pour partir en drift
 
 inline bool carBoxHitsSolid(float cx, float cy, int half) {
   int x0 = (int)cx - half, x1 = (int)cx + half;
@@ -84,14 +89,28 @@ inline bool carBoxHitsSolid(float cx, float cy, int half) {
   return false;
 }
 
-// Avance la voiture d'un pas. throttle/steer dans [-1,1], handbrake = frein a main.
-inline void carUpdate(CarState &c, float throttle, float steer, bool handbrake) {
+// Vitesse avant signee (projection de la velocite sur le cap). Permet a
+// l'appelant de choisir frein vs marche arriere selon la vitesse reelle.
+inline float carForwardSpeed(const CarState &c) {
+  return c.vx * cosf(c.angle) + c.vy * sinf(c.angle);
+}
+
+// Avance la voiture d'un pas. throttle/steer dans [-1,1].
+//   drift = grip lateral faible (glisse) ; brake = decel forte sur l'avancee.
+inline void carUpdate(CarState &c, float throttle, float steer, bool drift, bool brake) {
   float cs = cosf(c.angle), sn = sinf(c.angle);
 
   // Braquage proportionnel a la vitesse avant (et a son signe -> AR inverse).
   float fwd = c.vx * cs + c.vy * sn;
   float k = fwd / CAR_STEER_REF;
   if (k > 1.0f) k = 1.0f; else if (k < -1.0f) k = -1.0f;
+  // Sous gaz, garder un minimum d'autorite de braquage : sinon, bloque nez
+  // contre un mur (vitesse annulee par la collision), on ne pourrait plus
+  // pivoter pour se degager. Le signe suit le sens du gaz (avant / arriere).
+  if (throttle != 0.0f) {
+    float kmin = throttle > 0.0f ? CAR_PIVOT_MIN : -CAR_PIVOT_MIN;
+    if (fabsf(k) < CAR_PIVOT_MIN) k = kmin;
+  }
   c.angle += steer * CAR_STEER * k;
   cs = cosf(c.angle); sn = sinf(c.angle);
 
@@ -103,15 +122,18 @@ inline void carUpdate(CarState &c, float throttle, float steer, bool handbrake) 
   fwd = c.vx * cs + c.vy * sn;
   float lat = -c.vx * sn + c.vy * cs;
   fwd *= CAR_DRAG;
-  lat *= handbrake ? CAR_DRIFT_GRIP : CAR_GRIP;
+  if (brake) fwd *= CAR_BRAKE;                 // freinage : decel franche
+  lat *= drift ? CAR_DRIFT_GRIP : CAR_GRIP;
   if (fwd > CAR_MAX_FWD) fwd = CAR_MAX_FWD;
   else if (fwd < -CAR_MAX_REV) fwd = -CAR_MAX_REV;
   c.vx = fwd * cs - lat * sn;
   c.vy = fwd * sn + lat * cs;
 
-  // Deplacement collision separee par axe (petit rebond amorti sur mur).
+  // Deplacement collision separee par axe : on annule la composante bloquee
+  // (glisse le long du mur, comme le perso a pied) plutot que de rebondir --
+  // un rebond renvoyait dans le mur a chaque frame -> voiture coincee/vibrante.
   float nx = c.x + c.vx;
-  if (carBoxHitsSolid(nx, c.y, CAR_HALF)) c.vx *= -0.25f; else c.x = nx;
+  if (carBoxHitsSolid(nx, c.y, CAR_HALF)) c.vx = 0.0f; else c.x = nx;
   float ny = c.y + c.vy;
-  if (carBoxHitsSolid(c.x, ny, CAR_HALF)) c.vy *= -0.25f; else c.y = ny;
+  if (carBoxHitsSolid(c.x, ny, CAR_HALF)) c.vy = 0.0f; else c.y = ny;
 }

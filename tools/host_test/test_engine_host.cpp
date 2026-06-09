@@ -40,8 +40,8 @@ int main() {
   check_int("solid(96,0)", isSolidAt(96, 0), 1);
   check_int("solid(0,0)", isSolidAt(0, 0), 1);     // water (id 5)
   check_int("solid(2,0)", isSolidAt(2, 0), 1);
-  check_int("solid(47,46)", isSolidAt(47, 46), 0); // spawn, non-solide
-  check_int("solid(0,3)", isSolidAt(0, 3), 0);     // route
+  check_int("solid(47,46)", isSolidAt(47, 46), 0); // spawn, non-solide (route)
+  check_int("solid(0,3)", isSolidAt(0, 3), 1);     // bordure desormais solide (citygen)
 
   // --- tryMove (parite engine.py sur la vraie ville) ---
   check_move(8, 0, 4, 0, 8, 0);        // bloque par water colonne 0..
@@ -56,27 +56,69 @@ int main() {
   {
     CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
     float x0 = c.x;
-    for (int i = 0; i < 20; i++) carUpdate(c, 1.0f, 0.0f, false);
+    for (int i = 0; i < 20; i++) carUpdate(c, 1.0f, 0.0f, false, false);
     if (!(c.x > x0 + 5.0f)) { printf("FAIL car accelere : x %.1f -> %.1f\n", x0, c.x); failures++; }
     if (!(c.vx > 0.5f)) { printf("FAIL car vitesse avant trop faible vx=%.2f\n", c.vx); failures++; }
   }
-  // Drift : a vitesse, frein a main + braquage -> vitesse laterale non nulle.
+  // Pointe : plein gaz vers l'est (route degagee ~20 tuiles) -> proche CAR_MAX_FWD.
   {
     CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
-    for (int i = 0; i < 15; i++) carUpdate(c, 1.0f, 0.0f, false);   // lance tout droit
-    for (int i = 0; i < 8; i++) carUpdate(c, 1.0f, 1.0f, true);     // braque + handbrake
+    for (int i = 0; i < 45; i++) carUpdate(c, 1.0f, 0.0f, false, false);
+    if (carBoxHitsSolid(c.x, c.y, CAR_HALF)) { printf("FAIL pointe : touche un mur\n"); failures++; }
+    if (!(carForwardSpeed(c) > CAR_MAX_FWD - 0.3f)) {
+      printf("FAIL car pointe trop basse fwd=%.2f (max %.2f)\n", carForwardSpeed(c), CAR_MAX_FWD); failures++; }
+  }
+  // Drift : a vitesse, drift + braquage -> vitesse laterale non nulle.
+  {
+    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    for (int i = 0; i < 15; i++) carUpdate(c, 1.0f, 0.0f, false, false); // lance tout droit
+    for (int i = 0; i < 8; i++) carUpdate(c, 0.0f, 1.0f, true, true);    // braque + drift(frein)
     float cs = cosf(c.angle), sn = sinf(c.angle);
     float lat = -c.vx * sn + c.vy * cs;
     if (!(fabsf(lat) > 0.1f)) { printf("FAIL car ne drifte pas, lat=%.3f\n", lat); failures++; }
   }
+  // Frein : a vitesse, freiner reduit la vitesse avant plus vite que la trainee seule.
+  {
+    CarState a = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    CarState b = a;
+    for (int i = 0; i < 15; i++) { carUpdate(a, 1.0f, 0.0f, false, false); carUpdate(b, 1.0f, 0.0f, false, false); }
+    carUpdate(a, 0.0f, 0.0f, false, false);   // roue libre (drag seul)
+    carUpdate(b, 0.0f, 0.0f, false, true);    // frein
+    if (!(carForwardSpeed(b) < carForwardSpeed(a))) {
+      printf("FAIL frein n'aide pas : libre=%.2f frein=%.2f\n", carForwardSpeed(a), carForwardSpeed(b)); failures++; }
+  }
+  // Marche arriere : cap ouest, throttle -1 -> recule vers l'est (route degagee),
+  // vitesse avant negative et bornee a -CAR_MAX_REV.
+  {
+    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
+    for (int i = 0; i < 30; i++) carUpdate(c, -1.0f, 0.0f, false, false);
+    float fwd = carForwardSpeed(c);
+    if (!(fwd < -0.3f)) { printf("FAIL pas de marche arriere fwd=%.2f\n", fwd); failures++; }
+    if (!(fwd >= -CAR_MAX_REV - 0.05f)) { printf("FAIL marche arriere non bornee fwd=%.2f\n", fwd); failures++; }
+  }
+  // Pivot contre un mur : nez bloque (cap ouest, mur a tx45-46), gaz + braquage
+  // -> le cap doit changer (sinon on reste coince sans pouvoir se degager).
+  {
+    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
+    for (int i = 0; i < 10; i++) carUpdate(c, 1.0f, 1.0f, false, false); // se plaque au mur
+    float a0 = c.angle;
+    for (int i = 0; i < 10; i++) carUpdate(c, 1.0f, 1.0f, false, false); // gaz + braque
+    if (!(fabsf(c.angle - a0) > 0.1f)) {
+      printf("FAIL pivot mur : cap fige a=%.3f (delta=%.3f)\n", c.angle, c.angle - a0); failures++; }
+  }
   // Collision : depuis le spawn (non-solide), cap ouest plein gaz vers l'eau
-  // -> jamais dans une tuile solide (collision bloque/glisse).
+  // -> jamais dans une tuile solide (collision bloque/glisse), et a l'impact la
+  // composante bloquee est annulee (jamais de rebond vers l'arriere : vx >= 0).
   {
     CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
     for (int i = 0; i < 80; i++) {
-      carUpdate(c, 1.0f, 0.0f, false);
+      carUpdate(c, 1.0f, 0.0f, false, false);
       if (carBoxHitsSolid(c.x, c.y, CAR_HALF)) {
         printf("FAIL car dans le solide a la frame %d x=%.1f y=%.1f\n", i, c.x, c.y);
+        failures++; break;
+      }
+      if (c.vx > 0.01f) {   // cap ouest : la poussee est en -x ; un vx>0 = rebond
+        printf("FAIL collision rebondit (vx=%.2f) au lieu de glisser\n", c.vx);
         failures++; break;
       }
     }
