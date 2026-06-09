@@ -103,6 +103,14 @@ def test_bridges_add_road_over_water():
     assert after > before
 
 
+def test_bridges_not_on_border():
+    z, r = _zone_and_roads()
+    rb = add_bridges(z, list(r), 7, 96, 96)
+    m = 3
+    assert all(rb[y*96+x] == '.' for y in range(96) for x in range(96)
+               if x < m or x >= 96-m or y < m or y >= 96-m)
+
+
 def test_draw_roads_deterministic():
     z, r = _zone_and_roads(); _, r2 = _zone_and_roads()
     assert r == r2
@@ -124,6 +132,40 @@ def test_downtown_denser_buildings_than_residential():
         idx = [i for i,zz in enumerate(z) if zz==t]
         return sum(1 for i in idx if c.grid[i] in (6,7))/max(1,len(idx))
     assert bfrac(Z_DOWNTOWN) > bfrac(Z_RESIDENTIAL)
+
+def test_pavement_single_thickness():
+    """Trottoir epaisseur 1 : chaque tuile-trottoir est collee a une route (jamais a 2 cases)."""
+    c = _gen(); w = h = 96
+    road_ids = {1, 2, 3}
+    pavement = 4
+    for y in range(h):
+        for x in range(w):
+            if c.grid[y*w+x] != pavement:
+                continue
+            touches_road = any(
+                0 <= nx < w and 0 <= ny < h and c.grid[ny*w+nx] in road_ids
+                for nx, ny in ((x-1,y),(x+1,y),(x,y-1),(x,y+1))
+            )
+            assert touches_road, "trottoir non colle a une route en (%d,%d)" % (x, y)
+
+
+def test_pavement_only_north_or_west_side():
+    """Un seul cote : un trottoir a toujours une route au sud (rue h) ou a l'est (rue v).
+
+    Donc jamais de trottoir cote sud d'une rue horizontale ni cote est d'une rue
+    verticale -> chaque rue n'est bordee que d'un cote."""
+    c = _gen(); w = h = 96
+    g = c.grid
+    rh, rv, rx, pavement = 1, 2, 3, 4
+    for y in range(h):
+        for x in range(w):
+            if g[y*w+x] != pavement:
+                continue
+            south = g[(y+1)*w+x] if y+1 < h else None
+            east = g[y*w+(x+1)] if x+1 < w else None
+            assert south in (rh, rx) or east in (rv, rx), \
+                "trottoir sans route au sud/est (mauvais cote) en (%d,%d)" % (x, y)
+
 
 def test_spawn_walkable():
     c = _gen(); sx,sy,sd = c.spawn

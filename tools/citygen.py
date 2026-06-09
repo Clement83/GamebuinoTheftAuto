@@ -186,8 +186,13 @@ def draw_roads(zone_grid, seed, w, h, margin=3):
     return result
 
 
-def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14):
-    """Ponts: prolonge les avenues majeures sur l'eau si la portee <= max_span."""
+def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14, margin=3):
+    """Ponts: prolonge les avenues majeures sur l'eau si la portee <= max_span.
+
+    Un pont n'est trace que sur une etendue d'eau bordee de terre des deux cotes
+    et entierement dans l'interieur (>= margin, <= dim-margin) : pas de route en
+    bordure ni de route qui "part nulle part" en touchant le bord de la carte.
+    """
     out = list(road_grid)
     major_cols, major_rows = _major_lines(seed, w, h)
 
@@ -198,7 +203,7 @@ def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14):
                 start = y
                 while y < h and zone_grid[y * w + x] == Z_WATER:
                     y += 1
-                if (y - start) <= max_span:
+                if (y - start) <= max_span and start >= margin and y <= h - margin:
                     for yy in range(start, y):
                         out[yy * w + x] = 'v'
             else:
@@ -211,7 +216,7 @@ def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14):
                 start = x
                 while x < w and zone_grid[y * w + x] == Z_WATER:
                     x += 1
-                if (x - start) <= max_span:
+                if (x - start) <= max_span and start >= margin and x <= w - margin:
                     for xx in range(start, x):
                         out[y * w + xx] = 'h'
             else:
@@ -247,21 +252,27 @@ def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx):
 
 
 def add_pavement(grid, w, h, idx):
-    """Pose des trottoirs autour des routes (snapshot, sans chainage)."""
-    road_ids = {idx['road_h'], idx['road_v'], idx['road_cross']}
+    """Pose un trottoir d'un seul cote de chaque rue, epaisseur 1.
+
+    Trottoir cote nord des rues horizontales (route juste au sud) et cote ouest
+    des rues verticales (route juste a l'est). Pas de trottoir des deux cotes ni
+    de double epaisseur : chaque tuile-trottoir est collee a sa chaussee. Les
+    batiments de l'autre cote bordent directement la route. L'eau (bord de
+    fleuve) n'est jamais convertie."""
+    rh, rv, rx = idx['road_h'], idx['road_v'], idx['road_cross']
+    road_ids = {rh, rv, rx}
     water = idx['water']
-    buildings = {idx['building_a'], idx['building_b']}
     targets = []
     for y in range(h):
         for x in range(w):
             i = y * w + x
             t = grid[i]
-            if t in road_ids or t == water or t in buildings:
+            if t in road_ids or t == water:
                 continue
-            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                if 0 <= nx < w and 0 <= ny < h and grid[ny * w + nx] in road_ids:
-                    targets.append(i)
-                    break
+            south = grid[(y + 1) * w + x] if y + 1 < h else None
+            east = grid[y * w + (x + 1)] if x + 1 < w else None
+            if south in (rh, rx) or east in (rv, rx):
+                targets.append(i)
     for i in targets:
         grid[i] = idx['pavement']
 
