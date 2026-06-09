@@ -26,9 +26,10 @@ def test_build_assets_end_to_end(tmp_path):
     out_h = tmp_path / "assets.h"
     out_cpp = tmp_path / "assets_data.cpp"
     tiles8 = tmp_path / "tiles8"
+    sprites8 = tmp_path / "sprites8"
     ba.build(str(csv_path),
              [str(spr / "player_a.png"), str(spr / "player_b.png")],
-             str(out_h), str(out_cpp), str(tiles8))
+             str(out_h), str(out_cpp), str(tiles8), str(sprites8))
 
     h = out_h.read_text()
     assert "enum TileId" in h
@@ -44,3 +45,28 @@ def test_build_assets_end_to_end(tmp_path):
     assert (tiles8 / "grass.png").exists()
     with Image.open(tiles8 / "grass.png") as im:
         assert im.size == (8, 8)
+
+
+def test_build_assets_emits_sprites8(tmp_path):
+    tiles = tmp_path / "named" / "tiles"; tiles.mkdir(parents=True)
+    spr = tmp_path / "named" / "sprites"; spr.mkdir(parents=True)
+    _make_solid_png(tiles / "grass.png", (255, 0, 0))
+    _make_solid_png(spr / "player_a.png", (0, 255, 0), size=24)
+    _make_solid_png(spr / "player_b.png", (0, 255, 0), size=24)
+    csv_path = tmp_path / "tileset.csv"
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["name", "source", "solid"])
+        w.writerow(["grass", str(tiles / "grass.png"), "0"])
+    sprites8 = tmp_path / "sprites8"
+    ba.build(str(csv_path),
+             [str(spr / "player_a.png"), str(spr / "player_b.png")],
+             str(tmp_path / "assets.h"), str(tmp_path / "assets_data.cpp"),
+             str(tmp_path / "tiles8"), str(sprites8))
+    expected = ["player_%s_%d.png" % (d, i) for d in "nesw" for i in (0, 1)]
+    for name in expected:
+        p = sprites8 / name
+        assert p.exists(), "manque %s" % name
+        with Image.open(p) as im:
+            assert im.size == (8, 8)
+            assert im.mode in ("RGBA", "LA") or "transparency" in im.info

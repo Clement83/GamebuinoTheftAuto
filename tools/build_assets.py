@@ -8,6 +8,7 @@ PLAYER_FRAMES = ["assets/named/sprites/player_a.png",
 OUT_H = "gta/assets.h"
 OUT_CPP = "gta/assets_data.cpp"
 TILES8_DIR = "assets/tiles8"
+SPRITES8_DIR = "assets/sprites8"
 TILE = 8
 PLAYER = 8
 TRANSPARENT = 0xF81F  # magenta = couleur transparente du perso
@@ -28,7 +29,7 @@ def _player_frame_pixels(path, angle):
     out = []
     for (r, g, b, a) in rgba.getdata():
         out.append(TRANSPARENT if a < 128 else rgb565(r, g, b))
-    return out
+    return rgba, out
 
 
 def _fmt(vals, per_line=8):
@@ -38,10 +39,11 @@ def _fmt(vals, per_line=8):
     return ",\n".join(lines)
 
 
-def build(tileset_csv, player_frames, out_h, out_cpp, tiles8_dir):
+def build(tileset_csv, player_frames, out_h, out_cpp, tiles8_dir, sprites8_dir):
     with open(tileset_csv) as f:
         rows = list(csv.DictReader(f))
     os.makedirs(tiles8_dir, exist_ok=True)
+    os.makedirs(sprites8_dir, exist_ok=True)
     os.makedirs(os.path.dirname(out_h) or ".", exist_ok=True)
 
     names = [r["name"] for r in rows]
@@ -54,9 +56,16 @@ def build(tileset_csv, player_frames, out_h, out_cpp, tiles8_dir):
 
     # Perso : 4 directions x N frames
     nframes = len(player_frames)
+    dirnames = ["NORTH", "EAST", "SOUTH", "WEST"]
     player_px = []  # [dir][frame] -> liste de pixels
-    for angle in DIR_ANGLES:
-        player_px.append([_player_frame_pixels(p, angle) for p in player_frames])
+    for di, angle in enumerate(DIR_ANGLES):
+        dir_letter = dirnames[di][0].lower()
+        frames_px = []
+        for frame_idx, p in enumerate(player_frames):
+            rgba, px = _player_frame_pixels(p, angle)
+            rgba.save(os.path.join(sprites8_dir, "player_%s_%d.png" % (dir_letter, frame_idx)))
+            frames_px.append(px)
+        player_px.append(frames_px)
 
     # ---- assets.h ----
     enum = ",\n  ".join("TILE_%s" % n.upper() for n in names)
@@ -86,7 +95,6 @@ def build(tileset_csv, player_frames, out_h, out_cpp, tiles8_dir):
         f.write("const uint8_t tileFlags[NUM_TILES] = {%s};\n\n"
                 % ", ".join(str(x) for x in flags))
         f.write("const uint16_t playerSprite[4][PLAYER_FRAMES][PLAYER_W*PLAYER_H] = {\n")
-        dirnames = ["NORTH", "EAST", "SOUTH", "WEST"]
         for di, per_dir in enumerate(player_px):
             f.write("  { // DIR_%s\n" % dirnames[di])
             for fr in per_dir:
@@ -96,5 +104,5 @@ def build(tileset_csv, player_frames, out_h, out_cpp, tiles8_dir):
 
 
 if __name__ == "__main__":
-    build(TILESET_CSV, PLAYER_FRAMES, OUT_H, OUT_CPP, TILES8_DIR)
-    print("genere: %s, %s, %s/" % (OUT_H, OUT_CPP, TILES8_DIR))
+    build(TILESET_CSV, PLAYER_FRAMES, OUT_H, OUT_CPP, TILES8_DIR, SPRITES8_DIR)
+    print("genere: %s, %s, %s/, %s/" % (OUT_H, OUT_CPP, TILES8_DIR, SPRITES8_DIR))
