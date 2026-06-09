@@ -67,6 +67,8 @@ def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, d
     road_cross = _ti("road_cross")
     pavement = _ti("pavement")
     water_t = _ti("water")
+    building_a = _ti("building_a")
+    building_b = _ti("building_b")
     road_ids = {road_h, road_v, road_cross}
 
     # 2. base grass
@@ -136,5 +138,62 @@ def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, d
     for x, y in to_pave:
         city.set(x, y, pavement)
 
+    # 7. batiments (densite variable: gradient centre + bruit)
+    nd = noise_field(seed + 4, w, h, scale=max(5.0, w / 10.0))
+    brng = random.Random(seed + 5)
+    cx, cy = w / 2.0, h / 2.0
+    maxd = math.hypot(cx, cy)
+    for y in range(h):
+        for x in range(w):
+            if city.get(x, y) != grass:
+                continue
+            g = 1.0 - (math.hypot(x - cx, y - cy) / maxd)
+            p = density * (0.4 + 0.6 * g) * nd[y][x]
+            if brng.random() < p:
+                t = building_b if _value_noise(seed + 6, x * 0.2, y * 0.2) > 0.5 else building_a
+                city.set(x, y, t)
+
+    # 8. parcs (taches vertes dispersees a travers les blocs)
+    npf = noise_field(seed + 7, w, h, scale=max(5.0, w / 12.0))
+    pthr = _quantile_threshold(npf, parks)
+    block_ids = {grass, building_a, building_b}
+    for y in range(h):
+        for x in range(w):
+            if npf[y][x] < pthr and city.get(x, y) in block_ids:
+                city.set(x, y, grass)
+
+    # 9. spawn deterministe (spirale depuis le centre, tier de preference)
+    ox, oy = w // 2, h // 2
+    found = {}
+    rmax = max(w, h)
+    for r in range(rmax + 1):
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                if max(abs(dx), abs(dy)) != r:
+                    continue
+                sx, sy = ox + dx, oy + dy
+                if not (0 <= sx < w and 0 <= sy < h):
+                    continue
+                t = city.get(sx, sy)
+                if t in solid_index:
+                    continue
+                if t == pavement:
+                    tier = 0
+                elif t in road_ids:
+                    tier = 1
+                elif t == grass:
+                    tier = 2
+                else:
+                    tier = 3
+                if tier not in found:
+                    found[tier] = (sx, sy)
+        if found:
+            break
     spawn = None
+    for tier in (0, 1, 2, 3):
+        if tier in found:
+            sx, sy = found[tier]
+            spawn = (sx, sy, 2)
+            break
+    city.spawn = spawn
     return spawn

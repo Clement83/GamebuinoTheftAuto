@@ -69,3 +69,35 @@ def test_quantile_threshold_fraction():
     thr = _quantile_threshold(f, 0.3)
     below = sum(1 for row in f for v in row if v < thr)
     assert 0.2 * 900 <= below <= 0.4 * 900
+
+
+def test_generate_has_buildings_and_parks():
+    c = _gen(density=0.6, parks=0.15)
+    n = _counts(c)
+    assert n[6] + n[7] > 0
+    assert n[0] > 0
+
+
+def test_density_center_denser_than_edges():
+    c = _gen(density=0.7)
+    def build_frac(x0, y0, x1, y1):
+        cells = [c.get(x, y) for y in range(y0, y1) for x in range(x0, x1)]
+        b = sum(1 for v in cells if v in (6, 7))
+        return b / len(cells)
+    center = build_frac(c.w//2 - 12, c.h//2 - 12, c.w//2 + 12, c.h//2 + 12)
+    corner = build_frac(0, 0, 20, 20)
+    assert center >= corner
+
+
+def test_spawn_is_walkable_and_in_bounds():
+    c = _gen()
+    assert c.spawn is not None
+    sx, sy, sd = c.spawn
+    assert 0 <= sx < c.w and 0 <= sy < c.h
+    assert c.get(sx, sy) not in SI
+    assert sd == 2
+
+
+def test_full_generation_deterministic():
+    assert _gen(seed=11).grid == _gen(seed=11).grid
+    assert _gen(seed=11).spawn == _gen(seed=11).spawn
