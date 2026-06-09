@@ -154,13 +154,23 @@ player <x> <y> <north|south|east|west>   ; spawn (doit être sur une tuile non-s
     `const uint8_t cityMap[CITY_H*CITY_W];` (row-major : `cityMap[ty*CITY_W+tx]`).
   - `city/citymap.png` : la ville entière rendue (debug visuel d'un coup d'œil).
 
-### 5.5 `tools/engine.py` + `tools/preview.py` — moteur & preview PC
-- `engine.py` : fonctions pures **miroir** de `engine.h` (clamp caméra, `is_solid`,
-  `try_move` collision axe par axe). Une suite de tests compare les deux pour garantir la parité.
-- `preview.py` : charge `tiles8/` + `cityMap` + frames perso, joue un **chemin scripté**
-  (auto-walk), rend chaque frame (caméra centrée + clampée, perso par-dessus) et écrit
-  **`preview.gif`**. Assertions : perso toujours dans les bornes, caméra clampée, pas de
-  traversée de tuile solide.
+### 5.5 `tools/engine.py` + `tools/viewer.py` — moteur & viewer interactif PC
+- `engine.py` : fonctions pures **source de vérité** du comportement (clamp caméra,
+  `is_solid`, `try_move` collision axe par axe → glisse le long des murs). 100 % Python.
+  La parité avec `engine.h` (C++) est vérifiée au **M4** (quand le sketch existe et qu'on
+  peut compiler `engine.h` en natif).
+- `viewer.py` : **viewer de map interactif pygame** (remplace l'ancien `preview.gif`).
+  Charge `tiles8/` + `cityMap` + frames perso. **Vue d'ensemble qui scrolle, zoom réglable**
+  (tuiles rendues ×N, défaut ×4 ; `+`/`-` pour zoomer/dézoomer jusqu'à voir toute la ville),
+  centrée + clampée sur le perso. Un **rectangle overlay** matérialise la zone 80×64 que la
+  Gamebuino afficherait (calculée via `clamp_camera`, donc clampée aux bords comme sur device).
+  **Flèches directionnelles** → déplacement 4 dir via `try_move` (collisions réelles),
+  orientation + alternance des 2 frames de marche ; `Échap` pour quitter. Rester simple :
+  c'est un outil de validation visuelle de la map, pas un jeu.
+- **Tests (headless, pytest) :** invariants de `engine.py` — perso dans les bornes,
+  caméra clampée, pas de traversée de tuile solide, glissement le long des murs.
+  `viewer.py` (boucle pygame) n'est pas testé unitairement ; il consomme `engine.py` testé.
+- **Dépendance :** ajoute `pygame` (outil de dev PC uniquement, n'impacte pas le portage).
 
 ### 5.6 `gta/engine.h` + `gta/gta.ino` — sketch Gamebuino
 **`engine.h` (math pure, host-testable, identique à `engine.py`) :**
@@ -205,16 +215,18 @@ player <x> <y> <north|south|east|west>   ; spawn (doit être sur une tuile non-s
   `gta/citymap.{h,cpp}`, `city/citymap.png`.
   *Vérif :* pytest (roadgrid, rect, stamp, alias, bornes, **déterminisme**, erreurs
   ligne) ; œil sur `citymap.png`.
-- **M3 — Preview PC.** Livrable : `preview.gif` + `tools/{engine,preview}.py`.
-  *Vérif :* regarder le GIF (perso marche, rues cohérentes, scroll fluide, collisions) ;
-  test de parité `engine.py` ↔ `engine.h`.
+- **M3 — Viewer interactif PC.** Livrable : `tools/engine.py` + `tools/viewer.py` (pygame).
+  *Vérif :* lancer `python3 -m tools.viewer`, conduire le perso aux flèches → rues cohérentes,
+  scroll fluide, collisions correctes, cadre caméra clampé aux bords ; pytest sur les invariants
+  de `engine.py`. (Parité `engine.py` ↔ `engine.h` reportée au M4.)
 - **M4 — Sketch Gamebuino.** Livrables : `gta/gta.ino`, `gta/engine.h`.
   *Vérif :* `arduino-cli compile --fqbn gamebuino:samd:gamebuino_meta_native gta/` (0 erreur,
   tailles RAM/flash sous les limites) ; `arduino-cli upload -p /dev/ttyACM0 …` ; **mode démo
   auto-walk** + lecture série (map chargée, perso parcourt le chemin, caméra clampe, ≥20 FPS,
   pas de crash) ; **confirmation visuelle par l'utilisateur** (croix + rendu) sur la vraie META.
 
-M1→M3 sont 100 % PC : un **GIF du perso qui marche** arrive avant tout passage hardware.
+M1→M3 sont 100 % PC : un **viewer interactif où l'on conduit le perso dans la ville**
+arrive avant tout passage hardware.
 
 ## 8. Stratégie de test
 - **Outils PC** : pytest (compilateur ville surtout : cas nominaux, erreurs, déterminisme).
