@@ -1,5 +1,7 @@
 import csv
 from tools import build_city as bc
+from PIL import Image
+from tools.citydsl import compile_city
 
 
 def _write_tileset(path):
@@ -45,3 +47,24 @@ def test_emit_headers(tmp_path):
     assert '#include "citymap.h"' in cpp
     assert "const uint8_t cityMap[CITY_H*CITY_W] = {" in cpp
     assert cpp.count("5") >= 1 and "0, 0" in cpp
+
+
+def test_render_png_dimensions(tmp_path):
+    # mini tiles8 : un PNG 8x8 par nom
+    tiles8 = tmp_path / "tiles8"; tiles8.mkdir()
+    names = ["grass", "road_h", "road_v", "road_cross",
+             "pavement", "water", "building_a", "building_b"]
+    colors = [(0, 200, 0), (80, 80, 80), (80, 80, 80), (60, 60, 60),
+              (180, 180, 180), (0, 0, 200), (150, 60, 60), (60, 60, 150)]
+    for n, col in zip(names, colors):
+        Image.new("RGB", (8, 8), col).save(tiles8 / (n + ".png"))
+
+    tile_index = {n: i for i, n in enumerate(names)}
+    city = compile_city("size 4 3\nfill grass\nplayer 0 0 south\n",
+                        tile_index, {5, 6, 7})
+    out_png = tmp_path / "citymap.png"
+    bc.render_png(city, names, str(tiles8), str(out_png))
+
+    assert out_png.exists()
+    with Image.open(out_png) as im:
+        assert im.size == (4 * 8, 3 * 8)   # 32x24

@@ -4,6 +4,7 @@ Lit le mapping nom->index depuis assets/tileset.csv (ordre = enum de assets.h).
 """
 import os
 import csv
+from PIL import Image, ImageDraw
 from tools.citydsl import compile_city, CityError
 
 TILESET_CSV = "assets/tileset.csv"
@@ -44,6 +45,26 @@ def emit_headers(city, out_h, out_cpp):
             row = city.grid[y * city.w:(y + 1) * city.w]
             f.write("  " + ", ".join(str(v) for v in row) + ",\n")
         f.write("};\n")
+
+
+def render_png(city, names, tiles8_dir, out_png):
+    """Rend la ville entiere en PNG (8 px/tuile) + marqueur de spawn."""
+    cache = {}
+    for n in names:
+        with Image.open(os.path.join(tiles8_dir, n + ".png")) as im:
+            cache[n] = im.convert("RGB").resize((8, 8), Image.Resampling.NEAREST)
+    canvas = Image.new("RGB", (city.w * 8, city.h * 8))
+    for y in range(city.h):
+        for x in range(city.w):
+            canvas.paste(cache[names[city.get(x, y)]], (x * 8, y * 8))
+    # marqueur de spawn : croix magenta sur la tuile de depart
+    sx, sy, _ = city.spawn
+    d = ImageDraw.Draw(canvas)
+    cx, cy = sx * 8 + 4, sy * 8 + 4
+    d.line((cx - 3, cy, cx + 3, cy), fill=(255, 0, 255))
+    d.line((cx, cy - 3, cx, cy + 3), fill=(255, 0, 255))
+    os.makedirs(os.path.dirname(out_png) or ".", exist_ok=True)
+    canvas.save(out_png)
 
 
 def main():
