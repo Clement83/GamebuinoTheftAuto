@@ -16,7 +16,7 @@ CAR_TRANSP = 0xF81F      # magenta = transparent
 HDR = "gta/car.h"
 SRC = "gta/car_data.cpp"
 
-L, W = 7.0, 3.0          # demi-longueur / demi-largeur (voiture compacte)
+L, W = 7.0, 2.0          # demi-longueur / demi-largeur (voiture etroite)
 
 
 def _rgb565(r, g, b):
@@ -32,12 +32,10 @@ def car_pixel(x, y):
     if x < -L or x > L:
         return None
     if ay > maxw:
-        if -6 < x < 5 and ay <= maxw + 1.0:
-            return _rgb565(15, 15, 18)               # pneu
-        return None
+        return None                                  # pas de pneu qui depasse
     edge = (ay > maxw - 0.9) or (x < -L + 0.9) or (x > L - 0.9)
-    if x > L - 1.6 and ay > maxw - 1.6:
-        return _rgb565(255, 240, 150)                # phares
+    if x > L - 0.5 and ay > maxw - 1.0:
+        return _rgb565(255, 240, 150)                # phares (2 px a l'avant)
     if x < -L + 1.2 and ay > maxw - 1.6:
         return _rgb565(120, 0, 0)                    # feux AR
     if 1.0 < x < 4.0 and ay < maxw - 1.0:
