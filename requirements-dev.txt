@@ -1,0 +1,4 @@
+# Dependances de dev PC uniquement (outils tools/) — n'impactent pas le portage Gamebuino.
+pygame>=2.5
+pytest>=7
+Pillow>=10
