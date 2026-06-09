@@ -115,6 +115,111 @@ def build_zones(seed, w, h, water, parks, districts):
     return zones
 
 
+# --- couche ROUTES -----------------------------------------------------------
+
+
+def _major_lines(seed, w, h, margin=3):
+    """Positions des grandes avenues (colonnes, lignes), grille jittee deterministe."""
+    rng = random.Random(seed + 5)
+    major_cols = set()
+    pos = margin
+    while pos < w - margin:
+        for i in range(pos, pos + 2):
+            if i < w - margin:
+                major_cols.add(i)
+        pos += max(6, 14 + rng.randint(-3, 4))
+    major_rows = set()
+    pos = margin
+    while pos < h - margin:
+        for i in range(pos, pos + 2):
+            if i < h - margin:
+                major_rows.add(i)
+        pos += max(6, 14 + rng.randint(-3, 4))
+    return major_cols, major_rows
+
+
+def draw_roads(zone_grid, seed, w, h, margin=3):
+    """Grille de routes hierarchique (avenues + rues fines en downtown) -> liste plate de codes."""
+    rng = random.Random(seed + 5)
+    # avenues majeures (memes positions que _major_lines, meme sequence rng)
+    major_cols = set()
+    pos = margin
+    while pos < w - margin:
+        for i in range(pos, pos + 2):
+            if i < w - margin:
+                major_cols.add(i)
+        pos += max(6, 14 + rng.randint(-3, 4))
+    major_rows = set()
+    pos = margin
+    while pos < h - margin:
+        for i in range(pos, pos + 2):
+            if i < h - margin:
+                major_rows.add(i)
+        pos += max(6, 14 + rng.randint(-3, 4))
+
+    # rues mineures (downtown uniquement)
+    minor_cols = set()
+    pos = margin
+    while pos < w - margin:
+        minor_cols.add(pos)
+        pos += max(4, 7 + rng.randint(-2, 2))
+    minor_rows = set()
+    pos = margin
+    while pos < h - margin:
+        minor_rows.add(pos)
+        pos += max(4, 7 + rng.randint(-2, 2))
+
+    result = ['.'] * (w * h)
+    for y in range(margin, h - margin):
+        for x in range(margin, w - margin):
+            zone = zone_grid[y * w + x]
+            if zone == Z_WATER:
+                continue
+            on_col = (x in major_cols) or (x in minor_cols and zone == Z_DOWNTOWN)
+            on_row = (y in major_rows) or (y in minor_rows and zone == Z_DOWNTOWN)
+            if on_col and on_row:
+                result[y * w + x] = 'x'
+            elif on_col:
+                result[y * w + x] = 'v'
+            elif on_row:
+                result[y * w + x] = 'h'
+    return result
+
+
+def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14):
+    """Ponts: prolonge les avenues majeures sur l'eau si la portee <= max_span."""
+    out = list(road_grid)
+    major_cols, major_rows = _major_lines(seed, w, h)
+
+    for x in major_cols:
+        y = 0
+        while y < h:
+            if zone_grid[y * w + x] == Z_WATER:
+                start = y
+                while y < h and zone_grid[y * w + x] == Z_WATER:
+                    y += 1
+                if (y - start) <= max_span:
+                    for yy in range(start, y):
+                        out[yy * w + x] = 'v'
+            else:
+                y += 1
+
+    for y in major_rows:
+        x = 0
+        while x < w:
+            if zone_grid[y * w + x] == Z_WATER:
+                start = x
+                while x < w and zone_grid[y * w + x] == Z_WATER:
+                    x += 1
+                if (x - start) <= max_span:
+                    for xx in range(start, x):
+                        out[y * w + xx] = 'h'
+            else:
+                x += 1
+
+    return out
+
+
 def generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, density=0.85):
     """Genere la geographie de la ville dans `city` (grass/eau/grille/trottoirs)."""
     w, h = city.w, city.h

@@ -64,3 +64,45 @@ def test_downtown_more_central_than_residential():
               if z[y*96+x] == t]
         return sum(ds)/len(ds)
     assert mean_dist(Z_DOWNTOWN) < mean_dist(Z_RESIDENTIAL)
+
+
+from tools.citygen import draw_roads, add_bridges
+
+def _zone_and_roads(seed=7, w=96, h=96):
+    z = build_zones(seed, w, h, 0.15, 0.05, 10)
+    r = draw_roads(z, seed, w, h)
+    return z, r
+
+
+def test_roads_present_and_not_on_border():
+    z, r = _zone_and_roads()
+    assert any(v != '.' for v in r)
+    m = 3
+    assert all(r[y*96+x] == '.' for y in range(96) for x in range(96)
+               if x < m or x >= 96-m or y < m or y >= 96-m)
+
+
+def test_downtown_denser_roads_than_residential():
+    z, r = _zone_and_roads()
+    def road_frac(t):
+        idx = [i for i, zz in enumerate(z) if zz == t]
+        return sum(1 for i in idx if r[i] != '.') / max(1, len(idx))
+    assert road_frac(Z_DOWNTOWN) > road_frac(Z_RESIDENTIAL)
+
+
+def test_roads_not_on_water_before_bridges():
+    z, r = _zone_and_roads()
+    assert all(not (r[i] != '.' and z[i] == Z_WATER) for i in range(len(z)))
+
+
+def test_bridges_add_road_over_water():
+    z, r = _zone_and_roads()
+    rb = add_bridges(z, list(r), 7, 96, 96)
+    before = sum(1 for i in range(len(z)) if z[i] == Z_WATER and r[i] != '.')
+    after = sum(1 for i in range(len(z)) if z[i] == Z_WATER and rb[i] != '.')
+    assert after > before
+
+
+def test_draw_roads_deterministic():
+    z, r = _zone_and_roads(); _, r2 = _zone_and_roads()
+    assert r == r2
