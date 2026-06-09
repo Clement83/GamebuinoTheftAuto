@@ -1,6 +1,7 @@
 // genere par tools/build_city.py -- NE PAS editer
 #pragma once
 #include <stdint.h>
+#include "assets.h"
 
 #define CITY_W 96
 #define CITY_H 96

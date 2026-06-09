@@ -37,6 +37,7 @@ def test_emit_headers(tmp_path):
     bc.emit_headers(city, str(out_h), str(out_cpp))
 
     h = out_h.read_text()
+    assert '#include "assets.h"' in h
     assert "#define CITY_W 3" in h and "#define CITY_H 2" in h
     assert "#define PLAYER_START_X 2" in h
     assert "#define PLAYER_START_Y 1" in h

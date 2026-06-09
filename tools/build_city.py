@@ -31,7 +31,7 @@ def emit_headers(city, out_h, out_cpp):
     sx, sy, sdir = city.spawn
     with open(out_h, "w") as f:
         f.write("// genere par tools/build_city.py -- NE PAS editer\n")
-        f.write("#pragma once\n#include <stdint.h>\n\n")
+        f.write('#pragma once\n#include <stdint.h>\n#include "assets.h"\n\n')
         f.write("#define CITY_W %d\n#define CITY_H %d\n" % (city.w, city.h))
         f.write("#define PLAYER_START_X %d\n" % sx)
         f.write("#define PLAYER_START_Y %d\n" % sy)
