@@ -1,4 +1,45 @@
+import pytest
 from tools.citygen import noise_field, _value_noise, _hash01, _quantile_threshold
+from tools.citydsl import CompiledCity
+from tools import citygen
+from collections import Counter
+
+TI = {"grass":0,"road_h":1,"road_v":2,"road_cross":3,"pavement":4,"water":5,"building_a":6,"building_b":7}
+SI = {5, 6, 7}
+
+def _gen(seed=7, w=96, h=96, **kw):
+    c = CompiledCity(w, h)
+    citygen.generate_into(c, seed, TI, SI, **kw)
+    return c
+
+def _counts(c):
+    return Counter(c.grid)
+
+
+def test_generate_water_and_land_present():
+    c = _gen(water=0.25)
+    n = _counts(c); total = c.w * c.h
+    assert n[5] > 0
+    assert n[5] < total * 0.6
+    assert (total - n[5]) > total * 0.3
+
+
+def test_generate_has_roads_and_pavement():
+    c = _gen()
+    n = _counts(c)
+    assert n[1] + n[2] + n[3] > 0
+    assert n[4] > 0
+
+
+def test_generate_deterministic_same_seed():
+    assert _gen(seed=7).grid == _gen(seed=7).grid
+    assert _gen(seed=7).grid != _gen(seed=9).grid
+
+
+def test_missing_tile_raises():
+    c = CompiledCity(8, 8)
+    with pytest.raises(ValueError):
+        citygen.generate_into(c, 1, {"grass": 0}, set())
 
 
 def test_hash_deterministic_and_range():
