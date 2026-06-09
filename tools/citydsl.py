@@ -35,6 +35,55 @@ class CompiledCity:
             self.grid[self._i(x, y)] = t
 
 
+def _kwargs(tokens):
+    """Paire les tokens restants en dict {cle: valeur} (ex. ['spacing','4','width','1'])."""
+    return {tokens[i]: tokens[i + 1] for i in range(0, len(tokens) - 1, 2)}
+
+
+def _roadgrid(city, spacing, width, margin, tile_index, line_no):
+    rv = _tile("road_v", tile_index, line_no)
+    rh = _tile("road_h", tile_index, line_no)
+    rc = _tile("road_cross", tile_index, line_no)
+    pv = _tile("pavement", tile_index, line_no)
+    if spacing < 1 or width < 1:
+        raise CityError(line_no, "roadgrid: spacing et width doivent etre >= 1")
+
+    cols, rows = set(), set()
+    x0 = margin
+    while x0 < city.w:
+        for x in range(x0, x0 + width):
+            if 0 <= x < city.w:
+                cols.add(x)
+        x0 += spacing
+    y0 = margin
+    while y0 < city.h:
+        for y in range(y0, y0 + width):
+            if 0 <= y < city.h:
+                rows.add(y)
+        y0 += spacing
+
+    road_ids = {rv, rh, rc}
+    for y in range(city.h):
+        for x in range(city.w):
+            on_col, on_row = x in cols, y in rows
+            if on_col and on_row:
+                city.set(x, y, rc)
+            elif on_col:
+                city.set(x, y, rv)
+            elif on_row:
+                city.set(x, y, rh)
+    # trottoirs : toute case non-route adjacente (4-voisinage) a une route
+    for y in range(city.h):
+        for x in range(city.w):
+            if city.get(x, y) in road_ids:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < city.w and 0 <= ny < city.h and city.get(nx, ny) in road_ids:
+                    city.set(x, y, pv)
+                    break
+
+
 def _int(tok, line_no, what):
     try:
         return int(tok)
@@ -144,6 +193,15 @@ def compile_city(text, tile_index, solid_index):
                         city.set(x, y, water)
             else:
                 raise CityError(line_no, "orientation inconnue: '%s'" % orient)
+
+        elif cmd == "roadgrid":
+            kv = _kwargs(tok[1:])
+            if "spacing" not in kv or "width" not in kv:
+                raise CityError(line_no, "usage: roadgrid spacing <S> width <W> [margin <M>]")
+            spacing = _int(kv["spacing"], line_no, "spacing")
+            width = _int(kv["width"], line_no, "width")
+            margin = _int(kv.get("margin", "0"), line_no, "margin")
+            _roadgrid(city, spacing, width, margin, tile_index, line_no)
 
         else:
             raise CityError(line_no, "commande inconnue: '%s'" % cmd)

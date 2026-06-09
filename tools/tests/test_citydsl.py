@@ -84,3 +84,20 @@ def test_river_vertical_and_horizontal():
     assert c.get(2, 0) == 5 and c.get(3, 5) == 5 and c.get(1, 0) == 0
     # bande horizontale water sur la ligne 4, toute la largeur
     assert c.get(0, 4) == 5 and c.get(5, 4) == 5
+
+
+def test_roadgrid_roads_crossings_pavement():
+    # spacing 4, width 1, margin 0 -> routes aux x/y = 0,4,8...
+    c = _compile("size 9 9\nfill grass\nroadgrid spacing 4 width 1\n"
+                 "player 1 1 south\n")
+    # croisement la ou colonne ET ligne sont des routes
+    assert c.get(0, 0) == 3          # road_cross
+    assert c.get(4, 4) == 3
+    # colonne de route seule -> road_v
+    assert c.get(0, 1) == 2          # road_v
+    # ligne de route seule -> road_h
+    assert c.get(1, 0) == 1          # road_h
+    # case interieure adjacente a une route -> pavement
+    assert c.get(1, 1) == 4          # pavement (voisin de (0,1) et (1,0))
+    # case loin de toute route reste grass
+    assert c.get(2, 2) == 0
