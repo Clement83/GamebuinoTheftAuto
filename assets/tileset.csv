@@ -7,3 +7,9 @@ pavement,assets/named/tiles/pavement.png,0
 water,assets/named/tiles/water.png,1
 building_a,assets/named/tiles/building_a.png,1
 building_b,assets/named/tiles/building_b.png,1
+cn_facade_a,assets/named/tiles/cn_facade_a.png,1
+cn_facade_b,assets/named/tiles/cn_facade_b.png,1
+cn_sign,assets/named/tiles/cn_sign.png,1
+police_facade,assets/named/tiles/police_facade.png,1
+police_sign,assets/named/tiles/police_sign.png,1
+police_door,assets/named/tiles/police_door.png,0

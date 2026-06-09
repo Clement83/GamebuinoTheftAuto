@@ -58,6 +58,39 @@ Z_PARK = 1
 Z_DOWNTOWN = 2
 Z_RESIDENTIAL = 3
 
+# Themes POI (couche parallele aux zones : n'altere ni routes ni densite de
+# base, seulement le choix des tuiles de remplissage des blocs concernes).
+THEME_NONE = 0
+THEME_CHINATOWN = 1
+
+
+def voronoi_districts(seed, w, h, districts):
+    """Affectation Voronoi des cellules aux districts + type par district.
+
+    Pur et deterministe. Meme sequence RNG (seed+3) et meme logique que l'ancien
+    inline de build_zones -> sortie de build_zones inchangee. Le district_id est
+    calcule pour TOUTES les cellules (l'eau sera ignoree par build_zones).
+    Retourne (district_id[w*h], seed_type[districts], order[districts])."""
+    rng = random.Random(seed + 3)
+    seeds = [(rng.randrange(w), rng.randrange(h)) for _ in range(districts)]
+    ccx, ccy = w / 2.0, h / 2.0
+    order = sorted(range(districts),
+                   key=lambda i: (seeds[i][0] - ccx) ** 2 + (seeds[i][1] - ccy) ** 2)
+    n_dt = math.ceil(districts * 0.4)
+    seed_type = [Z_RESIDENTIAL] * districts
+    for rank, i in enumerate(order):
+        seed_type[i] = Z_DOWNTOWN if rank < n_dt else Z_RESIDENTIAL
+    district_id = [0] * (w * h)
+    for y in range(h):
+        for x in range(w):
+            best_i, best_d = 0, None
+            for i, (gx, gy) in enumerate(seeds):
+                d = (gx - x) ** 2 + (gy - y) ** 2
+                if best_d is None or d < best_d:
+                    best_d, best_i = d, i
+            district_id[y * w + x] = best_i
+    return district_id, seed_type, order
+
 
 def build_zones(seed, w, h, water, parks, districts):
     """Carte de zones (eau, fleuve, quartiers Voronoi, parcs) -> liste plate w*h."""
@@ -82,27 +115,10 @@ def build_zones(seed, w, h, water, parks, districts):
                 zones[y * w + (cx + dx)] = Z_WATER
 
     # 3. quartiers Voronoi (sur la terre)
-    rng = random.Random(seed + 3)
-    seeds = [(rng.randrange(w), rng.randrange(h)) for _ in range(districts)]
-    ccx, ccy = w / 2.0, h / 2.0
-    order = sorted(
-        range(districts),
-        key=lambda i: (seeds[i][0] - ccx) ** 2 + (seeds[i][1] - ccy) ** 2,
-    )
-    n_dt = math.ceil(districts * 0.4)
-    seed_type = [Z_RESIDENTIAL] * districts
-    for rank, i in enumerate(order):
-        seed_type[i] = Z_DOWNTOWN if rank < n_dt else Z_RESIDENTIAL
-    for y in range(h):
-        for x in range(w):
-            if zones[y * w + x] == Z_WATER:
-                continue
-            best_i, best_d = 0, None
-            for i, (gx, gy) in enumerate(seeds):
-                d = (gx - x) ** 2 + (gy - y) ** 2
-                if best_d is None or d < best_d:
-                    best_d, best_i = d, i
-            zones[y * w + x] = seed_type[best_i]
+    district_id, seed_type, _ = voronoi_districts(seed, w, h, districts)
+    for i in range(w * h):
+        if zones[i] != Z_WATER:
+            zones[i] = seed_type[district_id[i]]
 
     # 4. parcs (taches)
     npf = noise_field(seed + 4, w, h, scale=max(5.0, w / 12.0))
@@ -228,9 +244,15 @@ def add_bridges(zone_grid, road_grid, seed, w, h, max_span=14, margin=3):
 # --- couche BLOCS / TROTTOIRS / SPAWN ---------------------------------------
 
 
-def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx):
-    """Remplit les blocs par zone (eau/parc/batiments/grass) en sautant les routes."""
+def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx, theme=None):
+    """Remplit les blocs par zone (eau/parc/batiments/grass) en sautant les routes.
+
+    `theme` (optionnel) : liste w*h de themes POI ; les cellules THEME_CHINATOWN
+    recoivent des facades dorees (+ enseignes eparses) au lieu des batiments
+    standards. Sans theme, comportement strictement identique a l'origine."""
     rng = random.Random(seed + 6)
+    cn = theme is not None and all(k in idx for k in
+                                   ('cn_facade_a', 'cn_facade_b', 'cn_sign'))
     for y in range(h):
         for x in range(w):
             i = y * w + x
@@ -241,6 +263,16 @@ def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx):
                 grid[i] = idx['water']
             elif zone == Z_PARK:
                 grid[i] = idx['grass']
+            elif cn and theme[i] == THEME_CHINATOWN:
+                if rng.random() < max(density, 0.9):
+                    if rng.random() < 0.12:
+                        grid[i] = idx['cn_sign']
+                    else:
+                        grid[i] = (idx['cn_facade_a']
+                                   if _value_noise(seed + 7, x * 0.2, y * 0.2) > 0.5
+                                   else idx['cn_facade_b'])
+                else:
+                    grid[i] = idx['grass']
             elif zone == Z_DOWNTOWN:
                 pbuild = density
                 b = idx['building_b'] if _value_noise(seed + 7, x * 0.2, y * 0.2) > 0.35 else idx['building_a']
@@ -330,18 +362,35 @@ def generate_into(city, seed, tile_index, solid_index,
     # 2. dimensions
     w, h = city.w, city.h
 
-    # 3. zones
+    # 2b. POI : actifs seulement si TOUTES les tuiles POI sont presentes dans le
+    # tileset (sinon la generation reste strictement celle d'avant -> compat).
+    poi_names = ('cn_facade_a', 'cn_facade_b', 'cn_sign',
+                 'police_facade', 'police_sign', 'police_door')
+    poi = all(n in tile_index for n in poi_names)
+    poi_idx = dict(idx)
+    if poi:
+        for n in poi_names:
+            poi_idx[n] = tile_index[n]
+        from tools import pois
+
+    # 3. zones + districts (les districts servent aussi au placement POI)
+    district_id, seed_type, _ = voronoi_districts(seed, w, h, districts)
     z = build_zones(seed, w, h, water, parks, districts)
 
     # 4. routes + ponts
     r = draw_roads(z, seed, w, h)
     r = add_bridges(z, r, seed, w, h)
 
+    # 4b. theme Chinatown (avant le remplissage des blocs)
+    theme = None
+    if poi:
+        theme, _ = pois.build_chinatown_theme(seed, z, district_id, seed_type, w, h)
+
     # 5. base grass
     city.grid = [idx['grass']] * (w * h)
 
     # 6. blocs par zone (saute les routes)
-    fill_blocks(city.grid, z, r, seed, w, h, density, idx)
+    fill_blocks(city.grid, z, r, seed, w, h, density, poi_idx, theme)
 
     # 7. routes par-dessus la grille
     for i in range(w * h):
@@ -355,6 +404,12 @@ def generate_into(city, seed, tile_index, solid_index,
 
     # 8. trottoirs
     add_pavement(city.grid, w, h, idx)
+
+    # 8b. stamps POI (APRES les trottoirs : sinon la passe trottoir ecrase les
+    # tuiles du stamp bordant la route, dont la porte). Acces+orientation : une
+    # route doit se trouver juste au sud de la porte.
+    if poi:
+        pois.place_police(city.grid, z, district_id, seed_type, seed, w, h, poi_idx)
 
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)

@@ -23,6 +23,15 @@ TILE_PICKS = [
     ("water",      375, 0, 1),    # eau cyan
     ("building_a", 43, 0, 1),     # façade brique brun-rouge
     ("building_b", 13, 0, 1),     # façade teal
+    # --- POI (append-only : n'altère pas les index 0..7 ci-dessus) ---
+    # Chinatown : signature doree (ressort vs marron/teal a 8 px).
+    ("cn_facade_a", 135, 0, 1),   # facade doree ornementee
+    ("cn_facade_b", 136, 0, 1),   # facade doree, centre sombre
+    ("cn_sign",     168, 0, 1),   # accent dore vif (enseigne)
+    # Commissariat : signature bleue. police_door non-solide = entree.
+    ("police_facade", 140, 0, 1), # facade bleue LCPD
+    ("police_sign",   103, 0, 1), # ecusson LCPD bleu
+    ("police_door",    49, 0, 0), # arche sombre = entree franchissable
 ]
 PLAYER_ID = 851  # piéton vu de dessus (tête en haut = orienté nord)
 
