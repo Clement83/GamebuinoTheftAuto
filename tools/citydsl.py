@@ -204,6 +204,8 @@ def compile_city(text, tile_index, solid_index):
             _roadgrid(city, spacing, width, margin, tile_index, line_no)
 
         elif cmd == "blocks":
+            if len(tok) < 4:
+                raise CityError(line_no, "usage: blocks <tile> density <D> [on <baseTile>]")
             t = _tile(tok[1], tile_index, line_no)
             kv = _kwargs(tok[2:])
             if "density" not in kv:

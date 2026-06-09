@@ -116,6 +116,12 @@ def test_blocks_only_on_base_tile_and_deterministic():
     assert any(v == 6 for v in c1.grid)
 
 
+def test_blocks_missing_tile_raises_cityerror():
+    with pytest.raises(CityError) as e:
+        _compile("size 4 4\nfill grass\nblocks\nplayer 0 0 south\n")
+    assert e.value.line_no == 3
+
+
 def test_blocks_default_base_is_grass():
     # density 1.0 -> tout le grass devient building_b (solide) ; on rouvre (0,0)
     # en grass apres coup pour pouvoir y spawner.
