@@ -67,6 +67,8 @@ def compile_city(text, tile_index, solid_index):
         if cmd == "size":
             if len(tok) != 3:
                 raise CityError(line_no, "usage: size <W> <H>")
+            if city is not None:
+                raise CityError(line_no, "'size' deja defini")
             w = _int(tok[1], line_no, "W")
             h = _int(tok[2], line_no, "H")
             if not (1 <= w <= MAX_DIM and 1 <= h <= MAX_DIM):
@@ -74,10 +76,14 @@ def compile_city(text, tile_index, solid_index):
             city = CompiledCity(w, h)
 
         elif cmd == "fill":
+            if len(tok) != 2:
+                raise CityError(line_no, "usage: fill <tile>")
             t = _tile(tok[1], tile_index, line_no)
             city.grid = [t] * (city.w * city.h)
 
         elif cmd == "rect":
+            if len(tok) != 6:
+                raise CityError(line_no, "usage: rect <tile> <x0> <y0> <x1> <y1>")
             t = _tile(tok[1], tile_index, line_no)
             x0 = _int(tok[2], line_no, "x0"); y0 = _int(tok[3], line_no, "y0")
             x1 = _int(tok[4], line_no, "x1"); y1 = _int(tok[5], line_no, "y1")
@@ -86,6 +92,8 @@ def compile_city(text, tile_index, solid_index):
                     city.set(x, y, t)
 
         elif cmd == "seed":
+            if len(tok) != 2:
+                raise CityError(line_no, "usage: seed <N>")
             rng = random.Random(_int(tok[1], line_no, "seed"))
 
         elif cmd == "player":

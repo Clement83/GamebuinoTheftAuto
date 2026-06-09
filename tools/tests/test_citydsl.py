@@ -47,3 +47,17 @@ def test_size_out_of_range():
         _compile("size 0 5\n")
     with pytest.raises(CityError):
         _compile("size 5 999\n")
+
+
+def test_malformed_commands_raise_cityerror():
+    # arite invalide -> CityError ligne, jamais IndexError
+    for src in ("size 3 3\nfill\n",
+                "size 3 3\nfill grass\nrect water 0 0 1\n",
+                "size 3 3\nseed\n"):
+        with pytest.raises(CityError):
+            _compile(src)
+
+
+def test_double_size_is_error():
+    with pytest.raises(CityError):
+        _compile("size 3 3\nsize 4 4\nfill grass\nplayer 0 0 south\n")
