@@ -16,7 +16,7 @@ CAR_TRANSP = 0xF81F      # magenta = transparent
 HDR = "gta/car.h"
 SRC = "gta/car_data.cpp"
 
-L, W = 7.0, 2.0          # demi-longueur / demi-largeur (voiture etroite)
+L, W = 6.0, 2.0          # demi-longueur / demi-largeur (voiture etroite et courte)
 
 
 def _rgb565(r, g, b):
