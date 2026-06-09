@@ -61,3 +61,19 @@ def test_malformed_commands_raise_cityerror():
 def test_double_size_is_error():
     with pytest.raises(CityError):
         _compile("size 3 3\nsize 4 4\nfill grass\nplayer 0 0 south\n")
+
+
+def test_hline_vline():
+    c = _compile("size 5 5\nfill grass\nhline pavement 1 3 2\n"
+                 "vline pavement 0 4 4\nplayer 0 0 south\n")
+    assert [c.get(x, 2) for x in range(5)] == [0, 4, 4, 4, 4]
+    assert [c.get(4, y) for y in range(5)] == [4, 4, 4, 4, 4]
+
+
+def test_river_vertical_and_horizontal():
+    c = _compile("size 6 6\nfill grass\nriver vertical 2 width 2\n"
+                 "river horizontal 4 width 1\nplayer 0 0 south\n")
+    # bande verticale water sur colonnes 2 et 3, toute la hauteur
+    assert c.get(2, 0) == 5 and c.get(3, 5) == 5 and c.get(1, 0) == 0
+    # bande horizontale water sur la ligne 4, toute la largeur
+    assert c.get(0, 4) == 5 and c.get(5, 4) == 5

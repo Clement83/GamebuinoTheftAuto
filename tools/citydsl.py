@@ -109,6 +109,38 @@ def compile_city(text, tile_index, solid_index):
                 raise CityError(line_no, "spawn sur tuile solide: (%d,%d)" % (x, y))
             city.spawn = (x, y, DIRS[d])
 
+        elif cmd == "hline":
+            t = _tile(tok[1], tile_index, line_no)
+            x0 = _int(tok[2], line_no, "x0"); x1 = _int(tok[3], line_no, "x1")
+            y = _int(tok[4], line_no, "y")
+            for x in range(min(x0, x1), max(x0, x1) + 1):
+                city.set(x, y, t)
+
+        elif cmd == "vline":
+            t = _tile(tok[1], tile_index, line_no)
+            y0 = _int(tok[2], line_no, "y0"); y1 = _int(tok[3], line_no, "y1")
+            x = _int(tok[4], line_no, "x")
+            for y in range(min(y0, y1), max(y0, y1) + 1):
+                city.set(x, y, t)
+
+        elif cmd == "river":
+            water = _tile("water", tile_index, line_no)
+            if len(tok) != 5 or tok[3] != "width":
+                raise CityError(line_no, "usage: river <vertical|horizontal> <pos> width <W>")
+            orient = tok[1]
+            pos = _int(tok[2], line_no, "pos")
+            wd = _int(tok[4], line_no, "width")
+            if orient == "vertical":
+                for x in range(pos, pos + wd):
+                    for y in range(city.h):
+                        city.set(x, y, water)
+            elif orient == "horizontal":
+                for y in range(pos, pos + wd):
+                    for x in range(city.w):
+                        city.set(x, y, water)
+            else:
+                raise CityError(line_no, "orientation inconnue: '%s'" % orient)
+
         else:
             raise CityError(line_no, "commande inconnue: '%s'" % cmd)
 
