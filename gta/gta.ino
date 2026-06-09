@@ -15,9 +15,15 @@
 #define FOLDER_NAME "GTADEMAKE"
 #endif
 #include <Gamebuino-Meta.h>
+#include <string.h>
 #include "assets.h"
 #include "citymap.h"
 #include "engine.h"
+
+// Pointeur direct sur le framebuffer RGB565 80x64 (gb.display._buffer).
+// On ecrit dedans sans passer par drawPixel (pas d'appel virtuel ni de
+// bounds-check par pixel) -> rendu nettement plus rapide. fb[y*80+x].
+static uint16_t *fb = nullptr;
 
 static const int SCREEN_W = 80;
 static const int SCREEN_H = 64;
@@ -109,16 +115,21 @@ static void readFootInput(int &dx, int &dy) {
 #endif
 }
 
+// Tuile 8x8 : copie ligne par ligne (memcpy) directement dans le framebuffer,
+// avec clipping aux bords de l'ecran. Source contigue de 8 px -> 16 octets/ligne.
 static void drawTile(uint8_t id, int sx, int sy) {
-  const uint16_t *px = tileset[id];
-  for (int ry = 0; ry < TILE_H; ry++) {
-    int y = sy + ry;
-    if (y < 0 || y >= SCREEN_H) { px += TILE_W; continue; }
-    for (int rx = 0; rx < TILE_W; rx++) {
-      int x = sx + rx;
-      if (x >= 0 && x < SCREEN_W) gb.display.drawPixel(x, y, (Color)px[rx]);
-    }
-    px += TILE_W;
+  int rx0 = 0, rx1 = TILE_W;
+  if (sx < 0) rx0 = -sx;
+  if (sx + TILE_W > SCREEN_W) rx1 = SCREEN_W - sx;
+  if (rx0 >= rx1) return;
+  int ry0 = 0, ry1 = TILE_H;
+  if (sy < 0) ry0 = -sy;
+  if (sy + TILE_H > SCREEN_H) ry1 = SCREEN_H - sy;
+  const uint16_t *src = tileset[id];
+  int w2 = (rx1 - rx0) * 2;
+  for (int ry = ry0; ry < ry1; ry++) {
+    memcpy(fb + (sy + ry) * SCREEN_W + (sx + rx0),
+           src + ry * TILE_W + rx0, w2);
   }
 }
 
@@ -126,25 +137,27 @@ static void drawPlayer(int sx, int sy) {
   const uint16_t *px = playerSprite[playerDir][playerFrame];
   for (int ry = 0; ry < PLAYER_H; ry++) {
     int y = sy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
     for (int rx = 0; rx < PLAYER_W; rx++) {
       uint16_t c = px[ry * PLAYER_W + rx];
       if (c == PLAYER_TRANSPARENT) continue;
       int x = sx + rx;
-      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) gb.display.drawPixel(x, y, (Color)c);
+      if (x >= 0 && x < SCREEN_W) row[x] = c;
     }
   }
 }
 
-// Voiture : rectangle oriente rempli (avance en jaune = phares), camera soustraite.
+// Voiture : rectangle oriente rempli (avance en jaune = phares), ecriture directe.
 static void drawCar(int camX, int camY) {
   float cs = cosf(car.angle), sn = sinf(car.angle);
   const float L = 5.0f, W = 3.0f;   // demi-longueur / demi-largeur
   for (float t = -L; t <= L + 0.01f; t += 1.0f) {
-    Color body = (t > L - 1.5f) ? Color::yellow : Color::red;   // museau jaune
+    uint16_t body = (t > L - 1.5f) ? (uint16_t)Color::yellow : (uint16_t)Color::red;
     for (float u = -W; u <= W + 0.01f; u += 1.0f) {
       int x = (int)(car.x + t * cs - u * sn) - camX;
       int y = (int)(car.y + t * sn + u * cs) - camY;
-      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) gb.display.drawPixel(x, y, body);
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = body;
     }
   }
 }
@@ -196,7 +209,10 @@ void loop() {
   int camX = clampCamera(focusX - SCREEN_W / 2, WORLD_W, SCREEN_W);
   int camY = clampCamera(focusY - SCREEN_H / 2, WORLD_H, SCREEN_H);
 
-  // Rendu tuiles : 11x9 (10x8 visibles + 1 marge / axe pour scroll sub-tuile).
+  // Rendu : ecriture directe dans le framebuffer (recupere chaque frame).
+  fb = gb.display._buffer;
+
+  // Tuiles : 11x9 (10x8 visibles + 1 marge / axe pour scroll sub-tuile).
   int col0 = camX >> 3, offX = camX & 7;
   int row0 = camY >> 3, offY = camY & 7;
   for (int ty = 0; ty < 9; ty++) {
