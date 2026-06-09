@@ -52,7 +52,7 @@ static bool driving = false;
 //  Glue device : pool statique, spawn/recyclage autour de la camera (culling),
 //  blit recolore (KEY -> couleur entite), collisions avec le joueur.
 // ---------------------------------------------------------------------------
-static const int NUM_AI_CARS = 6;
+static const int NUM_AI_CARS = 3;
 static const int NUM_AI_PEDS = 6;
 static const float AI_CAR_SPEED = 0.8f;   // px/frame (plus lent que le joueur)
 static const float AI_PED_SPEED = 0.35f;
@@ -62,6 +62,9 @@ static const int RING_MIN = 44;           // anneau de (re)spawn : juste hors ec
 static const int RING_MAX = 72;
 static const int PED_DOWN_FRAMES = 70;     // duree au sol avant recyclage
 static const int RUNOVER_SPEED2 = 1;       // vitesse^2 mini pour renverser
+static const int STOP_AHEAD = 15;          // px : distance d'arret devant obstacle
+static const int STOP_SIDE  = 6;           // px : tolerance laterale de l'obstacle
+static const int ENTER_AI_DIST = 12;       // px : portee pour voler une voiture IA
 
 // Frame de rotation voiture par direction cardinale (N E S W).
 // Angle 0 = est -> frame 0 ; +pi/2 = sud -> 6 ; pi = ouest -> 12 ; -pi/2 = nord -> 18.
@@ -87,7 +90,9 @@ static const int AI_PALETTE_N = sizeof(AI_PALETTE) / sizeof(AI_PALETTE[0]);
 
 // Teintes fixes du joueur (sprites partages, recolores comme les IA).
 static const uint16_t PLAYER_BODY_COLOR = 0xC800;  // rouge (perso a pied)
-static const uint16_t PLAYER_CAR_COLOR  = 0xC800;  // rouge (voiture du joueur)
+static const uint16_t PLAYER_CAR_COLOR  = 0xC800;  // rouge (voiture de depart)
+// Couleur de la voiture actuellement pilotee (change si on en vole une autre).
+static uint16_t carColor = PLAYER_CAR_COLOR;
 
 struct AiCar {
   float x, y;          // centre, px monde
@@ -273,7 +278,7 @@ static void drawCar(int camX, int camY) {
   int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);
   idx %= CAR_FRAMES;
   if (idx < 0) idx += CAR_FRAMES;
-  blitCar(camX, camY, (int)car.x, (int)car.y, idx, PLAYER_CAR_COLOR);
+  blitCar(camX, camY, (int)car.x, (int)car.y, idx, carColor);
 }
 
 // Cherche une tuile valide dans l'anneau [minR,maxR] px autour de (ccx,ccy).
@@ -319,6 +324,37 @@ static void aiRespawnPed(AiPed &p, int ccx, int ccy) {
   }
 }
 
+// Cherche une tuile marchable avec sortie proche de (cx,cy) px (spirale <=4).
+static bool aiFindWalkTileNear(int cx, int cy, int &otx, int &oty) {
+  int btx = cx >> 3, bty = cy >> 3;
+  for (int r = 0; r <= 4; r++)
+    for (int dy = -r; dy <= r; dy++)
+      for (int dx = -r; dx <= r; dx++) {
+        if (r > 0 && abs(dx) != r && abs(dy) != r) continue;   // anneau
+        int tx = btx + dx, ty = bty + dy;
+        if (aiIsWalkable(cityMap, CITY_W, CITY_H, tx, ty) &&
+            aiHasExit(cityMap, CITY_W, CITY_H, tx, ty, aiIsWalkable)) {
+          otx = tx; oty = ty; return true;
+        }
+      }
+  return false;
+}
+
+// Le conducteur d'une voiture volee descend : un pieton apparait a cote.
+static void aiEjectDriver(int atx_px, int aty_px) {
+  int slot = -1;
+  for (int i = 0; i < NUM_AI_PEDS; i++) if (!aiPeds[i].active) { slot = i; break; }
+  if (slot < 0) slot = 0;                  // pool plein : ecrase le premier
+  int tx, ty;
+  if (!aiFindWalkTileNear(atx_px, aty_px, tx, ty)) return;   // pas de place
+  AiPed &p = aiPeds[slot];
+  aiPlace(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
+          tx, ty, aiIsWalkable, aiRng);
+  p.color = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
+  p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0;
+  p.active = true;
+}
+
 // Met a jour le trafic autour du point de vue (fcx,fcy = centre suivi, px monde).
 // Recyclage des entites trop loin (culling), pas IA, collisions avec le joueur.
 static void aiUpdate(int fcx, int fcy) {
@@ -328,6 +364,10 @@ static void aiUpdate(int fcx, int fcy) {
   const float COL_CP = 6.0f;   // voiture-pieton
   float spd2 = car.vx * car.vx + car.vy * car.vy;
 
+  // Obstacle = entite joueur active (voiture pilotee, ou perso a pied).
+  int obx = driving ? (int)car.x : playerX + PLAYER_W / 2;
+  int oby = driving ? (int)car.y : playerY + PLAYER_H / 2;
+
   for (int i = 0; i < NUM_AI_CARS; i++) {
     AiCar &c = aiCars[i];
     if (c.active) {
@@ -335,8 +375,14 @@ static void aiUpdate(int fcx, int fcy) {
       if (ddx * ddx + ddy * ddy > rec2) c.active = false;
     }
     if (!c.active) { aiRespawnCar(c, fcx, fcy); continue; }
-    aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
-           AI_CAR_SPEED, aiIsDrivable, aiRng);
+    // Arret si le joueur est juste devant (dans la voie, a moins de STOP_AHEAD).
+    float relx = obx - c.x, rely = oby - c.y;
+    float fwd = relx * AI_DX[c.dir] + rely * AI_DY[c.dir];
+    float lat = relx * AI_DX[AI_RIGHT[c.dir]] + rely * AI_DY[AI_RIGHT[c.dir]];
+    bool blocked = (fwd > 0.0f && fwd < STOP_AHEAD && fabsf(lat) < STOP_SIDE);
+    if (!blocked)
+      aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
+             AI_CAR_SPEED, aiIsDrivable, aiRng);
     // Solide vis-a-vis de la voiture joueur : on repousse le joueur.
     if (driving) {
       float dx = car.x - c.x, dy = car.y - c.y;
@@ -400,11 +446,34 @@ void loop() {
     } else {
       playerFrame = 0; animTimer = 0;
     }
-    // Monter dans la voiture si on est a portee.
+    // A : monter dans une voiture a portee. Priorite a la plus proche, qu'elle
+    // soit la voiture du joueur (garee) ou une voiture IA (vol -> conducteur
+    // ejecte). best = -2 aucune, -1 voiture joueur, >=0 indice voiture IA.
     if (gb.buttons.pressed(BUTTON_A)) {
       int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
-      int ddx = pcx - (int)car.x, ddy = pcy - (int)car.y;
-      if (ddx * ddx + ddy * ddy <= ENTER_DIST * ENTER_DIST) driving = true;
+      int best = -2;
+      long bestd = (long)ENTER_DIST * ENTER_DIST;
+      long dC = (long)(pcx - (int)car.x) * (pcx - (int)car.x)
+              + (long)(pcy - (int)car.y) * (pcy - (int)car.y);
+      if (dC <= bestd) { best = -1; bestd = dC; }
+      long aiThr = (long)ENTER_AI_DIST * ENTER_AI_DIST;
+      for (int i = 0; i < NUM_AI_CARS; i++) {
+        if (!aiCars[i].active) continue;
+        long d = (long)(pcx - (int)aiCars[i].x) * (pcx - (int)aiCars[i].x)
+               + (long)(pcy - (int)aiCars[i].y) * (pcy - (int)aiCars[i].y);
+        if (d <= aiThr && d < bestd) { best = i; bestd = d; }
+      }
+      if (best == -1) {
+        driving = true;                    // remonter dans sa voiture
+      } else if (best >= 0) {
+        AiCar &c = aiCars[best];           // vol : le conducteur descend
+        aiEjectDriver((int)c.x, (int)c.y);
+        car.x = c.x; car.y = c.y; car.vx = 0.0f; car.vy = 0.0f;
+        car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
+        carColor = c.color;
+        c.active = false;                  // la voiture quitte le pool IA
+        driving = true;
+      }
     }
   } else {
     // --- AU VOLANT ---

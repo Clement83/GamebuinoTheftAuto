@@ -86,6 +86,21 @@ RAM : ~210 o pour les deux pools. CPU : par agent, avance flottante + lookup tui
 seulement aux frontières + 12 tests AABB/frame en voiture. Objectif : rester < ~80 %.
 On mesure étape par étape (debug série `gb.getCpuLoad()`), on réduit N si besoin.
 
+## Itération 1 (après test sur device, 2026-06-09)
+
+- **Densité voitures 6 → 3** (`NUM_AI_CARS`) : 6 trop chargé. Piétons restent à 6.
+- **Arrêt sur obstacle** : une voiture IA s'arrête si l'entité joueur active (perso
+  à pied OU voiture pilotée) est devant elle, dans la voie, à moins de `STOP_AHEAD`
+  px (tolérance latérale `STOP_SIDE`). Projection avant/latérale via les vecteurs
+  `dir`/`RIGHT[dir]` — quelques multiplications par voiture, négligeable. Pas
+  d'arrêt IA↔IA ni pour les voitures garées (seule l'entité active bloque).
+- **Vol de véhicule** : à pied, `A` prend la voiture la plus proche à portée —
+  voiture du joueur (`ENTER_DIST`) ou voiture IA (`ENTER_AI_DIST`). Pour une IA :
+  le conducteur descend (un piéton apparaît sur un trottoir proche via
+  `aiEjectDriver`), la voiture quitte le pool IA et devient la voiture pilotée,
+  sa teinte est conservée (`carColor`, repris par `drawCar`). Limite assumée : un
+  seul créneau « voiture joueur » — voler une voiture écrase la précédente.
+
 ## Hors scope (v1)
 
 - Fuite/panique des piétons, feux tricolores, klaxons, IA d'évitement,
