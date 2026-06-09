@@ -67,13 +67,30 @@ def _water_adjacent_districts(zones, district_id, w, h):
     return adj
 
 
-def assign_themes(seed, zones, district_id, seed_type, w, h, available):
+def _sea_adjacent_districts(sea, district_id, w, h):
+    """Ensemble des districts dont une cellule de terre touche la mer cotiere."""
+    adj = set()
+    for y in range(h):
+        for x in range(w):
+            i = y * w + x
+            if sea[i]:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < w and 0 <= ny < h and sea[ny * w + nx]:
+                    adj.add(district_id[i])
+                    break
+    return adj
+
+
+def assign_themes(seed, zones, district_id, seed_type, w, h, available, sea=None):
     """Affecte chaque theme disponible a UN district distinct -> (theme[w*h], assign).
 
     `available` : ensemble des theme_id activables (tuiles presentes). Chaque
     theme prend une cellule-district selon sa zone privilegiee ; le port exige un
-    district touchant l'eau (repli : n'importe quel district eau-adjacent libre).
-    Le theme ne marque que les cellules terrestres (ni eau ni parc)."""
+    district borde par la mer cotiere (`sea`) -- repli : n'importe quelle eau
+    adjacente, puis n'importe quel district libre. Le theme ne marque que les
+    cellules terrestres (ni eau ni parc)."""
     theme = [THEME_NONE] * (w * h)
     rng = random.Random(seed + 8)
     by_zone = {
@@ -81,6 +98,9 @@ def assign_themes(seed, zones, district_id, seed_type, w, h, available):
         Z_RESIDENTIAL: [d for d, t in enumerate(seed_type) if t == Z_RESIDENTIAL],
     }
     water_adj = _water_adjacent_districts(zones, district_id, w, h)
+    # le port vise la mer cotiere ; sans masque sea on retombe sur l'eau quelconque
+    port_adj = _sea_adjacent_districts(sea, district_id, w, h) if sea else set()
+    port_adj = port_adj or water_adj
     used, assign = set(), {}
     for tid in THEME_ORDER:
         if tid not in available:
@@ -88,8 +108,8 @@ def assign_themes(seed, zones, district_id, seed_type, w, h, available):
         d = THEME_DEFS[tid]
         pool = [k for k in by_zone[d["prefer"]] if k not in used]
         if d["water"]:
-            pool = [k for k in pool if k in water_adj] or \
-                   [k for k in range(len(seed_type)) if k not in used and k in water_adj]
+            pool = [k for k in pool if k in port_adj] or \
+                   [k for k in range(len(seed_type)) if k not in used and k in port_adj]
         if not pool:                       # repli : n'importe quel district libre
             pool = [k for k in range(len(seed_type)) if k not in used]
         if not pool:
@@ -184,3 +204,56 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
             occupied.add(c)
         placed[name] = (x, y)
     return placed
+
+
+def place_docks(grid, sea, district_id, port_d, tile_index, w, h,
+                jetties=3, max_len=4, gap=4):
+    """Pose 2-3 jetees (tuile 'dock') le long de la facade maritime du port.
+
+    Une jetee part d'une cellule de mer au bord de la terre du district port et
+    avance perpendiculairement vers le large, sur au plus `max_len` cellules,
+    en laissant toujours >= 1 cellule de mer au-dela (jamais "jusqu'au bout").
+    Les amorces sont espacees d'au moins `gap`. Deterministe (aucun rng).
+    Marchable (dock non solide). Retourne le nombre de tuiles de quai posees."""
+    dock = tile_index["dock"]
+
+    # amorces : cellule de mer dont le voisin "arriere" est la terre du port ;
+    # (dx,dy) pointe alors vers le large.
+    starts = []
+    for y in range(h):
+        for x in range(w):
+            if not sea[y * w + x]:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                bx, by = x - dx, y - dy        # cellule "derriere" (vers la terre)
+                if 0 <= bx < w and 0 <= by < h:
+                    b = by * w + bx
+                    if not sea[b] and district_id[b] == port_d:
+                        starts.append((x, y, dx, dy))
+                        break
+
+    # espacement : balayage deterministe, on garde une amorce loin des precedentes
+    picks = []
+    for s in starts:
+        if all((s[0] - p[0]) ** 2 + (s[1] - p[1]) ** 2 >= gap * gap for p in picks):
+            picks.append(s)
+        if len(picks) >= jetties:
+            break
+
+    n = 0
+    for x, y, dx, dy in picks:
+        # longueur de mer disponible droit devant (avant la terre ou le bord)
+        run = 0
+        cx, cy = x, y
+        while 0 <= cx < w and 0 <= cy < h and sea[cy * w + cx]:
+            run += 1
+            cx += dx
+            cy += dy
+        length = min(max_len, run - 1)        # laisse >= 1 cellule de mer au large
+        cx, cy = x, y
+        for _ in range(length):
+            grid[cy * w + cx] = dock
+            n += 1
+            cx += dx
+            cy += dy
+    return n

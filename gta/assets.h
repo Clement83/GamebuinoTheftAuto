@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-#define NUM_TILES 29
+#define NUM_TILES 31
 #define TILE_W 8
 #define TILE_H 8
 #define PLAYER_W 8
@@ -39,7 +39,9 @@ enum TileId : uint8_t {
   TILE_CONS_SIGN,
   TILE_JUNK_FACADE_A,
   TILE_JUNK_FACADE_B,
-  TILE_JUNK_SIGN
+  TILE_JUNK_SIGN,
+  TILE_SAND,
+  TILE_DOCK
 };
 
 enum Dir : uint8_t { DIR_NORTH=0, DIR_EAST, DIR_SOUTH, DIR_WEST };

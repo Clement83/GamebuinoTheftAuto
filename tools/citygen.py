@@ -57,6 +57,79 @@ Z_WATER = 0
 Z_PARK = 1
 Z_DOWNTOWN = 2
 Z_RESIDENTIAL = 3
+Z_SAND = 4               # plage : bande de terre marchable bordant la mer cotiere
+
+# Bords possibles pour la mer cotiere forcee (choisi par la seed).
+COAST_EDGES = ('N', 'E', 'S', 'W')
+
+
+def coast_edge(seed):
+    """Bord (N/E/S/O) ou la mer cotiere est forcee, derive de la seed."""
+    return random.Random(seed + 6).choice(COAST_EDGES)
+
+
+def _coast_columns(edge, w, h):
+    """Pour chaque position t le long de `edge`, l'iterateur (k -> (x,y)) des
+    cellules en s'enfoncant vers l'interieur (k=0 = bord de carte)."""
+    if edge in ('N', 'S'):
+        span = w
+        def cell(t, k):
+            return (t, k) if edge == 'N' else (t, h - 1 - k)
+    else:
+        span = h
+        def cell(t, k):
+            return (k, t) if edge == 'W' else (w - 1 - k, t)
+    return span, cell
+
+
+def force_coast(seed, w, h, zones, sea):
+    """Force une mer le long d'un bord choisi par la seed (override le noise).
+
+    Mute `zones` (cellules -> Z_WATER) et `sea` (masque booleen de la mer
+    cotiere, distinct des lacs/fleuve). Trace de cote irregulier via un value
+    noise 1D le long du bord, puis marque une fine bande de sable (Z_SAND) sur
+    la terre juste a l'interieur. Pur/deterministe. Retourne le bord choisi."""
+    edge = coast_edge(seed)
+    span, cell = _coast_columns(edge, w, h)
+    base = max(3, min(w, h) // 24)          # frange cotiere fine (96 -> 4)
+    amp = max(1.0, base * 0.5)
+    # la mer ne couvre qu'un segment du bord (~3/4), place par la seed : le reste
+    # de la face reste de la ville jusqu'au bord.
+    rng = random.Random(seed + 9)
+    seg = int(span * (0.70 + rng.random() * 0.12))   # ~70-82 % du bord
+    start = rng.randint(0, max(0, span - seg))
+    taper = base                            # extremites adoucies (baie)
+    for t in range(start, start + seg):
+        end_dist = min(t - start, start + seg - 1 - t)
+        local = base + (_value_noise(seed + 7, t * 0.18, 0.0) - 0.5) * 2 * amp
+        if end_dist < taper:                # rampe vers 0 aux deux bouts
+            local *= (end_dist + 1) / (taper + 1)
+        depth = max(1, int(round(local)))
+        for k in range(depth):
+            x, y = cell(t, k)
+            if 0 <= x < w and 0 <= y < h:
+                i = y * w + x
+                zones[i] = Z_WATER
+                sea[i] = True
+    # plage : terre a <= BEACH_W de la mer cotiere
+    beach_w = 2
+    for y in range(h):
+        for x in range(w):
+            i = y * w + x
+            if zones[i] == Z_WATER:
+                continue
+            near = False
+            for dy in range(-beach_w, beach_w + 1):
+                for dx in range(-beach_w, beach_w + 1):
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < w and 0 <= ny < h and sea[ny * w + nx]:
+                        near = True
+                        break
+                if near:
+                    break
+            if near:
+                zones[i] = Z_SAND
+    return edge
 
 # Theme "aucun" (defaut de la couche theme parallele aux zones). Les identifiants
 # de themes concrets et leurs palettes sont definis dans tools/pois.py ; ici
@@ -93,7 +166,11 @@ def voronoi_districts(seed, w, h, districts):
 
 
 def build_zones(seed, w, h, water, parks, districts):
-    """Carte de zones (eau, fleuve, quartiers Voronoi, parcs) -> liste plate w*h."""
+    """Carte de zones + masque mer cotiere -> (zones[w*h], sea[w*h]).
+
+    Couches : blob d'eau (noise) + fleuve, quartiers Voronoi, parcs, puis mer
+    cotiere forcee sur un bord (seed) avec plage. `sea` marque la seule mer
+    cotiere (les lacs/fleuve en restent exclus)."""
     zones = [Z_RESIDENTIAL] * (w * h)
 
     # 1. blob d'eau (noise)
@@ -128,7 +205,11 @@ def build_zones(seed, w, h, water, parks, districts):
             if zones[y * w + x] != Z_WATER and npf[y][x] < thr:
                 zones[y * w + x] = Z_PARK
 
-    return zones
+    # 5. mer cotiere forcee (override) + plage
+    sea = [False] * (w * h)
+    force_coast(seed, w, h, zones, sea)
+
+    return zones, sea
 
 
 # --- couche ROUTES -----------------------------------------------------------
@@ -189,7 +270,7 @@ def draw_roads(zone_grid, seed, w, h, margin=3):
     for y in range(margin, h - margin):
         for x in range(margin, w - margin):
             zone = zone_grid[y * w + x]
-            if zone == Z_WATER:
+            if zone == Z_WATER or zone == Z_SAND:   # ni mer ni plage : pas de route
                 continue
             on_col = (x in major_cols) or (x in minor_cols and zone == Z_DOWNTOWN)
             on_row = (y in major_rows) or (y in minor_rows and zone == Z_DOWNTOWN)
@@ -263,6 +344,8 @@ def fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx,
             zone = zone_grid[i]
             if zone == Z_WATER:
                 grid[i] = idx['water']
+            elif zone == Z_SAND:
+                grid[i] = idx.get('sand', idx['grass'])   # plage (repli grass)
             elif zone == Z_PARK:
                 grid[i] = idx['grass']
             elif theme is not None and theme[i] in palettes:
@@ -361,6 +444,8 @@ def generate_into(city, seed, tile_index, solid_index,
         if name not in tile_index:
             raise ValueError("citygen: tuile manquante: '%s'" % name)
         idx[name] = tile_index[name]
+    if 'sand' in tile_index:                    # plage : tuile optionnelle
+        idx['sand'] = tile_index['sand']
 
     # 2. dimensions
     w, h = city.w, city.h
@@ -375,17 +460,18 @@ def generate_into(city, seed, tile_index, solid_index,
 
     # 3. zones + districts (les districts servent aussi au placement POI)
     district_id, seed_type, _ = voronoi_districts(seed, w, h, districts)
-    z = build_zones(seed, w, h, water, parks, districts)
+    z, sea = build_zones(seed, w, h, water, parks, districts)
 
     # 4. routes + ponts
     r = draw_roads(z, seed, w, h)
     r = add_bridges(z, r, seed, w, h)
 
-    # 4b. affectation des themes de quartier (avant remplissage des blocs)
-    theme = None
+    # 4b. affectation des themes de quartier (avant remplissage des blocs).
+    # Le port est restreint a un district borde par la mer cotiere (masque sea).
+    theme, assign = None, {}
     if palettes:
-        theme, _ = pois.assign_themes(seed, z, district_id, seed_type,
-                                      w, h, set(palettes))
+        theme, assign = pois.assign_themes(seed, z, district_id, seed_type,
+                                           w, h, set(palettes), sea=sea)
 
     # 5. base grass
     city.grid = [idx['grass']] * (w * h)
@@ -411,6 +497,14 @@ def generate_into(city, seed, tile_index, solid_index,
     # route doit se trouver juste au sud de la porte.
     if stamps_avail:
         pois.place_stamps(city.grid, z, district_id, seed_type, seed, w, h, tile_index)
+
+    # 8c. quais du port : tuile dock (optionnelle) sur la mer cotiere bordant le
+    # district port (jetee marchable devant les facades).
+    if 'dock' in tile_index:
+        port_d = [d for d, t in assign.items() if t == pois.THEME_PORT]
+        if port_d:
+            pois.place_docks(city.grid, sea, district_id, port_d[0],
+                             tile_index, w, h)
 
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)

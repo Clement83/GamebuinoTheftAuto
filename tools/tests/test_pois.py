@@ -59,9 +59,9 @@ def test_has_any_stamp_true_on_full_tileset():
 # ----- assign_themes --------------------------------------------------------
 
 def test_assign_themes_distinct_districts_and_zone_pref():
-    z = citygen.build_zones(7, 96, 96, 0.18, 0.10, 10)
+    z, sea = citygen.build_zones(7, 96, 96, 0.18, 0.10, 10)
     did, st, _ = citygen.voronoi_districts(7, 96, 96, 10)
-    theme, assign = pois.assign_themes(7, z, did, st, 96, 96, set(THEME_TILES))
+    theme, assign = pois.assign_themes(7, z, did, st, 96, 96, set(THEME_TILES), sea=sea)
     assert len(assign) == len(set(assign))          # un district distinct par theme
     # zones privilegiees respectees (hors repli)
     for d, tid in assign.items():
@@ -72,19 +72,19 @@ def test_assign_themes_distinct_districts_and_zone_pref():
 
 
 def test_assign_themes_port_touches_water():
-    z = citygen.build_zones(7, 96, 96, 0.20, 0.05, 12)
+    z, sea = citygen.build_zones(7, 96, 96, 0.20, 0.05, 12)
     did, st, _ = citygen.voronoi_districts(7, 96, 96, 12)
-    water_adj = pois._water_adjacent_districts(z, did, 96, 96)
-    _, assign = pois.assign_themes(7, z, did, st, 96, 96, set(THEME_TILES))
+    sea_adj = pois._sea_adjacent_districts(sea, did, 96, 96)
+    _, assign = pois.assign_themes(7, z, did, st, 96, 96, set(THEME_TILES), sea=sea)
     port_d = [d for d, t in assign.items() if t == THEME_PORT]
-    assert port_d and port_d[0] in water_adj
+    assert port_d and port_d[0] in sea_adj          # port borde la mer cotiere
 
 
 def test_assign_themes_deterministic_and_confined():
-    z = citygen.build_zones(7, 64, 64, 0.18, 0.10, 8)
+    z, sea = citygen.build_zones(7, 64, 64, 0.18, 0.10, 8)
     did, st, _ = citygen.voronoi_districts(7, 64, 64, 8)
-    a, _ = pois.assign_themes(7, z, did, st, 64, 64, set(THEME_TILES))
-    b, _ = pois.assign_themes(7, z, did, st, 64, 64, set(THEME_TILES))
+    a, _ = pois.assign_themes(7, z, did, st, 64, 64, set(THEME_TILES), sea=sea)
+    b, _ = pois.assign_themes(7, z, did, st, 64, 64, set(THEME_TILES), sea=sea)
     assert a == b
     # chaque cellule thematisee appartient a un seul district par theme
     for tid in set(THEME_TILES):

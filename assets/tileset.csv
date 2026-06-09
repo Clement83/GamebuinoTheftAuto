@@ -28,3 +28,5 @@ cons_sign,assets/named/tiles/cons_sign.png,1
 junk_facade_a,assets/named/tiles/junk_facade_a.png,1
 junk_facade_b,assets/named/tiles/junk_facade_b.png,1
 junk_sign,assets/named/tiles/junk_sign.png,1
+sand,assets/named/tiles/sand.png,0
+dock,assets/named/tiles/dock.png,0

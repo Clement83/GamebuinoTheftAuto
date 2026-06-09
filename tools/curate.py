@@ -5,7 +5,7 @@ relancer ce script régénère les PNG nommés et le tileset.csv à l'identique.
 L'ORDRE de TILE_PICKS fixe l'index enum (grass=0, road_h=1, ...).
 """
 import os, csv
-from PIL import Image
+from PIL import Image, ImageDraw
 
 TILES = "GTA_textures_LC/LC/tiles"
 SPR = "GTA_textures_LC/LC/sprites"
@@ -55,6 +55,43 @@ TILE_PICKS = [
 ]
 PLAYER_ID = 851  # piéton vu de dessus (tête en haut = orienté nord)
 
+# Tuiles generees (absentes du rip GTA) : la cote maritime n'a pas de pendant
+# top-down dans la planche. Dessinees procéduralement, deterministes. Append-only
+# -> index enum 29 (sand) puis 30 (dock).
+GEN_SIZE = 64
+
+
+def _gen_sand(size):
+    """Plage : beige sable chaud, mouchetures fixes (lisible vs trottoir gris)."""
+    im = Image.new("RGB", (size, size), (218, 196, 138))
+    px = im.load()
+    for y in range(size):
+        for x in range(size):
+            d = (x * 7 + y * 13 + x * y) % 11        # motif deterministe
+            if d == 0:
+                px[x, y] = (232, 213, 162)           # grain clair
+            elif d == 5:
+                px[x, y] = (198, 174, 120)           # grain sombre
+    return im
+
+
+def _gen_dock(size):
+    """Quai : planches bois verticales, joints sombres (jetee marchable)."""
+    im = Image.new("RGB", (size, size), (124, 86, 52))
+    d = ImageDraw.Draw(im)
+    plank = max(6, size // 6)
+    for x in range(0, size, plank):
+        d.line([(x, 0), (x, size - 1)], fill=(86, 58, 33), width=2)   # joint
+        d.line([(x + plank // 2, 0), (x + plank // 2, size - 1)],
+               fill=(140, 100, 62), width=1)                          # veinure
+    return im
+
+
+GEN_TILES = [
+    ("sand", _gen_sand, 0),     # plage marchable
+    ("dock", _gen_dock, 0),     # quai marchable
+]
+
 
 def main():
     os.makedirs(NAMED_T, exist_ok=True)
@@ -66,6 +103,10 @@ def main():
             im = im.rotate(rot, expand=False)
         out = f"{NAMED_T}/{name}.png"
         im.save(out)
+        rows.append((name, out, solid))
+    for name, gen, solid in GEN_TILES:
+        out = f"{NAMED_T}/{name}.png"
+        gen(GEN_SIZE).save(out)
         rows.append((name, out, solid))
     ped = Image.open(f"{SPR}/GTASPR1_{PLAYER_ID}.bmp").convert("RGB")
     ped.save(f"{NAMED_S}/player_a.png")

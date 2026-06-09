@@ -3,7 +3,8 @@ from collections import Counter
 from tools.citydsl import CompiledCity
 from tools import citygen
 from tools.citygen import noise_field, _value_noise, _hash01, _quantile_threshold
-from tools.citygen import (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL, build_zones)
+from tools.citygen import (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL, Z_SAND,
+                           build_zones)
 
 
 def test_hash_deterministic_and_range():
@@ -36,28 +37,29 @@ def test_quantile_threshold_fraction():
 
 
 def test_build_zones_all_types_present_and_labeled():
-    z = build_zones(7, 96, 96, water=0.18, parks=0.10, districts=8)
+    z, _ = build_zones(7, 96, 96, water=0.18, parks=0.10, districts=8)
     assert len(z) == 96 * 96
     n = Counter(z)
     for t in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL):
         assert n[t] > 0, "zone %d absente" % t
-    assert all(v in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL) for v in z)
+    assert all(v in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL, Z_SAND) for v in z)
 
 
 def test_build_zones_deterministic():
     a = build_zones(7, 64, 64, 0.18, 0.10, 8)
     assert a == build_zones(7, 64, 64, 0.18, 0.10, 8)
     assert a != build_zones(9, 64, 64, 0.18, 0.10, 8)
+    assert len(a) == 2 and len(a[0]) == 64 * 64
 
 
 def test_water_fraction_roughly_matches():
-    z = build_zones(3, 96, 96, water=0.20, parks=0.05, districts=8)
+    z, _ = build_zones(3, 96, 96, water=0.20, parks=0.05, districts=8)
     frac = Counter(z)[Z_WATER] / (96 * 96)
-    assert 0.18 <= frac <= 0.40
+    assert 0.18 <= frac <= 0.50          # +mer cotiere forcee
 
 
 def test_downtown_more_central_than_residential():
-    z = build_zones(7, 96, 96, 0.15, 0.05, 10)
+    z, _ = build_zones(7, 96, 96, 0.15, 0.05, 10)
     cx = cy = 48
     def mean_dist(t):
         ds = [((x-cx)**2+(y-cy)**2)**0.5 for y in range(96) for x in range(96)
@@ -69,7 +71,7 @@ def test_downtown_more_central_than_residential():
 from tools.citygen import draw_roads, add_bridges
 
 def _zone_and_roads(seed=7, w=96, h=96):
-    z = build_zones(seed, w, h, 0.15, 0.05, 10)
+    z, _ = build_zones(seed, w, h, 0.15, 0.05, 10)
     r = draw_roads(z, seed, w, h)
     return z, r
 
@@ -127,10 +129,11 @@ def test_full_all_tiles_present():
         assert n[t] > 0, "tuile %d absente" % t
 
 def test_downtown_denser_buildings_than_residential():
-    c = _gen(); z = build_zones(7, 96, 96, 0.18, 0.10, 8)
-    def bfrac(t):
-        idx = [i for i,zz in enumerate(z) if zz==t]
-        return sum(1 for i in idx if c.grid[i] in (6,7))/max(1,len(idx))
+    c = _gen(); z, _ = build_zones(7, 96, 96, 0.18, 0.10, 8)
+    roads = (1, 2, 3, 4)            # routes + trottoirs : hors zonage bati
+    def bfrac(t):                   # densite de bati parmi les cellules batissables
+        idx = [i for i, zz in enumerate(z) if zz == t and c.grid[i] not in roads]
+        return sum(1 for i in idx if c.grid[i] in (6, 7)) / max(1, len(idx))
     assert bfrac(Z_DOWNTOWN) > bfrac(Z_RESIDENTIAL)
 
 def test_pavement_single_thickness():
