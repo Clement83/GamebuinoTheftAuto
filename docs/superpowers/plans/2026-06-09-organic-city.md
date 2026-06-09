@@ -1,298 +1,248 @@
-# GTA Gamebuino Demake — Plan : Génération organique de ville (bruit)
+# GTA Gamebuino Demake — Plan : Génération organique de ville (pipeline en couches)
 
 > **For agentic workers:** Implémenté via superpowers:subagent-driven-development (TDD par tâche, review spec puis qualité). Cases `- [ ]` pour le suivi.
 
-**Goal:** Remplacer la grille régulière par une ville **organique** style GTA1 (eau qui serpente, blocs de tailles irrégulières, parcs dispersés, densité variable), générée par **value noise déterministe** (graine fixe). Le générateur tourne au build (PC) et produit le `cityMap[]` figé — aucun coût/portage côté Gamebuino.
+**Goal:** Ville organique style GTA1 générée par une **pipeline déterministe en couches** : zones (Voronoi de quartiers) → routes (grille hiérarchique jittée, denses en downtown) → ponts → remplissage des blocs par zone → trottoirs/spawn. Value noise déterministe (graine fixe). Tourne au build (PC) → produit le `cityMap[]` figé, aucun coût device.
 
-**Architecture:**
-- `tools/citygen.py` — module **pur** déterministe : primitives de bruit (`noise_field`, `_value_noise`, `_hash01`, `_smooth`) + `generate_into(city, seed, tile_index, solid_index, water, parks, density)` qui remplit `city.grid` et fixe `city.spawn`. Réutilise `CompiledCity` de `citydsl`. Aucune I/O.
-- `tools/citydsl.py` — nouvelle commande DSL `organic [water <w>] [parks <p>] [density <d>]` qui délègue à `citygen.generate_into` (utilise la graine du `seed`/défaut 1). `player` devient **optionnel** quand `organic` a déjà fixé un spawn valide.
-- `city/city.txt` — réécrit pour utiliser `organic` (LA ville de démarrage). `build_city` émet toujours `citymap.{h,cpp,png}` ; le viewer M3 affiche la nouvelle ville sans modif.
+**Architecture (`tools/citygen.py`, pur, aucune I/O) :**
+- Primitives de bruit (déjà livrées Task 1) : `_hash01`, `_smooth`, `_value_noise`, `noise_field`, `_quantile_threshold`.
+- Constantes de zone : `Z_WATER=0, Z_PARK=1, Z_DOWNTOWN=2, Z_RESIDENTIAL=3`.
+- Couches pures et **testables isolément** :
+  - `build_zones(seed, w, h, water, parks, districts) -> zone_grid` (liste plate `[h*w]`).
+  - `draw_roads(zone_grid, seed, w, h, margin) -> road_grid` (plate ; 0=pas route, sinon road_h/road_v/road_cross via index passés OU codes internes 'h'/'v'/'x').
+  - `add_bridges(zone_grid, road_grid, seed, w, h, max_span) -> road_grid` (modifie/retourne).
+  - `fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx)` (pose bâtiments par zone).
+  - `add_pavement(grid, w, h, idx)`, `pick_spawn(grid, w, h, solid_index, zone_grid) -> (x,y,2)`.
+  - `generate_into(city, seed, tile_index, solid_index, water=0.18, parks=0.10, density=0.85, districts=8)` — orchestre tout, écrit `city.grid` + `city.spawn`.
 
-**Convention d'exécution :** racine du dépôt ; pytest = `.venv/bin/python -m pytest`. Map 96×96.
+**IMPORTANT — refactor :** le `generate_into` monolithique actuel (issu des commits `f7da7b7`/`5eb3fbf`) est **remplacé** par cette pipeline en couches. Les anciens tests de `test_citygen.py` qui supposaient le monolithe sont remplacés par des tests par couche (ci-dessous). Garder les tests des **primitives de bruit** (Task 1) intacts.
 
-**Contrat tuiles (noms requis dans tile_index) :** `grass, road_h, road_v, road_cross, pavement, water, building_a, building_b`. Solides = `solid_index` (= {water, building_a, building_b}).
+**Contrat tuiles :** noms requis `grass, road_h, road_v, road_cross, pavement, water, building_a, building_b` dans `tile_index`. `solid_index` = {water, building_a, building_b}. Manquant → `ValueError` clair.
 
-**Déterminisme :** tout dérive de `seed` (offsets de sel différents par champ de bruit). Même `(w,h,seed,params)` → même grille. Vérifié par test.
-
----
-
-## Implémentation de référence du bruit (à utiliser telle quelle en Task 1)
-
-```python
-import math
-
-def _hash01(seed, ix, iy):
-    """Float pseudo-aléatoire déterministe dans [0,1) depuis des coords entières de lattice."""
-    h = (ix * 374761393 + iy * 668265263 + seed * 2147483647) & 0xFFFFFFFF
-    h = (h ^ (h >> 13)) * 1274126177 & 0xFFFFFFFF
-    h ^= (h >> 16)
-    return (h & 0xFFFFFFFF) / 4294967296.0
-
-def _smooth(t):
-    return t * t * (3.0 - 2.0 * t)
-
-def _value_noise(seed, x, y):
-    """Value noise bilinéaire lissé en (x,y) flottants (espace lattice)."""
-    x0, y0 = math.floor(x), math.floor(y)
-    fx, fy = x - x0, y - y0
-    v00 = _hash01(seed, x0, y0);     v10 = _hash01(seed, x0 + 1, y0)
-    v01 = _hash01(seed, x0, y0 + 1); v11 = _hash01(seed, x0 + 1, y0 + 1)
-    sx, sy = _smooth(fx), _smooth(fy)
-    a = v00 + (v10 - v00) * sx
-    b = v01 + (v11 - v01) * sx
-    return a + (b - a) * sy
-
-def noise_field(seed, w, h, scale, octaves=3, persistence=0.5):
-    """Champ [h][w] de flottants dans [0,1], somme d'octaves de value noise."""
-    field = [[0.0] * w for _ in range(h)]
-    for y in range(h):
-        for x in range(w):
-            amp, freq, total, norm = 1.0, 1.0 / scale, 0.0, 0.0
-            for o in range(octaves):
-                total += amp * _value_noise(seed + o * 101, x * freq, y * freq)
-                norm += amp
-                amp *= persistence
-                freq *= 2.0
-            field[y][x] = total / norm
-    return field
-
-def _quantile_threshold(field, frac):
-    """Seuil tel qu'environ `frac` des cellules soient < seuil."""
-    vals = sorted(v for row in field for v in row)
-    if not vals:
-        return 0.0
-    i = max(0, min(len(vals) - 1, int(frac * len(vals))))
-    return vals[i]
-```
+**Convention :** racine du dépôt ; pytest = `.venv/bin/python -m pytest`. Map 96×96.
 
 ---
 
-## Task 1 : `citygen.py` — primitives de bruit (TDD)
+## Task 1 : primitives de bruit — ✅ DÉJÀ LIVRÉE (commit 2fe619c)
 
-**Files:** Create `tools/citygen.py`, `tools/tests/test_citygen.py`.
-
-- [ ] **Step 1 : tests qui échouent** (`tools/tests/test_citygen.py`) :
-```python
-from tools.citygen import noise_field, _value_noise, _hash01, _quantile_threshold
-
-
-def test_hash_deterministic_and_range():
-    assert _hash01(7, 3, 4) == _hash01(7, 3, 4)
-    assert _hash01(7, 3, 4) != _hash01(7, 3, 5)
-    assert 0.0 <= _hash01(1, 10, 20) < 1.0
-
-
-def test_noise_field_shape_range_deterministic():
-    f1 = noise_field(7, 16, 12, scale=4.0)
-    assert len(f1) == 12 and len(f1[0]) == 16
-    assert all(0.0 <= v <= 1.0 for row in f1 for v in row)
-    f2 = noise_field(7, 16, 12, scale=4.0)
-    assert f1 == f2                       # déterministe
-    f3 = noise_field(8, 16, 12, scale=4.0)
-    assert f1 != f3                       # graine différente -> champ différent
-
-
-def test_noise_is_smooth_not_white():
-    # value noise lissé : voisins corrélés -> variations locales modestes en moyenne
-    f = noise_field(3, 40, 40, scale=8.0)
-    diffs = [abs(f[y][x] - f[y][x + 1]) for y in range(40) for x in range(39)]
-    assert sum(diffs) / len(diffs) < 0.2  # pas du bruit blanc
-
-
-def test_quantile_threshold_fraction():
-    f = noise_field(5, 30, 30, scale=6.0)
-    thr = _quantile_threshold(f, 0.3)
-    below = sum(1 for row in f for v in row if v < thr)
-    assert 0.2 * 900 <= below <= 0.4 * 900   # ~30% sous le seuil
-```
-
-- [ ] **Step 2 :** `.venv/bin/python -m pytest tools/tests/test_citygen.py -v` → FAIL (module absent).
-- [ ] **Step 3 :** implémenter les primitives (copier l'implémentation de référence ci-dessus dans `tools/citygen.py`).
-- [ ] **Step 4 :** `.venv/bin/python -m pytest tools/tests/test_citygen.py -v` → PASS (4).
-- [ ] **Step 5 :** commit `feat(organic): citygen primitives de value noise (deterministe)`.
+`_hash01`, `_smooth`, `_value_noise`, `noise_field`, `_quantile_threshold` + tests. Ne pas y toucher.
 
 ---
 
-## Task 2 : géographie — eau (blob + fleuve serpentant) + grille de rues irrégulière + trottoirs (TDD)
+## Task A : `build_zones` — eau + fleuve + Voronoi de quartiers + parcs (TDD)
 
-**Files:** Modify `tools/citygen.py`, `tools/tests/test_citygen.py`.
+**Files:** Modify `tools/citygen.py`, rewrite the non-noise part of `tools/tests/test_citygen.py`.
 
-Implémenter `generate_into(city, seed, tile_index, solid_index, water=0.22, parks=0.12, density=0.6)` — pour CETTE task, ne traiter QUE : grass de base → eau → routes → trottoirs. (Bâtiments/parcs/spawn = Task 3.) Le `city` reçu a `.w`, `.h`, `.grid`, `.set(x,y,t)`, `.get(x,y)`.
+`build_zones(seed, w, h, water, parks, districts) -> zone_grid` (liste plate de longueur `w*h`, valeurs ∈ {Z_WATER,Z_PARK,Z_DOWNTOWN,Z_RESIDENTIAL}) :
+1. Tout `Z_RESIDENTIAL` par défaut.
+2. **Eau blob :** `nw = noise_field(seed+1, w, h, scale=max(6.0, w/8.0))` ; `thr = _quantile_threshold(nw, water)` ; `nw[y][x] < thr` → `Z_WATER`.
+3. **Fleuve serpentant :** `xf=w*0.5` ; pour `y` : `xf += (_value_noise(seed+2, y*0.15, 0)-0.5)*2.2` ; bande `Z_WATER` largeur `max(3, w//28)` centrée `int(xf)` (clampée).
+4. **Voronoi quartiers (terre seulement) :** `rng=random.Random(seed+3)` ; tirer `districts` graines `(gx,gy)` dans `[0,w)×[0,h)`. Typage : trier les graines par distance au centre ; les `ceil(districts*0.4)` plus proches du centre = `Z_DOWNTOWN`, le reste = `Z_RESIDENTIAL`. Pour chaque case **non-eau**, lui donner le type de la graine la plus proche (distance euclidienne au carré).
+5. **Parcs (taches) :** `npf = noise_field(seed+4, w, h, scale=max(5.0, w/12.0))` ; `thr=_quantile_threshold(npf, parks)` ; case **non-eau** avec `npf[y][x] < thr` → `Z_PARK` (override quartier).
 
-Étapes internes (toutes seedées) :
-1. Vérifier que les 8 noms de tuiles requis sont dans `tile_index`, sinon `raise KeyError`/`ValueError` clair. Récupérer les index (`grass, road_h, road_v, road_cross, pavement, water`).
-2. `fill` grass.
-3. **Eau blob :** `nw = noise_field(seed + 1, w, h, scale=max(6, w/8), octaves=3)` ; `thr = _quantile_threshold(nw, water)` ; poser `water` là où `nw[y][x] < thr`.
-4. **Fleuve serpentant :** partir de `x = w*0.5`, pour chaque `y` faire dériver `x += (_value_noise(seed+2, y*0.15, 0.0) - 0.5)*2.2`, carver une bande `water` de largeur ~`max(3, w//28)` centrée en `int(x)` (clampée). (Garantit une voie d'eau connectée même si le blob est épars.)
-5. **Grille irrégulière de rues (sur la terre uniquement) :** générer les positions de colonnes et de lignes par espacement **jitté** : `pos = margin` ; boucle `while pos < dim`: largeur d'axe `wd = 2 if rng.random()<0.35 else 1` (avenue/rue) ; ajouter les indices `[pos, pos+wd)` à l'ensemble `cols`/`rows` ; `pos += base + jitter` où `base≈10`, `jitter = rng.randint(-3, 4)` (clampé ≥4). Utiliser `rng = random.Random(seed + 3)`. Puis pour chaque cellule : si déjà `water` → laisser (le fleuve coupe les rues, réaliste) ; sinon si `on_col and on_row` → `road_cross`, elif `on_col` → `road_v`, elif `on_row` → `road_h`.
-6. **Trottoirs :** toute case non-route/non-eau ayant un voisin 4-connexe route → `pavement` (réutiliser la logique de `_roadgrid` de citydsl : adjacence aux `{road_v,road_h,road_cross}`).
-
-- [ ] **Step 1 : tests qui échouent.** Helper de test commun (mapping calé sur le contrat M1) :
+- [ ] **Step 1 : tests** (remplacer la partie non-noise de `test_citygen.py` ; garder les 4 tests de primitives). Helpers + tests :
 ```python
-import pytest
+import pytest, random
+from collections import Counter
 from tools.citydsl import CompiledCity
 from tools import citygen
+from tools.citygen import (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL,
+                           build_zones)
 
-TI = {"grass":0,"road_h":1,"road_v":2,"road_cross":3,"pavement":4,"water":5,"building_a":6,"building_b":7}
-SI = {5, 6, 7}
+def test_build_zones_all_types_present_and_labeled():
+    z = build_zones(7, 96, 96, water=0.18, parks=0.10, districts=8)
+    assert len(z) == 96 * 96
+    n = Counter(z)
+    for t in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL):
+        assert n[t] > 0, "zone %d absente" % t
+    assert all(v in (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL) for v in z)
 
-def _gen(seed=7, w=96, h=96, **kw):
-    c = CompiledCity(w, h)
-    citygen.generate_into(c, seed, TI, SI, **kw)
-    return c
+def test_build_zones_deterministic():
+    a = build_zones(7, 64, 64, 0.18, 0.10, 8)
+    assert a == build_zones(7, 64, 64, 0.18, 0.10, 8)
+    assert a != build_zones(9, 64, 64, 0.18, 0.10, 8)
 
-def _counts(c):
-    from collections import Counter
-    return Counter(c.grid)
-```
-Tests Task 2 :
-```python
-def test_generate_water_and_land_present():
-    c = _gen(water=0.25)
-    n = _counts(c)
-    total = c.w * c.h
-    assert n[5] > 0                       # de l'eau existe
-    assert n[5] < total * 0.6             # mais pas toute la map
-    assert (total - n[5]) > total * 0.3   # de la terre reste
+def test_water_fraction_roughly_matches():
+    z = build_zones(3, 96, 96, water=0.20, parks=0.05, districts=8)
+    frac = Counter(z)[Z_WATER] / (96 * 96)
+    assert 0.18 <= frac <= 0.40   # blob ~0.20 + fleuve ajoute un peu
 
-
-def test_generate_has_roads_and_pavement():
-    c = _gen()
-    n = _counts(c)
-    assert n[1] + n[2] + n[3] > 0         # des routes
-    assert n[4] > 0                       # des trottoirs
-
-
-def test_generate_deterministic_same_seed():
-    assert _gen(seed=7).grid == _gen(seed=7).grid
-    assert _gen(seed=7).grid != _gen(seed=9).grid
-
-
-def test_roads_not_on_water():
-    c = _gen()
-    road_ids = {1, 2, 3}
-    # aucune cellule n'est à la fois route et eau (trivialement vrai par construction,
-    # on vérifie qu'il existe au moins une frontière eau/route cohérente)
-    assert all(not (c.get(x, y) in road_ids and c.get(x, y) == 5)
-               for y in range(c.h) for x in range(c.w))
+def test_downtown_more_central_than_residential():
+    z = build_zones(7, 96, 96, 0.15, 0.05, 10)
+    cx = cy = 48
+    def mean_dist(t):
+        ds = [((x-cx)**2+(y-cy)**2)**0.5 for y in range(96) for x in range(96)
+              if z[y*96+x] == t]
+        return sum(ds)/len(ds)
+    assert mean_dist(Z_DOWNTOWN) < mean_dist(Z_RESIDENTIAL)
 ```
 
-- [ ] **Step 2 :** lancer → FAIL (`generate_into` absent).
-- [ ] **Step 3 :** implémenter les étapes 1-6.
+- [ ] **Step 2 :** lancer → FAIL.
+- [ ] **Step 3 :** implémenter `build_zones` + constantes de zone. (Si le monolithe `generate_into` existe encore, le laisser pour l'instant — il sera réécrit en Task C ; mais SUPPRIMER les anciens tests qui le ciblent et que ces nouveaux tests remplacent.)
 - [ ] **Step 4 :** `.venv/bin/python -m pytest tools/tests/test_citygen.py -v` → PASS.
-- [ ] **Step 5 :** commit `feat(organic): generate_into geographie (eau serpentante + grille irreguliere + trottoirs)`.
+- [ ] **Step 5 :** commit `feat(organic): build_zones (eau + fleuve + Voronoi quartiers + parcs)`.
 
 ---
 
-## Task 3 : bâtiments (densité variable) + parcs dispersés + spawn (TDD)
+## Task B : `draw_roads` (grille hiérarchique jittée) + `add_bridges` (TDD)
 
 **Files:** Modify `tools/citygen.py`, `tools/tests/test_citygen.py`.
 
-Compléter `generate_into` (après les trottoirs) :
-7. **Bâtiments (densité) :** `nd = noise_field(seed+4, w, h, scale=max(5, w/10))`. Gradient centre→bord : `g = 1 - dist_normalisée_au_centre` (centre dense). Pour chaque case encore `grass` (intérieur d'îlot) : proba `p = density * (0.4 + 0.6*g) * nd[y][x]` ; si `rng.random() < p` (rng = `random.Random(seed+5)`), poser un bâtiment. Type : `building_b` si `noise_field`/`_value_noise(seed+6, x*0.2, y*0.2) > 0.5` sinon `building_a` (varie les façades par zone).
-8. **Parcs dispersés :** `np_ = noise_field(seed+7, w, h, scale=max(5, w/12))` ; `thr = _quantile_threshold(np_, parks)` ; là où `np_[y][x] < thr` ET la case est un bâtiment ou du grass (pas route/eau/trottoir) → forcer `grass` (taches de verdure qui creusent les îlots).
-9. **Spawn :** recherche déterministe en spirale depuis le centre `(w//2, h//2)` de la première case **non-solide** (préférence : `pavement`, sinon `road_*`, sinon `grass`) ; `city.spawn = (x, y, 2)` (south). Doit exister (la map a forcément des trottoirs/routes).
+`draw_roads(zone_grid, seed, w, h, margin=3) -> road_grid` (liste plate `w*h`, valeurs `'.'`/`'h'`/`'v'`/`'x'`) :
+- **Avenues majeures :** `rng=random.Random(seed+5)`. Colonnes : `pos=margin` ; `while pos < w-margin` : largeur `2` ; ajouter `[pos, pos+2)` à `major_cols` ; `pos += 14 + rng.randint(-3,4)` (≥6). Idem `major_rows` sur la hauteur (même rng). 
+- **Rues mineures (downtown only) :** candidats fins : `minor_cols` via `pos=margin; step=7+rng.randint(-2,2)`, idem rows. Une cellule de rue mineure n'est tracée que si `zone_grid[cell] == Z_DOWNTOWN`.
+- **Tracé :** pour chaque (x,y) dans `[margin, w-margin)`×`[margin, h-margin)` : si zone==Z_WATER → `'.'` (pas de route sur l'eau). Sinon déterminer `on_col` = (x dans major_cols) OU (x dans minor_cols ET zone downtown) ; `on_row` analogue. `on_col&on_row`→`'x'` ; `on_col`→`'v'` ; `on_row`→`'h'`. Bords (`< margin` ou `>= dim-margin`) → jamais de route.
 
-- [ ] **Step 1 : tests qui échouent** :
+`add_bridges(zone_grid, road_grid, seed, w, h, max_span=14) -> road_grid` :
+- Pour chaque avenue majeure (chaque colonne de `major_cols`, chaque ligne de `major_rows`) : parcourir la ligne ; pour chaque segment **contigu d'eau** traversé de longueur `<= max_span`, le remplir de route (`'v'` pour une colonne, `'h'` pour une ligne) → pont. Spans plus longs (grands lacs) non pontés.
+
+- [ ] **Step 1 : tests** :
 ```python
-def test_generate_has_buildings_and_parks():
-    c = _gen(density=0.6, parks=0.15)
-    n = _counts(c)
-    assert n[6] + n[7] > 0                # des bâtiments
-    assert n[0] > 0                       # du grass (parcs + reste)
+from tools.citygen import draw_roads, add_bridges
 
+def _zone_and_roads(seed=7, w=96, h=96):
+    z = build_zones(seed, w, h, 0.15, 0.05, 10)
+    r = draw_roads(z, seed, w, h)
+    return z, r
 
-def test_density_center_denser_than_edges():
-    c = _gen(density=0.7)
-    def build_frac(x0, y0, x1, y1):
-        cells = [c.get(x, y) for y in range(y0, y1) for x in range(x0, x1)]
-        b = sum(1 for v in cells if v in (6, 7))
-        return b / len(cells)
-    center = build_frac(c.w//2 - 12, c.h//2 - 12, c.w//2 + 12, c.h//2 + 12)
-    corner = build_frac(0, 0, 20, 20)
-    assert center >= corner               # centre au moins aussi dense
+def test_roads_present_and_not_on_border():
+    z, r = _zone_and_roads()
+    assert any(v != '.' for v in r)
+    m = 3
+    # marge: aucune route dans la bande de bord
+    assert all(r[y*96+x] == '.' for y in range(96) for x in range(96)
+               if x < m or x >= 96-m or y < m or y >= 96-m)
 
+def test_downtown_denser_roads_than_residential():
+    z, r = _zone_and_roads()
+    def road_frac(t):
+        idx = [i for i, zz in enumerate(z) if zz == t]
+        return sum(1 for i in idx if r[i] != '.') / max(1, len(idx))
+    assert road_frac(Z_DOWNTOWN) > road_frac(Z_RESIDENTIAL)
 
-def test_spawn_is_walkable_and_in_bounds():
-    c = _gen()
-    assert c.spawn is not None
-    sx, sy, sd = c.spawn
-    assert 0 <= sx < c.w and 0 <= sy < c.h
-    assert c.get(sx, sy) not in SI        # non-solide
-    assert sd == 2                        # south
+def test_roads_not_on_water_before_bridges():
+    z, r = _zone_and_roads()
+    assert all(not (r[i] != '.' and z[i] == Z_WATER) for i in range(len(z)))
 
+def test_bridges_add_road_over_water():
+    z, r = _zone_and_roads()
+    rb = add_bridges(z, list(r), 7, 96, 96)
+    before = sum(1 for i in range(len(z)) if z[i] == Z_WATER and r[i] != '.')
+    after = sum(1 for i in range(len(z)) if z[i] == Z_WATER and rb[i] != '.')
+    assert after > before   # au moins un pont pose sur l'eau
 
-def test_full_generation_deterministic():
-    assert _gen(seed=11).grid == _gen(seed=11).grid
-    assert _gen(seed=11).spawn == _gen(seed=11).spawn
+def test_draw_roads_deterministic():
+    z, r = _zone_and_roads(); _, r2 = _zone_and_roads()
+    assert r == r2
 ```
 
-- [ ] **Step 2 :** lancer → FAIL (pas de bâtiments/parcs/spawn).
-- [ ] **Step 3 :** implémenter 7-9.
-- [ ] **Step 4 :** `.venv/bin/python -m pytest tools/tests/test_citygen.py -v` → PASS (tous).
-- [ ] **Step 5 :** commit `feat(organic): batiments (densite gradient+bruit) + parcs disperses + spawn central`.
+- [ ] **Step 2 :** FAIL. **Step 3 :** implémenter. **Step 4 :** PASS. **Step 5 :** commit `feat(organic): draw_roads (grille hierarchique jittee, dense en downtown) + add_bridges`.
 
 ---
 
-## Task 4 : commande DSL `organic` + `player` optionnel (TDD)
+## Task C : `fill_blocks` par zone + trottoirs + spawn + `generate_into` orchestration (TDD)
+
+**Files:** Modify `tools/citygen.py`, `tools/tests/test_citygen.py`.
+
+- `fill_blocks(grid, zone_grid, road_grid, seed, w, h, density, idx)` : `idx` = dict des index tuiles. `rng=random.Random(seed+6)`. Pour chaque (x,y) où `road_grid==' .'`/`'.'` (pas route) ET `zone != Z_WATER` :
+  - `Z_WATER` → `water` ; `Z_PARK` → `grass` ; sinon (downtown/résidentiel) c'est un intérieur d'îlot :
+    - downtown : `pbuild = density` (≈0.85→0.9) ; type = `building_b` si `_value_noise(seed+7, x*0.2, y*0.2) > 0.35` sinon `building_a` (majorité tours).
+    - résidentiel : `pbuild = density * 0.5` ; type = `building_a` si `_value_noise(seed+7, x*0.2, y*0.2) > 0.4` sinon `building_b` (majorité maisons, cours d'herbe = les non-tirés restent grass).
+  - `rng.random() < pbuild` → poser bâtiment, sinon `grass`.
+  (Les cases route gardées telles quelles et converties en index road via `road_grid` → géré dans `generate_into`.)
+- `add_pavement(grid, w, h, idx)` : toute case non-route/non-eau avec voisin 4-connexe route → `pavement` (snapshot, ne chaîne pas).
+- `pick_spawn(grid, w, h, solid_index, zone_grid)` : spirale déterministe depuis le centre, 1ère case non-solide, préférence pavement>route>grass ; retourne `(x,y,2)`.
+- `generate_into(city, seed, tile_index, solid_index, water=0.18, parks=0.10, density=0.85, districts=8)` : résoudre les 8 index (manquant→ValueError) ; `z=build_zones(...)` ; `r=draw_roads(z,...)` ; `r=add_bridges(z,r,...)` ; écrire `city.grid` : eau d'abord depuis z, puis routes depuis r (`'h'`→road_h, `'v'`→road_v, `'x'`→road_cross), puis `fill_blocks`, puis `add_pavement` ; `city.spawn = pick_spawn(...)`.
+
+- [ ] **Step 1 : tests** :
+```python
+TI = {"grass":0,"road_h":1,"road_v":2,"road_cross":3,"pavement":4,"water":5,"building_a":6,"building_b":7}
+SI = {5, 6, 7}
+def _gen(seed=7, w=96, h=96, **kw):
+    c = CompiledCity(w, h); citygen.generate_into(c, seed, TI, SI, **kw); return c
+
+def test_full_all_tiles_present():
+    n = Counter(_gen().grid)
+    for t in (0,1,2,3,4,5,6,7):
+        assert n[t] > 0, "tuile %d absente" % t
+
+def test_downtown_denser_buildings_than_residential():
+    c = _gen(); z = build_zones(7, 96, 96, 0.18, 0.10, 8)
+    def bfrac(t):
+        idx = [i for i,zz in enumerate(z) if zz==t]
+        return sum(1 for i in idx if c.grid[i] in (6,7))/max(1,len(idx))
+    assert bfrac(Z_DOWNTOWN) > bfrac(Z_RESIDENTIAL)
+
+def test_spawn_walkable():
+    c = _gen(); sx,sy,sd = c.spawn
+    assert 0<=sx<c.w and 0<=sy<c.h and c.get(sx,sy) not in SI and sd==2
+
+def test_generate_deterministic():
+    assert _gen(seed=11).grid == _gen(seed=11).grid
+    assert _gen(seed=11).spawn == _gen(seed=11).spawn
+
+def test_missing_tile_raises():
+    with pytest.raises(ValueError):
+        citygen.generate_into(CompiledCity(8,8), 1, {"grass":0}, set())
+```
+
+- [ ] **Step 2 :** FAIL. **Step 3 :** implémenter + **supprimer l'ancien corps monolithique** de `generate_into`. **Step 4 :** `.venv/bin/python -m pytest tools/tests -q` → tout vert. **Step 5 :** commit `feat(organic): fill_blocks par zone + trottoirs + spawn + generate_into en couches`.
+
+---
+
+## Task D : commande DSL `organic` + `player` optionnel (TDD)
 
 **Files:** Modify `tools/citydsl.py`, `tools/tests/test_citydsl.py`.
 
-- Stocker la graine entière : à `seed <N>`, faire aussi `seed_int = N` (variable locale, défaut 1) en plus du `rng`.
-- Nouvelle commande `organic` : `kv = _kwargs(tok[1:])` ; lire `water/parks/density` (floats, défauts 0.22/0.12/0.6) avec messages d'erreur lignés ; importer `from tools import citygen` (au niveau module) ; `citygen.generate_into(city, seed_int, tile_index, solid_index, water, parks, density)`.
-- `_finalize` : `player` n'est plus obligatoire **si** un spawn est déjà fixé (par `organic`). Garder : si `city.spawn is None` après tout → erreur `player` manquante. (Donc une ville `organic` sans `player` est valide ; une ville sans `organic` ni `player` reste une erreur. Les tests M2 existants gardent leur ligne `player` → toujours verts.)
+- À `seed <N>` : stocker aussi `seed_int = N` (défaut 1).
+- Commande `organic` : `kv=_kwargs(tok[1:])` ; lire `water/parks/density` floats (défauts 0.18/0.10/0.85) + `districts` int (défaut 8), erreurs lignées ; `from tools import citygen` (module-level) ; `citygen.generate_into(city, seed_int, tile_index, solid_index, water, parks, density, districts)`.
+- `_finalize` : `player` optionnel SI `city.spawn` déjà fixé (par organic) ; sinon erreur `player` manquante comme avant (tests M2 inchangés gardent leur `player`).
 
-- [ ] **Step 1 : tests qui échouent** (ajouter à `test_citydsl.py`) :
+- [ ] **Step 1 : tests** (ajouter à `test_citydsl.py`) :
 ```python
-def test_organic_fills_and_sets_spawn():
-    c = _compile("size 64 64\nseed 7\norganic water 0.2 parks 0.1 density 0.5\n")
-    assert c.spawn is not None                  # spawn auto, pas de ligne player
+def test_organic_fills_and_autospawn():
+    c = _compile("size 64 64\nseed 7\norganic water 0.18 parks 0.1 density 0.85\n")
+    assert c.spawn is not None
     from collections import Counter
     n = Counter(c.grid)
-    assert n[5] > 0 and (n[6] + n[7]) > 0 and (n[1] + n[2] + n[3]) > 0  # eau, bâtiments, routes
+    assert n[5]>0 and (n[6]+n[7])>0 and (n[1]+n[2]+n[3])>0
 
-
-def test_organic_deterministic_via_seed():
-    src = "size 48 48\nseed 3\norganic\n"
+def test_organic_deterministic():
+    src="size 48 48\nseed 3\norganic\n"
     assert _compile(src).grid == _compile(src).grid
-
 
 def test_player_still_required_without_spawn():
     with pytest.raises(CityError):
-        _compile("size 8 8\nfill grass\n")        # ni organic ni player -> erreur
+        _compile("size 8 8\nfill grass\n")
 ```
 
-- [ ] **Step 2 :** lancer → FAIL (`commande inconnue: 'organic'`).
-- [ ] **Step 3 :** implémenter la commande + `seed_int` + `_finalize` assoupli.
-- [ ] **Step 4 :** `.venv/bin/python -m pytest tools/tests -v` → PASS (toute la suite, M1+M2+M3+organic).
-- [ ] **Step 5 :** commit `feat(organic): commande DSL 'organic' (delegue citygen) + player optionnel si spawn auto`.
+- [ ] **Step 2 :** FAIL. **Step 3 :** implémenter. **Step 4 :** `.venv/bin/python -m pytest tools/tests -v` → tout vert. **Step 5 :** commit `feat(organic): commande DSL 'organic' (couches citygen) + player optionnel`.
 
 ---
 
-## Task 5 : nouveau `city/city.txt` organique + régénération + vérification visuelle
+## Task E : `city/city.txt` organique + régénération + tuning visuel
 
 **Files:** Overwrite `city/city.txt` ; regenerate `gta/citymap.{h,cpp}`, `city/citymap.png`.
 
-- [ ] **Step 1 :** réécrire `city/city.txt` :
+- [ ] **Step 1 :** `city/city.txt` :
 ```
-; Liberty City (demake) — ville organique generee par bruit (deterministe)
+; Liberty City (demake) — ville organique en couches (deterministe)
 size 96 96
 seed 7
-organic water 0.22 parks 0.12 density 0.6
+organic water 0.18 parks 0.10 density 0.85 districts 8
 ```
-- [ ] **Step 2 :** `.venv/bin/python -m tools.build_city` → `genere: ... (96x96, spawn=...)`. Si `CityError`, corriger d'après le message.
-- [ ] **Step 3 : vérification visuelle** — ouvrir `city/citymap.png` (outil Read). Attendu : eau qui serpente (fleuve + taches/lac), grille de rues à espacement **irrégulier** (blocs de tailles variées) coupée par l'eau, trottoirs bordant les routes, bâtiments plus denses au centre, parcs verts dispersés, marqueur de spawn (croix magenta) sur une case marchable. **Itérer les params `water/parks/density`/`seed`** dans `city.txt` et régénérer jusqu'à un rendu convaincant proche de la référence GTA1. Décrire le rendu final.
+- [ ] **Step 2 :** `.venv/bin/python -m tools.build_city` → OK.
+- [ ] **Step 3 : tuning visuel** — ouvrir `city/citymap.png` (Read). Attendu proche de la réf GTA1 : quartiers distincts (downtown petits blocs très bâtis vs résidentiel grands blocs aérés), eau qui serpente + ponts sur les bras étroits, parcs verts en taches, trottoirs, spawn marchable. **Itérer `water/parks/density/districts/seed`** jusqu'à un rendu convaincant. (Le contrôleur peut aussi rendre la carte de zones via `build_zones` pour diagnostiquer.) Décrire le rendu final.
 - [ ] **Step 4 :** `.venv/bin/python -m pytest tools/tests -v` → tout vert.
-- [ ] **Step 5 :** commit `feat(organic): city.txt organique + regeneration citymap.{h,cpp,png}`.
+- [ ] **Step 5 :** commit `feat(organic): city.txt organique en couches + regeneration citymap.{h,cpp,png}`.
 
 ---
 
 ## Vérification finale
 
 - [ ] Suite complète verte (M1+M2+M3+organic).
-- [ ] `citymap.png` inspecté : eau organique, blocs irréguliers, parcs dispersés, densité variable, spawn marchable.
-- [ ] `citygen.py` pur (aucune I/O), déterministe (tests le prouvent).
-- [ ] Vérif interactive utilisateur (écran) : `.venv/bin/python -m tools.viewer` → la nouvelle ville scrolle, collisions sur eau/bâtiments, overlay 80×64 clampé.
+- [ ] `citymap.png` : quartiers lisibles, densité contrastée downtown/résidentiel, eau organique + ponts, parcs dispersés, spawn marchable.
+- [ ] `citygen.py` pur, en couches, déterministe (tests par couche).
+- [ ] Connectivité raisonnable (le viewer permet de circuler ; vérif manuelle écran : `.venv/bin/python -m tools.viewer`).
 
-**Livrable :** `tools/citygen.py` + commande DSL `organic` + `city/city.txt` organique + `citymap.{h,cpp,png}` régénérés. Le viewer M3 affiche la ville organique sans modification.
+**Livrable :** `tools/citygen.py` en couches + commande DSL `organic` + `city.txt` organique + `citymap.{h,cpp,png}`. Viewer M3 affiche la ville sans modif.
