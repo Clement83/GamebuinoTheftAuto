@@ -16,11 +16,12 @@ NAMES = ["grass", "road_h", "road_v", "road_cross", "pavement", "water",
          "port_facade_a", "port_facade_b", "port_sign",
          "cons_facade_a", "cons_facade_b", "cons_sign",
          "junk_facade_a", "junk_facade_b", "junk_sign",
-         "junk_ground", "junk_fence", "junk_wreck", "junk_crane"]
+         "junk_ground", "junk_fence", "junk_wreck", "junk_crane",
+         "cons_ground", "cons_fence", "cons_frame", "cons_crane"]
 TI = {n: i for i, n in enumerate(NAMES)}
 DOORS = {"police_door", "hosp_door", "fire_door"}
-# non solides parmi les tuiles POI : portes + sol de casse (carrossable)
-NONSOLID = DOORS | {"junk_ground"}
+# non solides parmi les tuiles POI : portes + sols carrossables (casse, chantier)
+NONSOLID = DOORS | {"junk_ground", "cons_ground"}
 # solides : water/building + toutes les tuiles POI sauf portes / sol de casse
 SI = {TI["water"], TI["building_a"], TI["building_b"]} | \
      {i for i, n in enumerate(NAMES) if i >= 8 and n not in NONSOLID}
@@ -256,6 +257,56 @@ def test_place_junkyard_none_without_theme_or_tiles():
     assert pois.place_junkyard(grid, [0] * (16 * 16), {}, TI, 16, 16) is None
     assert pois.place_junkyard(grid, [0] * (16 * 16), {0: THEME_JUNKYARD},
                                TI8, 16, 16) is None
+
+
+# ----- enceinte du Chantier (place_construction) ----------------------------
+
+def test_construction_compound_stamped_in_full_gen():
+    # la generation complete tamponne le chantier : base de grue sur cons_crane.
+    c = _gen()
+    assert c.chantier is not None
+    kx, ky = c.chantier["crane"]
+    assert c.grid[ky * c.w + kx] == TI["cons_crane"], "base de grue = cons_crane"
+
+
+def test_construction_compound_fenced_and_has_frames():
+    # autour de la grue : palissade (cons_fence) + ossatures beton (cons_frame).
+    c = _gen()
+    kx, ky = c.chantier["crane"]
+    seen = Counter(c.get(kx + dx, ky + dy)
+                   for dy in range(-5, 6) for dx in range(-6, 7)
+                   if 0 <= kx + dx < c.w and 0 <= ky + dy < c.h)
+    assert seen[TI["cons_fence"]] > 0, "palissade absente autour du chantier"
+    assert seen[TI["cons_frame"]] > 0, "aucune ossature beton dans le chantier"
+
+
+def test_construction_ground_carrossable():
+    # le sol de chantier (terre damee) est carrossable (non solide).
+    c = _gen()
+    assert TI["cons_ground"] not in SI
+
+
+def test_construction_entrance_borders_a_road():
+    c = _gen()
+    grid, w = c.grid, c.w
+    gap = None
+    for y in range(c.h - 1):
+        for x in range(w):
+            if grid[y * w + x] == TI["cons_ground"] and grid[(y + 1) * w + x] in ROADS:
+                gap = (x, y)
+    assert gap is not None, "aucune entree de chantier bordant une route"
+
+
+def test_construction_deterministic():
+    a, b = _gen(seed=11), _gen(seed=11)
+    assert a.chantier == b.chantier
+
+
+def test_place_construction_none_without_theme_or_tiles():
+    grid = [TI["grass"]] * (16 * 16)
+    assert pois.place_construction(grid, [0] * (16 * 16), {}, TI, 16, 16) is None
+    assert pois.place_construction(grid, [0] * (16 * 16),
+                                   {0: THEME_CONSTRUCTION}, TI8, 16, 16) is None
 
 
 # ----- place_casse / place_crane (repli quand l'enceinte ne tient pas) -------

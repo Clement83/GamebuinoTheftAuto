@@ -545,6 +545,104 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
                 entrance=(x + ecol, y + erow))
 
 
+# --- enceinte du Chantier (chantier de construction clôturé) ----------------
+# Même principe que La Casse : on TAMPONNE un vrai chantier dans le district
+# construction -> palissade de danger tout autour (cons_fence, solide), sol de
+# terre damee carrossable (cons_ground), ossatures beton (cons_frame, solides,
+# rendues comme des batiments -> zero cout CPU) et base de grue a tour
+# (cons_crane). Une seule ouverture (entree) bordee par une route au sud.
+#
+# Legende : G=palissade  .=terre  F=ossature  K=base de grue
+#           (l'unique '.' de la derniere ligne = entree, route exigee au sud).
+CONS_BLUEPRINT = (
+    "GGGGGGGGG",
+    "G.F...F.G",
+    "G.......G",
+    "GF..K..FG",
+    "G.......G",
+    "G.F...F.G",
+    "GGGG.GGGG",
+)
+CONS_TILE_OF = {"G": "cons_fence", ".": "cons_ground",
+                "F": "cons_frame", "K": "cons_crane"}
+
+
+def construction_tiles_available(tile_index):
+    """Vrai si les 4 tuiles du chantier sont dans le tileset."""
+    return all(t in tile_index for t in CONS_TILE_OF.values())
+
+
+def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
+    """Tamponne l'enceinte du Chantier dans le district construction.
+
+    Strictement calquee sur `place_junkyard` : cherche une fenetre de la taille
+    du blueprint, libre de route/eau, dont l'entree (bas-centre) est bordee par
+    une route au sud ; priorite aux fenetres dans le district construction puis
+    proches de son centroide (deterministe). Renvoie {crane:(tx,ty),
+    entrance:(tx,ty)} en TUILES, ou None (tuiles/theme/fenetre absents)."""
+    if not construction_tiles_available(tile_index):
+        return None
+    cons = [d for d, t in assign.items() if t == THEME_CONSTRUCTION]
+    if not cons:
+        return None
+    cd = cons[0]
+    bh, bw = len(CONS_BLUEPRINT), len(CONS_BLUEPRINT[0])
+    roads = {tile_index[n] for n in ("road_h", "road_v", "road_cross")
+             if n in tile_index}
+    if not roads:
+        return None
+    water = tile_index.get("water")
+    # Tuiles a NE PAS recouvrir : routes/eau + autres POI deja tamponnes
+    # (l'enceinte de La Casse, les stamps police/hopital/pompiers, les quais).
+    # Le Chantier est place APRES eux (cf. citygen 8f->8g) : on les evite.
+    protect = set(roads)
+    if water is not None:
+        protect.add(water)
+    for n in ("junk_ground", "junk_fence", "junk_wreck", "junk_crane",
+              "dock", "sand", "police_door", "police_facade", "police_sign",
+              "hosp_door", "hosp_facade", "hosp_sign",
+              "fire_door", "fire_facade", "fire_sign"):
+        if n in tile_index:
+            protect.add(tile_index[n])
+    erow = bh - 1
+    ecol = CONS_BLUEPRINT[erow].index(".")          # entree (gap du bas)
+
+    cells = [i for i in range(w * h) if district_id[i] == cd]
+    if not cells:
+        return None
+    cx = sum(i % w for i in cells) // len(cells)
+    cy = sum(i // w for i in cells) // len(cells)
+
+    cands = []
+    for y in range(margin, h - margin - bh):
+        for x in range(margin, w - margin - bw):
+            block = [(y + ry) * w + (x + rx)
+                     for ry in range(bh) for rx in range(bw)]
+            if any(grid[c] in protect for c in block):
+                continue
+            ey, ex = y + erow, x + ecol             # case d'entree
+            if ey + 1 >= h or grid[(ey + 1) * w + ex] not in roads:
+                continue                            # route exigee juste au sud
+            ccx, ccy = x + bw // 2, y + bh // 2
+            inc = 0 if district_id[ccy * w + ccx] == cd else 1
+            d = (ccx - cx) ** 2 + (ccy - cy) ** 2
+            cands.append((inc, d, y, x, block))
+    if not cands:
+        return None
+    cands.sort()                                    # district d'abord, puis centroide
+    _, _, y, x, block = cands[0]
+    for ci, c in enumerate(block):
+        ry, rx = divmod(ci, bw)
+        grid[c] = tile_index[CONS_TILE_OF[CONS_BLUEPRINT[ry][rx]]]
+    kr = kc = None
+    for ry, row in enumerate(CONS_BLUEPRINT):
+        cpos = row.find("K")
+        if cpos >= 0:
+            kr, kc = ry, cpos
+            break
+    return dict(crane=(x + kc, y + kr), entrance=(x + ecol, y + erow))
+
+
 def place_services(grid, tile_index, seed, w, h, occupied=None):
     """Positions des Pay'n'Spray et AMU Nation -> (sprays, ammus) en TUILES.
 

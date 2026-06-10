@@ -34,3 +34,7 @@ junk_ground,assets/named/tiles/junk_ground.png,0
 junk_fence,assets/named/tiles/junk_fence.png,1
 junk_wreck,assets/named/tiles/junk_wreck.png,1
 junk_crane,assets/named/tiles/junk_crane.png,1
+cons_ground,assets/named/tiles/cons_ground.png,0
+cons_fence,assets/named/tiles/cons_fence.png,1
+cons_frame,assets/named/tiles/cons_frame.png,1
+cons_crane,assets/named/tiles/cons_crane.png,1

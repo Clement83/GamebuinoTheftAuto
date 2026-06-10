@@ -537,6 +537,13 @@ def generate_into(city, seed, tile_index, solid_index,
                                       tile_index, solid_index, w, h)
         city.crane = pois.place_crane(city.grid, city.casse, tile_index, w, h)
 
+    # 8g. Le Chantier : meme traitement que La Casse -> on TAMPONNE une enceinte
+    # cloturee (palissade de danger + ossatures beton + base de grue) dans le
+    # district construction, pour qu'il RESSEMBLE a un chantier. Sans effet si
+    # tuiles/theme/fenetre absents (le quartier garde alors ses simples facades).
+    city.chantier = pois.place_construction(city.grid, district_id, assign,
+                                            tile_index, w, h)
+
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
     return city.spawn
