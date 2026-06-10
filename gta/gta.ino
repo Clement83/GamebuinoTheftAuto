@@ -437,6 +437,7 @@ static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
 //     Positions provisoires sur une grille large -- a ajuster (cf. demande). ---
 struct SprayDef { uint8_t tx, ty; };
 static const SprayDef SPRAYS[] = {
+  { PLAYER_START_X, PLAYER_START_Y },   // un garage tout pres du spawn (repere)
   { 24, 24 }, { 72, 24 }, { 48, 48 }, { 24, 72 }, { 72, 72 },
 };
 static const int NUM_SPRAYS = sizeof(SPRAYS) / sizeof(SPRAYS[0]);
