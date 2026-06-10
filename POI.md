@@ -79,7 +79,13 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
     `wantedLevel` + une source qui le fait monter (crimes).
   - Nouveau POI/stamp `paint` (garage). À l'entrée en voiture : `carColor` =
     nouvelle teinte, `wantedLevel = 0`, petit fondu/son. Débit $.
-- **État** : ⏳ À faire (dépend du système d'étoiles ; nouveau stamp + tuiles).
+- **État** : ✅ Fait (V1 sans nouvelles tuiles). Plusieurs garages éparpillés
+  (`SPRAYS[]` dans `gta.ino`), snappés sur la **route** la plus proche
+  (`findRoadSpot`) donc accessibles en voiture ; dessin pixel-art procédural
+  (`drawSprayShop`, auvent rayé jaune/bleu). **Auto** : rouler dessus (recherche
+  active) → `repaintCar()` : nouvelle couleur, `wantedClear`, débit 50 $ (gratuit
+  si fauché, pour ne pas bloquer à 5 étoiles). **Positions provisoires** (grille
+  large) — à replacer aux bons spots quand le client les aura choisis.
 
 ### 4. La Casse — grue & broyeur ♻️ *(quartier déjà présent)*
 - **Service** : amener sa caisse sur une zone marquée → une **grue** la saisit et
@@ -132,11 +138,10 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 
 ## Prochaines étapes recommandées (ordre)
 
-1. **Pay'n'Spray** (garage) : seul moyen « propre » de purger 5 étoiles —
-   `wantedClear(wanted)` est prêt, reste le **stamp + tuiles** (cf. POI #3).
-   En attendant, on purge la recherche par arrestation ou mort.
-2. **Hôpital interactif** : entrer à pied → `playerHearts` restauré (payant). Le
+1. **Hôpital interactif** : entrer à pied → `playerHearts` restauré (payant). Le
    système de vie est désormais en place.
-3. **AMU Nation** : tuiles + stamp + UI d'achat (le plus gros morceau « interface »).
-4. **La Casse** : grue/broyeur (revente, selon `carHp`).
-5. **Récompenses de mission** en $ (boucle économique complète).
+2. **AMU Nation** : tuiles + stamp + UI d'achat (le plus gros morceau « interface »).
+3. **La Casse** : grue/broyeur (revente, selon `carHp`).
+4. **Récompenses de mission** en $ (boucle économique complète).
+5. **Pay'n'Spray** : remplacer les positions provisoires par les bons spots, et
+   éventuellement passer à un vrai stamp/tuiles dédiés (cf. POI #3).

@@ -430,6 +430,22 @@ static int16_t storyPx[NUM_STORY_PHONES], storyPy[NUM_STORY_PHONES];  // px mond
 static const uint16_t PHONE_BODY_MISSION = 0x019F;   // bleu
 static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
 
+// --- Pay'n'Spray : garages eparpilles, accessibles EN VOITURE. Position voulue
+//     en TUILES ; setup() la snappe sur la case ROUTE la plus proche (sinon case
+//     libre) pour qu'on puisse y entrer en caisse. Rouler dessus repeint la
+//     voiture (nouvelle couleur) et remet la recherche police a zero (debit $).
+//     Positions provisoires sur une grille large -- a ajuster (cf. demande). ---
+struct SprayDef { uint8_t tx, ty; };
+static const SprayDef SPRAYS[] = {
+  { 24, 24 }, { 72, 24 }, { 48, 48 }, { 24, 72 }, { 72, 72 },
+};
+static const int NUM_SPRAYS = sizeof(SPRAYS) / sizeof(SPRAYS[0]);
+static int16_t sprayPx[NUM_SPRAYS], sprayPy[NUM_SPRAYS];   // px monde (snappes)
+static const int   SPRAY_REACH = 8;     // px : rayon de declenchement (centre voiture)
+static const int32_t SPRAY_COST = 50;   // $ preleve si on en a (sinon gratuit)
+static uint8_t sprayCooldown = 0;        // anti-repetition apres une repeinture
+static const uint8_t SPRAY_COOLDOWN_FRAMES = 50;
+
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
@@ -549,6 +565,27 @@ static bool findSidewalkSpot(int cx, int cy, int &ox, int &oy) {
   return false;
 }
 
+// Cherche le centre (px monde) d'une tuile ROUTE (carrossable) proche de (cx,cy),
+// en spirale. Les Pay'n'Spray doivent etre accessibles EN VOITURE. false si
+// aucune route dans le rayon.
+static bool findRoadSpot(int cx, int cy, int &ox, int &oy) {
+  int ctx = cx >> 3, cty = cy >> 3;
+  for (int r = 0; r <= 24; r++) {
+    for (int dy = -r; dy <= r; dy++) {
+      for (int dx = -r; dx <= r; dx++) {
+        if (r > 0 && abs(dx) != r && abs(dy) != r) continue;   // anneau
+        int tx = ctx + dx, ty = cty + dy;
+        if (aiIsDrivable(cityMap, CITY_W, CITY_H, tx, ty)) {
+          ox = tx * TILE_W + TILE_W / 2;
+          oy = ty * TILE_H + TILE_H / 2;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 void setup() {
   gb.begin();
   SerialUSB.begin(9600);
@@ -591,6 +628,18 @@ void setup() {
     else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
     storyPx[i] = wx; storyPy[i] = wy;
   }
+
+  // Pay'n'Spray : pose sur la ROUTE la plus proche (accessible en voiture). Repli
+  // sur une case libre si aucune route dans le rayon.
+  for (int i = 0; i < NUM_SPRAYS; i++) {
+    int wx = SPRAYS[i].tx * TILE_W + TILE_W / 2;
+    int wy = SPRAYS[i].ty * TILE_H + TILE_H / 2;
+    int ox, oy;
+    if (findRoadSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
+    else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
+    sprayPx[i] = wx; sprayPy[i] = wy;
+  }
+  sprayCooldown = 0;
 
   // Armes : seul le poing au depart ; pickups poses sur une case libre proche
   // du decalage voulu (la carte change a chaque regeneration).
@@ -1473,6 +1522,50 @@ static void tryPickupWeapons(int pcx, int pcy) {
 // Dessine les cabines. Les cabines "trame principale" (rouges, muettes) sont
 // des reperes permanents -> toujours visibles. Les cabines de missions
 // secondaires (bleues) ne s'affichent qu'au repos et sonnent (decrochables).
+// Garage Pay'n'Spray 8x8 centre en (px,py) monde : auvent raye jaune/bleu sur un
+// box gris a porte sombre. Repere visuel d'un point de repeinture (sur la route).
+static void drawSprayShop(int camX, int camY, int px, int py) {
+  static const uint8_t MAP[64] = {
+    1,1,1,1,1,1,1,1,
+    2,3,2,3,2,3,2,3,
+    4,4,4,4,4,4,4,4,
+    4,5,5,5,5,5,5,4,
+    4,5,5,5,5,5,5,4,
+    4,5,5,5,5,5,5,4,
+    4,5,5,5,5,5,5,4,
+    4,4,4,4,4,4,4,4,
+  };
+  const uint16_t pal[6] = { 0xF81F, 0x4208, 0xFFE0, 0x001F, 0xAD55, 0x10A2 };
+  int sx = px - camX - 4, sy = py - camY - 4;
+  for (int dy = 0; dy < 8; dy++)
+    for (int dx = 0; dx < 8; dx++) {
+      uint8_t idx = MAP[dy * 8 + dx];
+      uint16_t c = pal[idx];
+      int x = sx + dx, y = sy + dy;
+      if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+      fb[y * SCREEN_W + x] = c;
+    }
+}
+
+static void drawSprayShops(int camX, int camY) {
+  for (int i = 0; i < NUM_SPRAYS; i++)
+    drawSprayShop(camX, camY, sprayPx[i], sprayPy[i]);
+}
+
+// Repeinture (rouler dans un Pay'n'Spray) : nouvelle couleur de caisse, recherche
+// police a zero, debit $ (gratuit si fauche pour ne pas bloquer a 5 etoiles).
+static void repaintCar() {
+  uint16_t nc;
+  do { nc = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N]; } while (nc == carColor);
+  carColor = nc;
+  wantedClear(wanted);
+  int32_t pay = playerMoney < SPRAY_COST ? playerMoney : SPRAY_COST;
+  playerMoney -= pay;
+  sprayCooldown = SPRAY_COOLDOWN_FRAMES;
+  narrate("Repeinte. Plus recherche.");
+  gb.sound.playOK();
+}
+
 static void drawPhones(int camX, int camY) {
   for (int i = 0; i < NUM_STORY_PHONES; i++)
     drawPhoneBooth(camX, camY, storyPx[i], storyPy[i], PHONE_BODY_STORY, false);
@@ -1904,6 +1997,16 @@ void loop() {
   if (boomTimer > 0) boomTimer--;
   if (overlayTimer > 0) overlayTimer--;
   updateDrivenCar();
+
+  // Pay'n'Spray : rouler dans un garage (recherche active) repeint la caisse et
+  // efface les etoiles. Cooldown pour ne pas re-declencher en boucle sur place.
+  if (sprayCooldown > 0) sprayCooldown--;
+  if (driving && sprayCooldown == 0 && wanted.level > 0) {
+    for (int i = 0; i < NUM_SPRAYS; i++) {
+      long ddx = (int)car.x - sprayPx[i], ddy = (int)car.y - sprayPy[i];
+      if (ddx * ddx + ddy * ddy <= (long)SPRAY_REACH * SPRAY_REACH) { repaintCar(); break; }
+    }
+  }
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
   if (!missionRun.active) {
@@ -1947,6 +2050,7 @@ void loop() {
   }
 
   // Trafic IA (sous le joueur), entites de mission, puis voiture joueur, perso.
+  drawSprayShops(camX, camY);                  // garages (marquage au sol, sur route)
   aiDraw(camX, camY);
   drawWeaponPickups(camX, camY);
   drawLoot(camX, camY);
