@@ -493,6 +493,13 @@ static const int32_t AMMO_PRICE[WEAPON_COUNT]   = { 0,  40, 100,  80, 250, 120 }
 static bool    shopOpen = false;
 static uint8_t shopSel  = WEAPON_PISTOL;   // arme surlignee (WEAPON_PISTOL..COUNT-1)
 
+// La Casse (broyeur) : amener sa caisse sur la zone marquee la broie contre une
+// prime (selon les PV). carGone = la voiture du joueur n'existe plus (broyee) :
+// plus dessinee, plus re-montable tant qu'on n'en vole pas une autre.
+static const int CASSE_REACH = 14;         // px : rayon de la zone de depose
+static bool      casseInside = false;      // sur la zone a la frame -1 (detection d'entree)
+static bool      carGone     = false;      // voiture du joueur broyee / inexistante
+
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
@@ -699,6 +706,7 @@ void setup() {
     ammuPx[i] = wx; ammuPy[i] = wy;
   }
   shopOpen = false; shopSel = WEAPON_PISTOL;
+  casseInside = false; carGone = false;
 
   // Armes : seul le poing au depart ; pickups poses sur une case libre proche
   // du decalage voulu (la carte change a chaque regeneration).
@@ -866,8 +874,11 @@ static void drawPlayer(int camX, int camY) {
 // Voiture joueur : frame de rotation la plus proche de l'angle continu.
 static void drawCar(int camX, int camY) {
   // Pendant la repeinture, la caisse est "dans" le garage : on la masque jusqu'a
-  // ce qu'elle ressorte (PH_OUT).
+  // ce qu'elle ressorte (PH_OUT). Au broyage, elle disparait des PH_CRUSH. Et si
+  // elle a ete broyee, plus de voiture du tout.
   if (seqKind == SEQ_SPRAY && (seqPhase == PH_IN || seqPhase == PH_SPRAY)) return;
+  if (seqKind == SEQ_CRUSH && (seqPhase == PH_CRUSH || seqPhase == PH_EJECT)) return;
+  if (carGone) return;
   float a = car.angle;
   int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);
   idx %= CAR_FRAMES;
@@ -1655,12 +1666,38 @@ static void drawAmmuShops(int camX, int camY) {
     drawAmmuShop(camX, camY, ammuPx[i], ammuPy[i]);
 }
 
+// Zone de depose de La Casse : carre raye jaune/noir (hazard) sur le point-cible
+// du POI. Repere ou amener sa caisse pour la broyer.
+static void drawCasseZone(int camX, int camY) {
+  int ci = findPoi("La Casse");
+  if (ci < 0) return;
+  int sx = cityPois[ci].tx - camX, sy = cityPois[ci].ty - camY;
+  for (int dy = -6; dy <= 6; dy++)
+    for (int dx = -6; dx <= 6; dx++) {
+      bool edge = (dx <= -5 || dx >= 5 || dy <= -5 || dy >= 5);
+      if (!edge) continue;                         // contour seulement
+      int x = sx + dx, y = sy + dy;
+      if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+      fb[y * SCREEN_W + x] = (((dx + dy) >> 1) & 1) ? 0xFFE0 : 0x0000;  // raye jaune/noir
+    }
+}
+
 // Entree dans un Pay'n'Spray : demarre la cinematique (la caisse rentre, on
 // entend la bombe, elle ressort repeinte). Le joueur attend, fige.
 static void startSpraySeq() {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_SPRAY; seqPhase = PH_IN; seqTimer = SEQ_IN_FRAMES;
   car.vx = 0.0f; car.vy = 0.0f;                // on coupe l'elan en entrant
+}
+
+// Entree sur la zone de La Casse en voiture : demarre le broyage. Prime selon
+// les PV restants (epave plus chere si la caisse est saine). On fige la caisse.
+static void startCrushSeq() {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_CRUSH; seqPhase = PH_CRANE; seqTimer = SEQ_CRANE_FRAMES;
+  crushReward = 40 + (carHp > 0 ? carHp : 0) * 4;   // ~40..160 $
+  car.vx = 0.0f; car.vy = 0.0f;
+  gb.sound.tone(200, 120);                           // demarrage de la grue
 }
 
 // Repeinture (rouler dans un Pay'n'Spray) : nouvelle couleur de caisse, recherche
@@ -1973,6 +2010,12 @@ static void updateSequence() {
       else if (seqTimer == SEQ_HEAL_FRAMES - 10) gb.sound.tone(659, 90);
       else if (seqTimer == SEQ_HEAL_FRAMES - 19) gb.sound.tone(784, 140);
     }
+    if (seqKind == SEQ_CRUSH) {
+      if (seqPhase == PH_CRANE && (seqTimer % 6) == 0)
+        gb.sound.tone(150 + seqTimer * 4, 50);    // vrombissement descendant de la grue
+      else if (seqPhase == PH_CRUSH && (seqTimer % 5) == 0)
+        gb.sound.tone(70, 90);                     // grincement du broyeur
+    }
     seqTimer--; return;
   }
   switch (seqPhase) {
@@ -1991,6 +2034,21 @@ static void updateSequence() {
       seqKind = SEQ_NONE; seqPhase = 0; break;
     case PH_HEAL:                                // soin termine : vie au max
       playerHearts = PLAYER_HEARTS_MAX;
+      seqKind = SEQ_NONE; seqPhase = 0; break;
+    case PH_CRANE:                               // caisse saisie : on la broie
+      seqPhase = PH_CRUSH; seqTimer = SEQ_CRUSH_FRAMES;
+      gb.sound.tone(60, 200); break;             // gros craquement
+    case PH_CRUSH: {                             // broyee : prime + ejection du joueur
+      playerMoney += crushReward;
+      carGone = true; driving = false;
+      int ox, oy;                                // poser le perso a cote de l'epave
+      if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { playerX = ox; playerY = oy; }
+      playerFrame = 0; animTimer = 0; playerDir = DIR_SOUTH;
+      narrate("Epave vendue !");
+      gb.sound.tone(988, 60); gb.sound.playOK();  // cha-ching
+      seqPhase = PH_EJECT; seqTimer = SEQ_EJECT_FRAMES; break;
+    }
+    case PH_EJECT:                               // prime affichee : on rend la main
       seqKind = SEQ_NONE; seqPhase = 0; break;
   }
 }
@@ -2016,6 +2074,40 @@ static void drawSequence(int camX, int camY) {
       int hx = px + d, hy = py + d;
       if (px >= 0 && px < SCREEN_W && hy >= 0 && hy < SCREEN_H) fb[hy * SCREEN_W + px] = 0x07E0;
       if (hx >= 0 && hx < SCREEN_W && py >= 0 && py < SCREEN_H) fb[py * SCREEN_W + hx] = 0x07E0;
+    }
+    return;
+  }
+  if (seqKind == SEQ_CRUSH) {                      // grue + broyeur a La Casse
+    int cx = (int)car.x - camX, cy = (int)car.y - camY;
+    if (seqPhase == PH_CRANE) {                    // pince qui descend sur la caisse
+      int p = SEQ_CRANE_FRAMES - seqTimer;         // 0..CRANE
+      int clawY = cy - 22 + (p * 22) / SEQ_CRANE_FRAMES;
+      for (int y = 0; y < clawY; y++)              // cable
+        if (cx >= 0 && cx < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + cx] = 0x4208;
+      for (int dx = -3; dx <= 3; dx++) {           // pince (barre + crochets)
+        int x = cx + dx, y = clawY;
+        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xFD20;
+        if ((dx == -3 || dx == 3) && x >= 0 && x < SCREEN_W && y + 1 >= 0 && y + 1 < SCREEN_H)
+          fb[(y + 1) * SCREEN_W + x] = 0xFD20;
+      }
+    } else if (seqPhase == PH_CRUSH) {             // caisse ecrasee : bloc qui s'aplatit
+      int p = SEQ_CRUSH_FRAMES - seqTimer;
+      int h = 1 + (7 * seqTimer) / SEQ_CRUSH_FRAMES;
+      for (int dy = -h; dy <= h; dy++)
+        for (int dx = -5; dx <= 5; dx++) {
+          int x = cx + dx, y = cy + dy;
+          if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x632C;
+        }
+      for (int k = 0; k < 6; k++) {                // eclats de metal
+        int a = p * 5 + k * 41;
+        int x = cx + (a % 15) - 7, y = cy + ((a >> 2) % 9) - 4;
+        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xC618;
+      }
+    } else {                                       // PH_EJECT : prime qui monte
+      char r[10]; snprintf(r, sizeof(r), "+$%ld", (long)crushReward);
+      int len = (int)strlen(r), yy = 28 - (SEQ_EJECT_FRAMES - seqTimer);
+      gb.display.setColor(BLACK); gb.display.setCursor((SCREEN_W - len * 4) / 2 + 1, yy + 1); gb.display.print(r);
+      gb.display.setColor((Color)0x07E0); gb.display.setCursor((SCREEN_W - len * 4) / 2, yy); gb.display.print(r);
     }
     return;
   }
@@ -2149,9 +2241,11 @@ void loop() {
                   + (long)(pcy - (int)mCar.y) * (pcy - (int)mCar.y);
           if (dM <= bestd) { best = -3; bestd = dM; }
         }
-        long dC = (long)(pcx - (int)car.x) * (pcx - (int)car.x)
-                + (long)(pcy - (int)car.y) * (pcy - (int)car.y);
-        if (dC <= bestd) { best = -1; bestd = dC; }
+        if (!carGone) {                     // pas de voiture si elle a ete broyee
+          long dC = (long)(pcx - (int)car.x) * (pcx - (int)car.x)
+                  + (long)(pcy - (int)car.y) * (pcy - (int)car.y);
+          if (dC <= bestd) { best = -1; bestd = dC; }
+        }
         long aiThr = (long)ENTER_AI_DIST * ENTER_AI_DIST;
         for (int i = 0; i < NUM_AI_CARS; i++) {
           if (!aiCars[i].active) continue;
@@ -2162,7 +2256,7 @@ void loop() {
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
           carColor = MISSION_CAR_COLOR; carIsMission = true;
-          mCarActive = false; driving = true; carHp = CAR_MAX_HP;
+          mCarActive = false; driving = true; carHp = CAR_MAX_HP; carGone = false;
         } else if (best == -1) {
           driving = true; carIsMission = false;   // remonter dans sa voiture
           carHp = CAR_MAX_HP;
@@ -2174,7 +2268,7 @@ void loop() {
           carColor = c.color; carIsMission = false;
           carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;   // herite de l'usure de la caisse volee
           c.active = false;                  // la voiture quitte le pool IA
-          driving = true;
+          driving = true; carGone = false;
         } else {
           tryAttack();                       // aucune voiture a portee -> arme courante
         }
@@ -2252,6 +2346,19 @@ void loop() {
   if (onSpray && !sprayInside && seqKind == SEQ_NONE) startSpraySeq();  // on entre : cinematique
   sprayInside = onSpray;
 
+  // La Casse : amener sa caisse (pas une caisse de mission) sur la zone marquee
+  // la broie contre une prime. Detection d'entree (une fois par passage).
+  bool onCasse = false;
+  if (driving && !carIsMission && seqKind == SEQ_NONE) {
+    int ci = findPoi("La Casse");
+    if (ci >= 0) {
+      long dcx = (int)car.x - cityPois[ci].tx, dcy = (int)car.y - cityPois[ci].ty;
+      onCasse = (dcx * dcx + dcy * dcy <= (long)CASSE_REACH * CASSE_REACH);
+    }
+  }
+  if (onCasse && !casseInside) startCrushSeq();
+  casseInside = onCasse;
+
   // Hopital : entrer A PIED en etant blesse -> soin paye (anim croix verte). Une
   // fois par entree dans la bbox ; narre si trop fauche pour payer.
   bool onHosp = false;
@@ -2309,6 +2416,7 @@ void loop() {
   // Trafic IA (sous le joueur), entites de mission, puis voiture joueur, perso.
   drawSprayShops(camX, camY);                  // garages (marquage au sol, sur route)
   drawAmmuShops(camX, camY);                    // armureries (devanture, sur trottoir)
+  drawCasseZone(camX, camY);                    // zone de broyage (La Casse)
   aiDraw(camX, camY);
   drawWeaponPickups(camX, camY);
   drawLoot(camX, camY);

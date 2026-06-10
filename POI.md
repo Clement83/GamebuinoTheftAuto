@@ -40,7 +40,7 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
 | **Les Quais** (port) | quartier thématique | repère + ancrage mission | (ambiance ; trafic bateau plus tard) | ⏳ |
 | **Chinatown** | quartier thématique | repère + ancrage mission | (ambiance) | ⏳ |
 | **Chantier** (construction) | quartier thématique | repère + ancrage mission | (ambiance) | ⏳ |
-| **La Casse** (junkyard) | quartier thématique | repère + ancrage mission | **Grue → broyeur** : vendre/détruire sa caisse contre $ | ⏳ À faire |
+| **La Casse** (junkyard) | quartier thématique | repère + ancrage mission | **Grue → broyeur** : vendre/détruire sa caisse contre $ | ✅ Fait |
 | **Commissariat** (police) | stamp 3×3 | repère | (entrer = prison/relâche si arrêté) | ⏳ idée |
 | **Hôpital** | stamp 3×3 | repère + ancrage mission | **Soin** : entrer → vie restaurée (payant) | ✅ Fait |
 | **Pompiers** | stamp 3×3 | repère + ancrage mission | (camion de pompiers / mission incendie) | ⏳ idée |
@@ -105,7 +105,13 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
     à l'arrêt sur la zone, presser action → anim grue (sprite simple qui descend,
     soulève, déplace), véhicule détruit, `playerMoney += prime`, joueur éjecté.
   - Anim : peu de frames, pixels — pas de gros assets.
-- **État** : ⏳ À faire.
+- **État** : ✅ Fait. Zone de dépose marquée (carré rayé jaune/noir,
+  `drawCasseZone`) sur le point-cible du POi « La Casse ». Y amener sa caisse
+  (hors voiture de mission) déclenche `SEQ_CRUSH` : pince qui descend (vrombissement
+  descendant) → caisse écrasée en bloc qui s'aplatit + éclats (grincement) →
+  prime `+$nnn` qui monte (cha-ching), joueur éjecté à pied. Prime = `40 + carHp*4`
+  (≈40–160 $). La voiture broyée disparaît (`carGone`) : plus dessinée ni
+  re-montable tant qu'on n'en vole pas une autre.
 
 ---
 
@@ -150,7 +156,7 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 
 1. ~~**Hôpital interactif**~~ ✅ Fait.
 2. ~~**AMU Nation**~~ ✅ Fait (V1 procédurale + UI d'achat modale).
-3. **La Casse** : grue/broyeur (revente, selon `carHp`).
+3. ~~**La Casse**~~ ✅ Fait (grue/broyeur, prime selon `carHp`).
 4. **Récompenses de mission** en $ (boucle économique complète).
 5. **Pay'n'Spray** : remplacer les positions provisoires par les bons spots, et
    éventuellement passer à un vrai stamp/tuiles dédiés (cf. POI #3).
