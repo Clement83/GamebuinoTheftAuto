@@ -146,6 +146,36 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 
 ---
 
+## POI de la trame principale (campagne) 🆕
+
+Nouveaux POI **proposés** pour la trame principale scénarisée (18 missions +
+épilogue) décrite dans [campagne.md](campagne.md). À générer via `tools/pois.py`
+(comme les quartiers thématiques / services : dessin procédural possible, pas
+forcément de nouvelles tuiles). Bandeau HUD + ancrage de missions par nom
+(`findPoi`), comme les POI existants.
+
+| Nouveau POI | Rôle | Missions | État |
+|---|---|---|---|
+| **Planque** | Base du joueur. Ancre le **téléphone rouge unique** de la trame (sonne au lancement, se réarme après chaque mission, point de reprise après un échec). | toutes | ⏳ À faire |
+| **Le Garage** | Garage de Marco puis QG de Tony. | M1, M7, M8 | ⏳ À faire |
+| **Le Bar** | Nico traîne devant. | M5 | ⏳ À faire |
+| **Les Bureaux** | Bureaux de Victor (dossiers à dérober). | M15 | ⏳ À faire |
+| **Le Casino** | Repaire final de Victor. | M18 | ⏳ À faire |
+| **Les Commerces** | Rangée de 3 supérettes (repères fixes) pour le racket et son callback. | M2, M9 | ⏳ À faire |
+
+POI **existants réutilisés** par la campagne (aucun nouveau travail) : **Les
+Quais** (docks), **La Casse** (broyeur de sabotage en M16), **Chantier** (mort
+de Marco M4 ; ancienne usine de Rico M11), **Commissariat** (planque M7),
+**Hôpital** (soin entre missions). Le « quartier des Loups » réutilise un
+**district nommé** existant + repères fixes.
+
+> **Lien téléphones bleus** : l'ancienne cabine bleue « Mauvaise affaire »
+> (Marco) est **retirée** des missions secondaires — Marco devient le pivot de
+> la trame principale. Elle est remplacée par une **« Livraison de pizza »**
+> (mission jetable, chrono, 0 nouvelle mécanique). Voir `campagne.md` §1 et §9.
+
+---
+
 ## Travail déjà livré dans ce lot
 
 - ✅ `playerMoney` + affichage HUD (billet vert sous les cœurs).

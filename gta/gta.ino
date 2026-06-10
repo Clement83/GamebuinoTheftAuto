@@ -481,6 +481,15 @@ static const Objective OBJS_LOST[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Pompiers",
     "Livreur perdu : la planque est pres des Pompiers.", "Trouve ! Enfin." },
 };
+// Livraison de pizza : remplace l'ancienne cabine bleue "Mauvaise affaire"
+// (Marco). Mission jetable, chrono, 0 mecanique nouvelle (cf. campagne.md §9).
+static const Objective OBJS_PIZZA[] = {
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Pizza Express : prends la caisse.", nullptr },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Chinatown",
+    "Livre la pizza avant qu'elle refroidisse !",
+    "Pizza livree, pourboire empoche !", 0, 1100 },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -498,6 +507,11 @@ static const MissionDef MISSIONS[] = {
   { "Vol de caisse",    OBJS_STEAL,    2, 350 },
   { "Le chauffard",     OBJS_ROADHOG,  1, 220 },
   { "Le livreur perdu", OBJS_LOST,     1, 150 },
+  // index 15 : remplace la cabine bleue "Mauvaise affaire" (Marco). L'entree
+  // "Mauvaise affaire" (index 1) reste definie ci-dessus mais n'est plus reliee
+  // a aucune cabine : sa mecanique Marco est conservee pour la trame principale
+  // (cf. campagne.md, mission M4).
+  { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -508,7 +522,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 struct PhoneDef { uint8_t tx, ty; uint8_t mission; };
 static const PhoneDef PHONES[] = {
   { 14, 14,  0 },   // Joe
-  { 38, 14,  1 },   // Mauvaise affaire
+  { 38, 14, 15 },   // Livraison de pizza (ex-"Mauvaise affaire"/Marco)
   { 60, 14,  2 },   // Bagarre de rue
   { 82, 14,  3 },   // Vengeance
   { 14, 36,  4 },   // Nettoyage
