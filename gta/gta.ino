@@ -123,6 +123,28 @@ static const int   NUM_BULLETS  = 10;
 static const float BULLET_SPEED = 4.0f;  // px/frame
 static Bullet bullets[NUM_BULLETS];
 
+// --- projectiles explosifs : roquette (file tout droit, explose a l'impact) et
+//     grenade (lancee en cloche, explose au bout de ~3 s ; les PNJ qui la voient
+//     paniquent avant). La detonation appelle explodeCarAt (degats radiaux +
+//     chaine), pas le tir lui-meme. ---
+struct Projectile {
+  float    x, y, vx, vy;  // px monde
+  uint8_t  kind;          // 0 = roquette, 1 = grenade
+  uint8_t  z;             // hauteur visuelle de la grenade (cloche), px
+  uint16_t flight;        // frames de vol restants (roquette: portee ; grenade: arc)
+  uint16_t fuse;          // grenade: frames avant explosion ; roquette: 0
+  bool     active;
+};
+static const int      NUM_PROJ           = 3;
+static const float    ROCKET_SPEED       = 3.0f;  // px/frame
+static const int      ROCKET_RANGE       = 90;    // px : portee max avant auto-explosion
+static const int      GRENADE_THROW_DIST = 26;    // px : distance de lancer (cloche)
+static const uint16_t GRENADE_FLIGHT     = 16;    // frames de vol (arc)
+static const uint8_t  GRENADE_MAX_Z      = 7;     // px : hauteur du sommet de la cloche
+static const uint16_t GRENADE_FUSE       = 75;    // ~3 s a ~25 fps avant explosion
+static const int      GRENADE_FEAR_RADIUS = 30;   // px : les PNJ voyant la grenade paniquent
+static Projectile projs[NUM_PROJ];
+
 // --- vie du joueur : cœurs perdus sous les balles ennemies / explosions ;
 //     restauree a la mort (hopital) ou a l'arrestation (commissariat). ---
 static const int PLAYER_HEARTS_MAX = 3;
@@ -736,6 +758,7 @@ void setup() {
   playerMoney = 0;
   for (int i = 0; i < NUM_LOOT; i++) loots[i].active = false;
   for (int i = 0; i < NUM_BULLETS; i++) bullets[i].active = false;
+  for (int i = 0; i < NUM_PROJ; i++) projs[i].active = false;
   lootNext = 0;
 
   // Missions au repos : les telephones sonnent quand on s'en approche.
@@ -1265,6 +1288,86 @@ static void drawBullets(int camX, int camY) {
   }
 }
 
+// Lance un projectile explosif dans la direction visee (centre joueur pcx,pcy).
+// kind 0 = roquette (tout droit), 1 = grenade (cloche + meche).
+static void spawnProjectile(uint8_t kind, int pcx, int pcy) {
+  int slot = -1;
+  for (int i = 0; i < NUM_PROJ; i++) if (!projs[i].active) { slot = i; break; }
+  if (slot < 0) slot = 0;                       // pool plein : recycle le slot 0
+  Projectile &p = projs[slot];
+  float fdx = AI_DX[playerDir], fdy = AI_DY[playerDir];
+  p.x = (float)pcx; p.y = (float)pcy; p.kind = kind; p.z = 0; p.active = true;
+  if (kind == 0) {                              // roquette
+    p.vx = fdx * ROCKET_SPEED; p.vy = fdy * ROCKET_SPEED;
+    p.flight = (uint16_t)(ROCKET_RANGE / ROCKET_SPEED); p.fuse = 0;
+  } else {                                      // grenade : vitesse pour couvrir THROW_DIST en FLIGHT frames
+    float sp = (float)GRENADE_THROW_DIST / GRENADE_FLIGHT;
+    p.vx = fdx * sp; p.vy = fdy * sp;
+    p.flight = GRENADE_FLIGHT; p.fuse = GRENADE_FUSE;
+  }
+}
+
+// Avance les projectiles ; detone a l'impact (roquette) ou meche ecoulee (grenade).
+static void updateProjectiles() {
+  for (int i = 0; i < NUM_PROJ; i++) {
+    Projectile &p = projs[i];
+    if (!p.active) continue;
+    if (p.kind == 0) {                          // ROQUETTE : tout droit, explose a l'impact
+      float nx = p.x + p.vx, ny = p.y + p.vy;
+      bool hit = isSolidAt((int)nx >> 3, (int)ny >> 3);
+      for (int c = 0; c < NUM_AI_CARS && !hit; c++)
+        if (aiCars[c].active && fabsf(aiCars[c].x - nx) < 4.0f && fabsf(aiCars[c].y - ny) < 4.0f) hit = true;
+      for (int q = 0; q < NUM_AI_PEDS && !hit; q++)
+        if (aiPeds[q].active && aiPeds[q].state != 1 &&
+            fabsf(aiPeds[q].x - nx) < 4.0f && fabsf(aiPeds[q].y - ny) < 4.0f) hit = true;
+      p.x = nx; p.y = ny;
+      if (p.flight == 0 || --p.flight == 0) hit = true;   // portee epuisee -> explose
+      if (hit) { explodeCarAt((int)p.x, (int)p.y, 0, p.vx, p.vy); p.active = false; }
+    } else {                                    // GRENADE : cloche puis meche
+      if (p.flight > 0) {
+        float nx = p.x + p.vx, ny = p.y + p.vy;
+        if (isSolidAt((int)nx >> 3, (int)ny >> 3)) { p.vx = 0.0f; p.vy = 0.0f; p.flight = 1; }  // bute -> atterrit
+        else { p.x = nx; p.y = ny; }
+        p.flight--;
+        if (p.flight == 0) { p.vx = 0.0f; p.vy = 0.0f; p.z = 0; }   // au sol
+        else {
+          float t = (float)(GRENADE_FLIGHT - p.flight) / (float)GRENADE_FLIGHT;
+          p.z = (uint8_t)(GRENADE_MAX_Z * 4.0f * t * (1.0f - t));   // parabole (cloche)
+        }
+      }
+      // Les PNJ qui voient la grenade paniquent AVANT l'explosion.
+      for (int q = 0; q < NUM_AI_PEDS; q++) {
+        AiPed &pd = aiPeds[q];
+        if (!pd.active || pd.state == 1 || pd.isCop) continue;
+        float dx = pd.x - p.x, dy = pd.y - p.y;
+        if (dx * dx + dy * dy <= (float)(GRENADE_FEAR_RADIUS * GRENADE_FEAR_RADIUS))
+          startPanic(pd, (int)p.x, (int)p.y);
+      }
+      if (p.fuse == 0 || --p.fuse == 0) { explodeCarAt((int)p.x, (int)p.y, 0, 0.0f, 0.0f); p.active = false; }
+    }
+  }
+}
+
+// Dessine les projectiles : roquette = pixel orange + tracee ; grenade = ombre au
+// sol + pastille verte en cloche, clignotante une fois posee (meche).
+static void drawProjectiles(int camX, int camY) {
+  for (int i = 0; i < NUM_PROJ; i++) {
+    Projectile &p = projs[i];
+    if (!p.active) continue;
+    int x = (int)p.x - camX, y = (int)p.y - camY;
+    if (p.kind == 0) {                          // roquette
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xFD20;
+      int tx = (int)(p.x - p.vx) - camX, ty = (int)(p.y - p.vy) - camY;
+      if (tx >= 0 && tx < SCREEN_W && ty >= 0 && ty < SCREEN_H) fb[ty * SCREEN_W + tx] = 0x8200;
+    } else {                                    // grenade
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x2104;  // ombre
+      int gy = y - (int)p.z;
+      uint16_t col = (p.flight == 0 && (missionAnim & 4)) ? 0xFFFF : 0x3DA6;  // clignote quand posee
+      if (x >= 0 && x < SCREEN_W && gy >= 0 && gy < SCREEN_H) fb[gy * SCREEN_W + x] = col;
+    }
+  }
+}
+
 // Attaque a pied avec l'arme courante. Cone (portee/largeur) propre a l'arme
 // (cf. weapons.h) : le poing frappe le pieton le plus proche devant ; les armes
 // a feu portent plus loin, et les armes de zone (pompe/bazooka/grenade) mettent
@@ -1280,29 +1383,15 @@ static void tryAttack() {
   punchTimer = PUNCH_FX_FRAMES;
   int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
   if (curWeapon == WEAPON_FIST) gb.sound.playTick();
-  else { gb.sound.tone(110, 50); fireBullets(pcx, pcy); }  // bang + pixels de tir
+  else if (WEAPONS[curWeapon].explosive) gb.sound.tone(200, 80);  // souffle du lanceur (le projectile vole)
+  else { gb.sound.tone(110, 50); fireBullets(pcx, pcy); }         // bang + pixels de tir
   bool firearm = (curWeapon != WEAPON_FIST);   // arme a feu : 1 touche = mort
   if (wd.explosive) {
-    // Arme explosive : detonation au POINT D'IMPACT = entite (vehicule ou PNJ) la
-    // plus proche dans le cone, sinon un point devant le joueur a portee. Les
-    // degats radiaux d'explodeCarAt couvrent PNJ et vehicules (inutile de repasser
-    // par les cones ci-dessous).
-    float fdx = AI_DX[playerDir], fdy = AI_DY[playerDir];
-    int ix = pcx + (int)(fdx * wd.reach), iy = pcy + (int)(fdy * wd.reach);
-    float best = wd.reach + 1.0f;
-    for (int i = 0; i < NUM_AI_CARS; i++) {
-      if (!aiCars[i].active) continue;
-      if (!combatInCone(aiCars[i].x, aiCars[i].y, pcx, pcy, playerDir, wd.reach, wd.side)) continue;
-      float fwd = (aiCars[i].x - pcx) * fdx + (aiCars[i].y - pcy) * fdy;
-      if (fwd < best) { best = fwd; ix = (int)aiCars[i].x; iy = (int)aiCars[i].y; }
-    }
-    for (int i = 0; i < NUM_AI_PEDS; i++) {
-      if (!(aiPeds[i].active && aiPeds[i].state != 1)) continue;
-      if (!combatInCone(aiPeds[i].x, aiPeds[i].y, pcx, pcy, playerDir, wd.reach, wd.side)) continue;
-      float fwd = (aiPeds[i].x - pcx) * fdx + (aiPeds[i].y - pcy) * fdy;
-      if (fwd < best) { best = fwd; ix = (int)aiPeds[i].x; iy = (int)aiPeds[i].y; }
-    }
-    explodeCarAt(ix, iy, 0, fdx, fdy);            // boom + degats radiaux + chaine
+    // Arme explosive : lance un PROJECTILE dans la direction visee. La roquette
+    // file tout droit et explose a l'impact ; la grenade part en cloche et
+    // explose au bout de ~3 s. L'explosion (boom + degats radiaux + chaine) a
+    // lieu a la detonation du projectile (cf. updateProjectiles), pas ici.
+    spawnProjectile(curWeapon == WEAPON_GRENADE ? 1 : 0, pcx, pcy);
   } else if (wd.area) {
     // Zone : tous les pietons debout dans le cone tombent (armes a feu).
     // state != 1 : debout OU en panique (les paniques restent frappables).
@@ -2692,6 +2781,7 @@ void loop() {
   missionAnim++;                               // clignotement marqueurs/telephones
   if (weaponToast > 0) weaponToast--;          // toast d'arme : disparait tout seul
   updateBullets();                             // projectiles de tir (visuel)
+  updateProjectiles();                         // roquettes/grenades : vol + detonation
   narrUpdate();
 
   // Recherche police + minuteries de degats/effets ; explosion eventuelle de la
@@ -2815,6 +2905,7 @@ void loop() {
   if (!driving) drawPlayer(camX, camY);
   if (!driving && punchTimer > 0) { blitAttackFx(camX, camY); punchTimer--; }
   drawBullets(camX, camY);                     // pixels de tir par-dessus la scene
+  drawProjectiles(camX, camY);                 // roquettes/grenades en vol
   drawCarSmoke(camX, camY);                    // fumee si la caisse est amochee
   drawBoom(camX, camY);                        // explosion de voiture
 
