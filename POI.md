@@ -45,6 +45,15 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
 | **Hôpital** | stamp 3×3 | repère + ancrage mission | **Soin** : entrer → vie restaurée (payant) | ✅ Fait |
 | **Pompiers** | stamp 3×3 | repère + ancrage mission | (camion de pompiers / mission incendie) | ⏳ idée |
 
+**Découpage complet en quartiers** : ✅ Fait. En plus des 4 quartiers
+thématiques, **chaque district** reçoit désormais un nom (style GTA :
+*Portland, St. Mark's, Vice Point, Ocean Beach…*) via
+`pois.assign_district_names` → un POI « quartier » par district dans
+`cityPois[]`. On est donc **toujours dans un quartier nommé** (bandeau HUD).
+Aucune modif du code jeu : `poiAtTile` choisit la plus petite bbox englobante,
+donc les stamps 3×3 (Hôpital…) gardent la priorité sur leur case. Les noms sont
+dessinés sur l'aperçu PNG (`render_png`).
+
 ---
 
 ## POI interactifs demandés
@@ -61,8 +70,10 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
     solde). A/B pour naviguer, A acheter, MENU fermer. Geler le monde pendant.
   - Table de prix : `WEAPON_PRICE[WEAPON_COUNT]` + `AMMO_PRICE[WEAPON_COUNT]`.
 - **État** : ✅ Fait (V1 procédurale, sans nouvelles tuiles, comme Pay'n'Spray).
-  Armureries éparpillées (`AMMUS[]` dans `gta.ino`), snappées sur le **trottoir**
-  le plus proche (`findSidewalkSpot`) donc accessibles à pied ; devanture
+  **Positions générées** par `tools/pois.py` (`place_services`) : 8 armureries en
+  **bord de route, côté sans trottoir**, disséminées sur la carte, déterministes,
+  exportées dans `citymap.h` (`cityAmmus[]`) et lues telles quelles par `gta.ino`
+  (plus de placement aléatoire ni de snap runtime) ; devanture
   pixel-art (`drawAmmuShop`, auvent rouge + enseigne jaune). S'approcher et
   presser **A** ouvre l'**UI modale** (monde gelé) : liste des armes (icône 6×6 +
   nom + prix), HAUT/BAS choisit, **A** achète, **B/MENU** ferme. 1er achat = prix
@@ -89,13 +100,14 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
     `wantedLevel` + une source qui le fait monter (crimes).
   - Nouveau POI/stamp `paint` (garage). À l'entrée en voiture : `carColor` =
     nouvelle teinte, `wantedLevel = 0`, petit fondu/son. Débit $.
-- **État** : ✅ Fait (V1 sans nouvelles tuiles). Plusieurs garages éparpillés
-  (`SPRAYS[]` dans `gta.ino`), snappés sur la **route** la plus proche
-  (`findRoadSpot`) donc accessibles en voiture ; dessin pixel-art procédural
-  (`drawSprayShop`, auvent rayé jaune/bleu). **Auto** : rouler dessus (recherche
-  active) → `repaintCar()` : nouvelle couleur, `wantedClear`, débit 50 $ (gratuit
-  si fauché, pour ne pas bloquer à 5 étoiles). **Positions provisoires** (grille
-  large) — à replacer aux bons spots quand le client les aura choisis.
+- **État** : ✅ Fait (V1 sans nouvelles tuiles). **Positions générées** par
+  `tools/pois.py` (`place_services`) : 6 garages en **bord de route, côté sans
+  trottoir**, bien dispersés, déterministes, exportés dans `citymap.h`
+  (`citySprays[]`) et lus tels quels par `gta.ino` (plus de placement aléatoire
+  ni de snap runtime). Dessin pixel-art procédural (`drawSprayShop`, auvent rayé
+  jaune/bleu). **Auto** : rouler dessus (recherche active) → `repaintCar()` :
+  nouvelle couleur, `wantedClear`, débit 50 $ (gratuit si fauché, pour ne pas
+  bloquer à 5 étoiles).
 
 ### 4. La Casse — grue & broyeur ♻️ *(quartier déjà présent)*
 - **Service** : amener sa caisse sur une zone marquée → une **grue** la saisit et
@@ -158,5 +170,6 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 2. ~~**AMU Nation**~~ ✅ Fait (V1 procédurale + UI d'achat modale).
 3. ~~**La Casse**~~ ✅ Fait (grue/broyeur, prime selon `carHp`).
 4. ~~**Récompenses de mission**~~ ✅ Fait (primes en $, boucle économique complète).
-5. **Pay'n'Spray** : remplacer les positions provisoires par les bons spots, et
-   éventuellement passer à un vrai stamp/tuiles dédiés (cf. POI #3).
+5. ~~**Pay'n'Spray** : remplacer les positions provisoires par les bons spots~~
+   ✅ Fait (positions générées en bord de route, côté sans trottoir). Reste
+   éventuellement : passer à un vrai stamp/tuiles dédiés (cf. POI #3).

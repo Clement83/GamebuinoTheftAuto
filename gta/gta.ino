@@ -456,33 +456,23 @@ static int16_t storyPx[NUM_STORY_PHONES], storyPy[NUM_STORY_PHONES];  // px mond
 static const uint16_t PHONE_BODY_MISSION = 0x019F;   // bleu
 static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
 
-// --- Pay'n'Spray : garages eparpilles, accessibles EN VOITURE. Position voulue
-//     en TUILES ; setup() la snappe sur la case ROUTE la plus proche (sinon case
-//     libre) pour qu'on puisse y entrer en caisse. Rouler dessus repeint la
+// --- Pay'n'Spray : garages eparpilles, accessibles EN VOITURE. Positions
+//     GENEREES par tools/pois.py (en bord de route, cote sans trottoir,
+//     disseminees) et exportees dans citymap.h (citySprays[] en TUILES) -- plus
+//     de placement aleatoire ni de snap runtime. Rouler dessus repeint la
 //     voiture (nouvelle couleur) et remet la recherche police a zero (debit $).
-//     Positions provisoires sur une grille large -- a ajuster (cf. demande). ---
-struct SprayDef { uint8_t tx, ty; };
-static const SprayDef SPRAYS[] = {
-  { PLAYER_START_X, PLAYER_START_Y },   // un garage tout pres du spawn (repere)
-  { 24, 24 }, { 72, 24 }, { 48, 48 }, { 24, 72 }, { 72, 72 },
-};
-static const int NUM_SPRAYS = sizeof(SPRAYS) / sizeof(SPRAYS[0]);
-static int16_t sprayPx[NUM_SPRAYS], sprayPy[NUM_SPRAYS];   // px monde (snappes)
+static const int NUM_SPRAYS = CITY_NUM_SPRAYS;
+static int16_t sprayPx[NUM_SPRAYS], sprayPy[NUM_SPRAYS];   // px monde
 static const int   SPRAY_REACH = 10;    // px : rayon de declenchement (centre voiture)
 static const int32_t SPRAY_COST = 50;   // $ preleve si on en a (sinon gratuit)
 static bool sprayInside = false;         // dans la zone a la frame precedente (detection d'entree)
 
-// --- AMU Nation : armureries accessibles A PIED. Comme les Pay'n'Spray, la
-//     position voulue est en TUILES et snappee sur le TROTTOIR le plus proche
-//     dans setup() (findSidewalkSpot). S'en approcher et presser A ouvre le
-//     magasin (UI modale). Positions provisoires (a ajuster). ---
-struct AmmuDef { uint8_t tx, ty; };
-static const AmmuDef AMMUS[] = {
-  { PLAYER_START_X + 3, PLAYER_START_Y },   // une armurerie pres du spawn (repere)
-  { 36, 36 }, { 60, 60 },
-};
-static const int NUM_AMMUS = sizeof(AMMUS) / sizeof(AMMUS[0]);
-static int16_t ammuPx[NUM_AMMUS], ammuPy[NUM_AMMUS];   // px monde (snappes)
+// --- AMU Nation : armureries accessibles A PIED. Comme les Pay'n'Spray, les
+//     positions sont GENEREES (cityAmmus[] dans citymap.h : bord de route, cote
+//     sans trottoir, disseminees sur la carte). S'en approcher et presser A
+//     ouvre le magasin (UI modale).
+static const int NUM_AMMUS = CITY_NUM_AMMUS;
+static int16_t ammuPx[NUM_AMMUS], ammuPy[NUM_AMMUS];   // px monde
 static const int AMMU_REACH = 12;        // px : portee d'ouverture (centre joueur)
 
 // Tarifs : prix d'achat de l'arme (1re fois) et prix d'un rechargement (1 lot de
@@ -620,27 +610,6 @@ static bool findSidewalkSpot(int cx, int cy, int &ox, int &oy) {
   return false;
 }
 
-// Cherche le centre (px monde) d'une tuile ROUTE (carrossable) proche de (cx,cy),
-// en spirale. Les Pay'n'Spray doivent etre accessibles EN VOITURE. false si
-// aucune route dans le rayon.
-static bool findRoadSpot(int cx, int cy, int &ox, int &oy) {
-  int ctx = cx >> 3, cty = cy >> 3;
-  for (int r = 0; r <= 24; r++) {
-    for (int dy = -r; dy <= r; dy++) {
-      for (int dx = -r; dx <= r; dx++) {
-        if (r > 0 && abs(dx) != r && abs(dy) != r) continue;   // anneau
-        int tx = ctx + dx, ty = cty + dy;
-        if (aiIsDrivable(cityMap, CITY_W, CITY_H, tx, ty)) {
-          ox = tx * TILE_W + TILE_W / 2;
-          oy = ty * TILE_H + TILE_H / 2;
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
 void setup() {
   gb.begin();
   SerialUSB.begin(9600);
@@ -684,27 +653,18 @@ void setup() {
     storyPx[i] = wx; storyPy[i] = wy;
   }
 
-  // Pay'n'Spray : pose sur la ROUTE la plus proche (accessible en voiture). Repli
-  // sur une case libre si aucune route dans le rayon.
+  // Pay'n'Spray : positions generees (citySprays[]), deja en bord de route cote
+  // sans trottoir -> centre de la tuile, aucun snap necessaire.
   for (int i = 0; i < NUM_SPRAYS; i++) {
-    int wx = SPRAYS[i].tx * TILE_W + TILE_W / 2;
-    int wy = SPRAYS[i].ty * TILE_H + TILE_H / 2;
-    int ox, oy;
-    if (findRoadSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
-    else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
-    sprayPx[i] = wx; sprayPy[i] = wy;
+    sprayPx[i] = citySprays[i].tx * TILE_W + TILE_W / 2;
+    sprayPy[i] = citySprays[i].ty * TILE_H + TILE_H / 2;
   }
   sprayInside = false;
 
-  // AMU Nation : posee sur le TROTTOIR le plus proche (acces a pied), comme les
-  // cabines. Repli case libre sinon.
+  // AMU Nation : positions generees (cityAmmus[]), meme regle de placement.
   for (int i = 0; i < NUM_AMMUS; i++) {
-    int wx = AMMUS[i].tx * TILE_W + TILE_W / 2;
-    int wy = AMMUS[i].ty * TILE_H + TILE_H / 2;
-    int ox, oy;
-    if (findSidewalkSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
-    else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
-    ammuPx[i] = wx; ammuPy[i] = wy;
+    ammuPx[i] = cityAmmus[i].tx * TILE_W + TILE_W / 2;
+    ammuPy[i] = cityAmmus[i].ty * TILE_H + TILE_H / 2;
   }
   shopOpen = false; shopSel = WEAPON_PISTOL;
   casseInside = false; carGone = false;

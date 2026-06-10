@@ -160,6 +160,58 @@ STAMP_NAMES = {
 }
 
 
+# --- noms de quartiers GTA pour les districts SANS theme ---------------------
+# Pioche deterministe sans doublon sur une carte. <=12 car. (tient dans le HUD
+# 80 px). Inspires des quartiers de GTA III / Vice City / San Andreas.
+DISTRICT_NAMES = (
+    "Portland", "Staunton", "Shoreside", "Trenton", "Red Light",
+    "Harwood", "Hepburn Hts", "St. Mark's", "Torrington", "Bedford Pt",
+    "Cedar Grove", "Vice Point", "Ocean Beach", "Downtown", "Vinewood",
+    "Idlewood", "Las Colinas", "Rockford", "Verona Bch", "Washington",
+    "Pillbox", "Bayview", "Easton", "Belleville", "Westside",
+    "Little Haiti", "Vespucci", "El Corona", "Hashbury", "Garcia",
+)
+
+
+def assign_district_names(seed, assign, num_districts):
+    """Nom d'affichage pour CHAQUE district -> {district_id: nom}.
+
+    District theme -> nom du theme (Chinatown, Les Quais...) ; les autres ->
+    nom 'GTA' pioche dans DISTRICT_NAMES (deterministe, sans doublon). Garantit
+    qu'on est toujours dans un quartier nomme."""
+    rng = random.Random(seed + 60)
+    pool = list(DISTRICT_NAMES)
+    rng.shuffle(pool)
+    names, pi = {}, 0
+    for d in range(num_districts):
+        if d in assign:
+            names[d] = THEME_NAMES[assign[d]]
+        else:
+            names[d] = pool[pi % len(pool)]
+            pi += 1
+    return names
+
+
+def collect_district_labels(district_id, names, grid, tile_index, w, h):
+    """Etiquettes de quartiers pour le rendu PNG -> [(nom, cx, cy)] en TUILES.
+
+    Un libelle par district ayant des cellules terrestres ; (cx,cy) = centroide
+    des cellules de terre (l'eau est ignoree). Ordre stable par district_id."""
+    water = tile_index.get("water")
+    by_dist = {}
+    for i in range(w * h):
+        if grid[i] == water:
+            continue
+        by_dist.setdefault(district_id[i], []).append(i)
+    labels = []
+    for d in sorted(by_dist):
+        cells = by_dist[d]
+        cx = sum(c % w for c in cells) // len(cells)
+        cy = sum(c // w for c in cells) // len(cells)
+        labels.append((names.get(d, ""), cx, cy))
+    return labels
+
+
 def has_any_stamp(tile_index):
     """Vrai si au moins un stamp a toutes ses tuiles dans le tileset."""
     return any(all(t in tile_index for t in s["tiles"].values())
@@ -374,18 +426,25 @@ def _nearest_walkable(grid, cells, cx, cy, solid_index, prefer=None, w=0):
     return best
 
 
-def collect_pois(grid, theme, assign, placed, sea, tile_index, solid_index, w, h):
+def collect_pois(grid, theme, assign, placed, sea, tile_index, solid_index, w, h,
+                 district_id=None, names=None):
     """Construit la liste des POI exportables -> [dict(name,x0,y0,x1,y1,tx,ty)].
 
-    * quartiers (theme) : bbox des cellules du district + point-cible = la
-      cellule marchable la plus proche du centroide (le port privilegie un quai);
+    * quartiers thematiques (theme) : bbox des cellules du district + point-cible
+      = la cellule marchable la plus proche du centroide (le port privilegie un
+      quai);
+    * quartiers generiques (tout district non theme, si `district_id`+`names`
+      fournis) : meme principe sur les cellules de terre du district, nom 'GTA'
+      -> on est toujours dans un quartier nomme cote HUD ;
     * stamps : bbox du blueprint 3x3 + point-cible = la porte (case marchable
       bordant la route). `placed` = {nom: (x,y) coin haut-gauche | None}.
-    Tout en coordonnees de TUILES. Ordre stable : quartiers puis stamps."""
+    Tout en coordonnees de TUILES. Ordre stable : quartiers themes, quartiers
+    generiques, puis stamps (les stamps ont la plus petite bbox -> priorite HUD)."""
     out = []
     road_pav = {tile_index[n] for n in ("road_h", "road_v", "road_cross", "pavement")
                 if n in tile_index}
     dock = {tile_index["dock"]} if "dock" in tile_index else set()
+    water = tile_index.get("water")
 
     # quartiers thematiques
     by_theme = {}
@@ -406,6 +465,25 @@ def collect_pois(grid, theme, assign, placed, sea, tile_index, solid_index, w, h
             or (cx, cy)
         out.append(dict(name=THEME_NAMES[tid], x0=x0, y0=y0, x1=x1, y1=y1,
                         tx=tgt[0], ty=tgt[1]))
+
+    # quartiers generiques : tout district non theme avec des cellules de terre.
+    if district_id is not None and names:
+        by_dist = {}
+        for i in range(w * h):
+            d = district_id[i]
+            if d in assign or grid[i] == water:   # themes deja emis ; ignore l'eau
+                continue
+            by_dist.setdefault(d, []).append(i)
+        for d in sorted(by_dist):
+            cells = by_dist[d]
+            xs = [c % w for c in cells]
+            ys = [c // w for c in cells]
+            x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+            cx, cy = sum(xs) // len(xs), sum(ys) // len(ys)
+            tgt = _nearest_walkable(grid, cells, cx, cy, solid_index, road_pav, w) \
+                or (cx, cy)
+            out.append(dict(name=names[d], x0=x0, y0=y0, x1=x1, y1=y1,
+                            tx=tgt[0], ty=tgt[1]))
 
     # stamps : la porte est en bas-centre du blueprint 3x3
     drow, dcol = _door_cell(STAMP_BLUEPRINT)

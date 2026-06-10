@@ -4,7 +4,7 @@ Lit le mapping nom->index depuis assets/tileset.csv (ordre = enum de assets.h).
 """
 import os
 import csv
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from tools.citydsl import compile_city, CityError
 
 TILESET_CSV = "assets/tileset.csv"
@@ -108,6 +108,24 @@ def render_png(city, names, tiles8_dir, out_png):
     for tx, ty in getattr(city, "ammus", []) or []:
         x0, y0 = tx * 8, ty * 8
         d.rectangle((x0, y0, x0 + 7, y0 + 7), outline=(255, 0, 0))
+    # libelles de quartiers (style GTA) : nom centre sur le centroide du
+    # district, en blanc cerne de noir pour rester lisible sur tout fond.
+    font = ImageFont.load_default()
+    for name, tcx, tcy in getattr(city, "districts", []) or []:
+        if not name:
+            continue
+        px, py = tcx * 8 + 4, tcy * 8 + 4
+        try:
+            l, t, r, b = d.textbbox((0, 0), name, font=font)
+            tw, th = r - l, b - t
+        except AttributeError:
+            tw, th = d.textsize(name, font=font)
+        ox, oy = px - tw // 2, py - th // 2
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                d.text((ox + dx, oy + dy), name, font=font, fill=(0, 0, 0))
+        d.text((ox, oy), name, font=font, fill=(255, 255, 255))
+
     # marqueur de spawn : croix magenta sur la tuile de depart
     sx, sy, _ = city.spawn
     cx, cy = sx * 8 + 4, sy * 8 + 4

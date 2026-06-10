@@ -164,3 +164,39 @@ def test_pois_disabled_without_tiles_backward_compatible():
 def test_spawn_not_on_solid_with_pois():
     sx, sy, _ = _gen().spawn
     assert _gen().get(sx, sy) not in SI
+
+
+# ----- place_services (Pay'n'Spray / AMU Nation) ----------------------------
+
+def _is_road_edge_block(grid, w, x, y):
+    """Bloc building borde par une route du cote SANS trottoir (N d'une rue H
+    ou O d'une rue V) -- la regle de placement des services."""
+    if grid[y * w + x] not in (TI["building_a"], TI["building_b"]):
+        return False
+    rh, rv, rx = TI["road_h"], TI["road_v"], TI["road_cross"]
+    north = grid[(y - 1) * w + x] if y > 0 else None
+    west = grid[y * w + (x - 1)] if x > 0 else None
+    return north in (rh, rx) or west in (rv, rx)
+
+
+def test_place_services_count_rule_and_no_overlap():
+    c = _gen()
+    assert len(c.sprays) == pois.SPRAY_COUNT
+    assert len(c.ammus) == pois.AMMU_COUNT
+    for x, y in c.sprays + c.ammus:
+        assert _is_road_edge_block(c.grid, c.w, x, y), "service hors bord-de-route"
+    assert set(c.sprays).isdisjoint(c.ammus), "spray et ammu sur la meme case"
+
+
+def test_place_services_deterministic():
+    a, b = _gen(seed=11), _gen(seed=11)
+    assert a.sprays == b.sprays and a.ammus == b.ammus
+
+
+def test_place_services_empty_without_blocks():
+    # tileset sans building_a/b -> aucun candidat -> listes vides (pas d'erreur)
+    ti = {n: i for i, n in enumerate(("grass", "road_h", "road_v", "road_cross",
+                                      "pavement", "water"))}
+    grid = [ti["road_h"]] * (8 * 8)
+    sprays, ammus = pois.place_services(grid, ti, 7, 8, 8)
+    assert sprays == [] and ammus == []

@@ -509,8 +509,14 @@ def generate_into(city, seed, tile_index, solid_index,
                              tile_index, w, h)
 
     # 8d. POI exportables (nom + bbox + point-cible) pour le HUD et les missions.
+    # Chaque district recoit un nom (theme ou nom 'GTA') -> on est toujours dans
+    # un quartier nomme cote HUD. city.districts sert au libelle sur le PNG.
+    district_names = pois.assign_district_names(seed, assign, len(seed_type))
     city.pois = pois.collect_pois(city.grid, theme, assign, placed_stamps, sea,
-                                  tile_index, solid_index, w, h)
+                                  tile_index, solid_index, w, h,
+                                  district_id=district_id, names=district_names)
+    city.districts = pois.collect_district_labels(district_id, district_names,
+                                                  city.grid, tile_index, w, h)
 
     # 8e. services en bord de route (Pay'n'Spray / AMU Nation) : coordonnees
     # exportees (sprites procuduraux cote jeu, grille inchangee). Places en

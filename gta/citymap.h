@@ -9,7 +9,7 @@
 #define PLAYER_START_Y 47
 #define PLAYER_START_DIR DIR_SOUTH
 
-#define CITY_NUM_POIS 7
+#define CITY_NUM_POIS 21
 
 // Point d'interet : bbox en TUILES (inclus) pour la detection
 // HUD, point-cible (tx,ty) en PX monde pour les missions/fleche.
@@ -20,3 +20,13 @@ struct CityPoi {
 };
 extern const uint8_t cityMap[CITY_H*CITY_W];
 extern const CityPoi cityPois[CITY_NUM_POIS];
+
+#define CITY_NUM_SPRAYS 6
+#define CITY_NUM_AMMUS 8
+
+// Service en bord de route : position en TUILES.
+struct CityService {
+  uint8_t tx, ty;
+};
+extern const CityService citySprays[CITY_NUM_SPRAYS];
+extern const CityService cityAmmus[CITY_NUM_AMMUS];
