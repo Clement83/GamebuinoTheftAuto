@@ -157,6 +157,23 @@ static const char *overlayMsg = nullptr;
 static uint16_t    overlayTimer = 0;
 static const uint16_t OVERLAY_FRAMES = 55;   // ~2.2 s
 
+// --- sequences cinematiques : mort, arrestation, repeinture. Pendant une
+//     sequence le joueur est FIGE (aucun input) mais le monde (IA, police,
+//     fumee, explosion...) continue de tourner. Petite machine d'etats par
+//     phases + minuterie. La teleportation / revie se fait DERRIERE l'ecran
+//     noir, en fin de sequence (et non plus instantanement comme avant). ---
+enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY };
+enum { PH_EXPLODE, PH_MSG, PH_FADE, PH_IN, PH_SPRAY, PH_OUT };
+static uint8_t  seqKind  = SEQ_NONE;
+static uint8_t  seqPhase = 0;
+static uint16_t seqTimer = 0;
+static const char *seqPoi = nullptr;            // POI de reapparition (mort/arrestation)
+static const uint16_t SEQ_MSG_FRAMES   = 55;    // ~2.2 s : bandeau MORT/ARRETE
+static const uint16_t SEQ_FADE_FRAMES  = 22;    // ~0.9 s : ecran noir avant TP
+static const uint16_t SEQ_IN_FRAMES    = 26;    // voiture qui rentre dans le garage
+static const uint16_t SEQ_SPRAY_FRAMES = 48;    // bombe de peinture + attente
+static const uint16_t SEQ_OUT_FRAMES   = 16;    // voiture qui ressort repeinte
+
 // ---------------------------------------------------------------------------
 //  Trafic IA : voitures (routes) + pietons (trottoirs) errants, recolores.
 //  Logique de deplacement = couche pure ai.h (errance sur grille + voies).
@@ -660,6 +677,7 @@ void setup() {
   carHp = CAR_MAX_HP;
   boomTimer = 0;
   overlayMsg = nullptr; overlayTimer = 0;
+  seqKind = SEQ_NONE; seqPhase = 0; seqTimer = 0; seqPoi = nullptr;
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
   playerMoney = 0;
@@ -804,6 +822,9 @@ static void drawPlayer(int camX, int camY) {
 
 // Voiture joueur : frame de rotation la plus proche de l'angle continu.
 static void drawCar(int camX, int camY) {
+  // Pendant la repeinture, la caisse est "dans" le garage : on la masque jusqu'a
+  // ce qu'elle ressorte (PH_OUT).
+  if (seqKind == SEQ_SPRAY && (seqPhase == PH_IN || seqPhase == PH_SPRAY)) return;
   float a = car.angle;
   int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);
   idx %= CAR_FRAMES;
@@ -954,28 +975,28 @@ static void reviveCommon() {
   }
 }
 
-// Mort du joueur (explosion de sa voiture, ou plus de cœurs) : message facon GTA,
-// perte d'argent, reapparition devant l'hopital.
-static void wastedPlayer() {
-  overlayMsg = "MORT"; overlayTimer = OVERLAY_FRAMES;
-  playerMoney -= playerMoney / 2;           // on lache la moitie du fric
-  reviveCommon();
-  respawnAtPoi("Hopital");
-  gb.sound.playCancel();
+// Demarre une sequence de mort/arrestation : on fige le joueur, on prend
+// l'argent tout de suite, et on laisse la cinematique (message -> ecran noir ->
+// TP) se derouler dans updateSequence(). fromCar => on attend d'abord que
+// l'explosion de la caisse finisse de jouer.
+static void startEndSeq(uint8_t kind, const char *msg, const char *poi, bool fromCar) {
+  if (seqKind != SEQ_NONE) return;             // deja en cinematique : on ignore
+  seqKind = kind; overlayMsg = msg; seqPoi = poi;
+  playerMoney -= playerMoney / 2;              // on lache la moitie du fric
+  if (fromCar) { seqPhase = PH_EXPLODE; seqTimer = BOOM_FRAMES + 6; }
+  else { seqPhase = PH_MSG; seqTimer = SEQ_MSG_FRAMES; gb.sound.playCancel(); }
 }
 
-// Arrestation (un flic te touche) : message, perte d'argent, retour au commissariat.
-static void bustedPlayer() {
-  overlayMsg = "ARRETE"; overlayTimer = OVERLAY_FRAMES;
-  playerMoney -= playerMoney / 2;
-  reviveCommon();
-  respawnAtPoi("Commissariat");
-  gb.sound.playCancel();
-}
+// Mort du joueur a pied (plus de cœurs) : reapparition devant l'hopital.
+static void wastedPlayer() { startEndSeq(SEQ_WASTED, "MORT", "Hopital", false); }
+
+// Arrestation (un flic te touche) : retour au commissariat.
+static void bustedPlayer() { startEndSeq(SEQ_BUSTED, "ARRETE", "Commissariat", false); }
 
 // Le joueur encaisse dmg cœur(s) (balle de flic, etc.), avec invulnerabilite
 // breve pour eviter de tout perdre d'un coup. Mort si plus de cœurs.
 static void hurtPlayer(int dmg) {
+  if (seqKind != SEQ_NONE) return;          // fige pendant une cinematique
   if (playerHurtTimer > 0) return;
   playerHearts -= dmg;
   playerHurtTimer = PLAYER_HURT_COOLDOWN;
@@ -1552,6 +1573,14 @@ static void drawSprayShops(int camX, int camY) {
     drawSprayShop(camX, camY, sprayPx[i], sprayPy[i]);
 }
 
+// Entree dans un Pay'n'Spray : demarre la cinematique (la caisse rentre, on
+// entend la bombe, elle ressort repeinte). Le joueur attend, fige.
+static void startSpraySeq() {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_SPRAY; seqPhase = PH_IN; seqTimer = SEQ_IN_FRAMES;
+  car.vx = 0.0f; car.vy = 0.0f;                // on coupe l'elan en entrant
+}
+
 // Repeinture (rouler dans un Pay'n'Spray) : nouvelle couleur de caisse, recherche
 // police a zero, debit $ (gratuit si fauche pour ne pas bloquer a 5 etoiles).
 static void repaintCar() {
@@ -1808,10 +1837,11 @@ static void narrDraw() {
 // Appelee chaque frame au volant (apres les collisions/tirs de la frame).
 static void updateDrivenCar() {
   if (!driving) return;
+  if (seqKind != SEQ_NONE) return;             // cinematique en cours : caisse figee
   if (carCrashTimer > 0) carCrashTimer--;
   if (carHp <= 0) {
     explodeCarAt((int)car.x, (int)car.y);
-    wastedPlayer();                            // dedans = mort
+    startEndSeq(SEQ_WASTED, "MORT", "Hopital", true);  // dedans = mort, on voit le boom
   }
 }
 
@@ -1847,19 +1877,70 @@ static void drawBoom(int camX, int camY) {
     }
 }
 
-// Bandeau plein ecran "MORT"/"ARRETE" apres une mort/arrestation (facon GTA).
-static void drawOverlay() {
-  if (overlayTimer == 0 || !overlayMsg) return;
-  for (int y = 24; y < 38; y++)                  // bande sombre centrale
-    for (int x = 0; x < SCREEN_W; x++) fb[y * SCREEN_W + x] = 0x0000;
-  int len = (int)strlen(overlayMsg);
-  printShadow((SCREEN_W - len * 4) / 2, 28, overlayMsg);
+// Fait avancer la cinematique en cours (mort / arrestation / repeinture). La
+// teleportation et la repeinture se font sur les transitions de phase, pas a
+// l'entree : on laisse le temps de voir l'explosion, le message, l'ecran noir,
+// la bombe de peinture. Le monde, lui, continue de tourner autour.
+static void updateSequence() {
+  if (seqKind == SEQ_NONE) return;
+  if (seqTimer > 0) {
+    if (seqKind == SEQ_SPRAY && seqPhase == PH_SPRAY && (seqTimer % 8) == 0)
+      gb.sound.tone(2200, 70);                   // pschitt de la bombe de peinture
+    seqTimer--; return;
+  }
+  switch (seqPhase) {
+    case PH_EXPLODE:                             // l'explosion a fini de jouer
+      seqPhase = PH_MSG; seqTimer = SEQ_MSG_FRAMES; gb.sound.playCancel(); break;
+    case PH_MSG:                                 // le bandeau a tenu sa duree
+      seqPhase = PH_FADE; seqTimer = SEQ_FADE_FRAMES; break;
+    case PH_FADE:                                // derriere l'ecran noir : revie + TP
+      reviveCommon(); respawnAtPoi(seqPoi);
+      seqKind = SEQ_NONE; seqPhase = 0; overlayMsg = nullptr; break;
+    case PH_IN:                                  // la caisse a disparu dans le garage
+      seqPhase = PH_SPRAY; seqTimer = SEQ_SPRAY_FRAMES; break;
+    case PH_SPRAY:                               // bombe finie : repeinte, elle ressort
+      repaintCar(); seqPhase = PH_OUT; seqTimer = SEQ_OUT_FRAMES; break;
+    case PH_OUT:                                 // ressortie : on rend la main au joueur
+      seqKind = SEQ_NONE; seqPhase = 0; break;
+  }
+}
+
+// Calque cinematique dessine par-dessus la scene selon la phase courante.
+static void drawSequence(int camX, int camY) {
+  if (seqKind == SEQ_NONE) return;
+  if (seqKind == SEQ_SPRAY) {                    // bombe : nuage de peinture sur le garage
+    if (seqPhase != PH_SPRAY) return;
+    int cx = (int)car.x - camX, cy = (int)car.y - camY;
+    static const uint16_t puff[3] = { 0x07FF, 0xFFE0, 0xFD20 };
+    for (int k = 0; k < 12; k++) {
+      int a = missionAnim * 3 + k * 37;
+      int x = cx + (a % 13) - 6, y = cy + ((a >> 2) % 13) - 6;
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = puff[k % 3];
+    }
+    return;
+  }
+  if (seqPhase == PH_FADE) {                      // ecran noir plein avant la TP
+    for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0000;
+    return;
+  }
+  if (seqPhase == PH_MSG && overlayMsg) {         // bandeau central "MORT"/"ARRETE"
+    for (int y = 24; y < 38; y++)
+      for (int x = 0; x < SCREEN_W; x++) fb[y * SCREEN_W + x] = 0x0000;
+    int len = (int)strlen(overlayMsg);
+    printShadow((SCREEN_W - len * 4) / 2, 28, overlayMsg);
+  }
+  // PH_EXPLODE : rien a ajouter, drawBoom fait le spectacle.
 }
 
 void loop() {
   while (!gb.update());
 
-  if (!driving) {
+  // Cinematique en cours (mort / arrestation / repeinture) : le joueur est fige,
+  // aucun input ne passe. Le monde (IA, police, fumee...) tourne quand meme,
+  // plus bas. Sinon, on lit les commandes normalement.
+  if (seqKind != SEQ_NONE) {
+    // joueur fige
+  } else if (!driving) {
     // --- A PIED ---
     int dx, dy;
     readFootInput(dx, dy);
@@ -1996,6 +2077,7 @@ void loop() {
   if (boomTimer > 0) boomTimer--;
   if (overlayTimer > 0) overlayTimer--;
   updateDrivenCar();
+  updateSequence();                            // avance la cinematique mort/arret/spray
 
   // Pay'n'Spray : entrer en voiture dans un garage repeint la caisse et efface
   // les etoiles. Detection d'entree (declenche une fois par passage, pas en
@@ -2007,7 +2089,7 @@ void loop() {
       if (ddx * ddx + ddy * ddy <= (long)SPRAY_REACH * SPRAY_REACH) { onSpray = true; break; }
     }
   }
-  if (onSpray && !sprayInside) repaintCar();   // on vient d'entrer dans le garage
+  if (onSpray && !sprayInside && seqKind == SEQ_NONE) startSpraySeq();  // on entre : cinematique
   sprayInside = onSpray;
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
@@ -2074,7 +2156,7 @@ void loop() {
   drawMissionStatus();
   drawTopHud();                                // barre stats : cœurs, etoiles, arme
   narrDraw();
-  drawOverlay();                               // "MORT"/"ARRETE" par-dessus tout
+  drawSequence(camX, camY);                    // cinematique : message / ecran noir / bombe
 
   // Debug serie periodique (~1/s).
   static uint32_t frame = 0;
