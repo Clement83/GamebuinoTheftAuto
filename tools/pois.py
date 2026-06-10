@@ -143,6 +143,22 @@ STAMP_DEFS = {
 }
 STAMP_ORDER = ("police", "hospital", "fire")
 
+# --- noms d'affichage (HUD) des POI ------------------------------------------
+# Clefs : theme_id (quartiers) et nom de stamp (batiments-reperes). Servent a la
+# fois pour le bandeau "tu es a ..." et pour cibler les missions (recherche par
+# nom cote jeu). Courts : <=12 car. pour tenir dans 80 px.
+THEME_NAMES = {
+    THEME_CHINATOWN: "Chinatown",
+    THEME_PORT: "Les Quais",
+    THEME_CONSTRUCTION: "Chantier",
+    THEME_JUNKYARD: "La Casse",
+}
+STAMP_NAMES = {
+    "police": "Commissariat",
+    "hospital": "Hopital",
+    "fire": "Pompiers",
+}
+
 
 def has_any_stamp(tile_index):
     """Vrai si au moins un stamp a toutes ses tuiles dans le tileset."""
@@ -257,3 +273,72 @@ def place_docks(grid, sea, district_id, port_d, tile_index, w, h,
             cx += dx
             cy += dy
     return n
+
+
+# --- collecte des POI pour l'export jeu --------------------------------------
+
+def _nearest_walkable(grid, cells, cx, cy, solid_index, prefer=None, w=0):
+    """Parmi `cells` (indices grille), la cellule NON solide la plus proche de
+    (cx,cy). `prefer` (set d'ids de tuiles) gagne a egalite de priorite. Renvoie
+    (tx, ty) ou None. Sert de point-cible atteignable d'un POI (route/quai...)."""
+    best = None
+    best_key = None
+    for i in cells:
+        t = grid[i]
+        if t in solid_index:
+            continue
+        x, y = i % w, i // w
+        pr = 0 if (prefer and t in prefer) else 1
+        d = (x - cx) ** 2 + (y - cy) ** 2
+        key = (pr, d)
+        if best_key is None or key < best_key:
+            best_key = key
+            best = (x, y)
+    return best
+
+
+def collect_pois(grid, theme, assign, placed, sea, tile_index, solid_index, w, h):
+    """Construit la liste des POI exportables -> [dict(name,x0,y0,x1,y1,tx,ty)].
+
+    * quartiers (theme) : bbox des cellules du district + point-cible = la
+      cellule marchable la plus proche du centroide (le port privilegie un quai);
+    * stamps : bbox du blueprint 3x3 + point-cible = la porte (case marchable
+      bordant la route). `placed` = {nom: (x,y) coin haut-gauche | None}.
+    Tout en coordonnees de TUILES. Ordre stable : quartiers puis stamps."""
+    out = []
+    road_pav = {tile_index[n] for n in ("road_h", "road_v", "road_cross", "pavement")
+                if n in tile_index}
+    dock = {tile_index["dock"]} if "dock" in tile_index else set()
+
+    # quartiers thematiques
+    by_theme = {}
+    for i, t in enumerate(theme or []):
+        if t == THEME_NONE:
+            continue
+        by_theme.setdefault(t, []).append(i)
+    for tid in THEME_ORDER:
+        cells = by_theme.get(tid)
+        if not cells:
+            continue
+        xs = [c % w for c in cells]
+        ys = [c // w for c in cells]
+        x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+        cx, cy = sum(xs) // len(xs), sum(ys) // len(ys)
+        prefer = (dock or road_pav) if tid == THEME_PORT else road_pav
+        tgt = _nearest_walkable(grid, cells, cx, cy, solid_index, prefer, w) \
+            or (cx, cy)
+        out.append(dict(name=THEME_NAMES[tid], x0=x0, y0=y0, x1=x1, y1=y1,
+                        tx=tgt[0], ty=tgt[1]))
+
+    # stamps : la porte est en bas-centre du blueprint 3x3
+    drow, dcol = _door_cell(STAMP_BLUEPRINT)
+    sh, sw = len(STAMP_BLUEPRINT), len(STAMP_BLUEPRINT[0])
+    for name in STAMP_ORDER:
+        xy = (placed or {}).get(name)
+        if not xy:
+            continue
+        x, y = xy
+        out.append(dict(name=STAMP_NAMES[name], x0=x, y0=y,
+                        x1=x + sw - 1, y1=y + sh - 1,
+                        tx=x + dcol, ty=y + drow + 1))   # case route devant la porte
+    return out

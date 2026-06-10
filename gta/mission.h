@@ -147,6 +147,8 @@ enum ObjType {
   OBJ_GOTO      = 0,  // atteindre un point monde dans un rayon
   OBJ_ENTER_CAR = 1,  // etre au volant de la voiture de mission
   OBJ_KILL      = 2,  // la cible de mission est morte
+  OBJ_BEAT      = 3,  // mettre KO `count` pietons (compteur cumule)
+  OBJ_SURVIVE   = 4,  // tenir `limit` frames (le temps qui s'ecoule remplit l'objectif)
 };
 
 enum MissionEvent {
@@ -158,12 +160,19 @@ enum MissionEvent {
 struct Objective {
   uint8_t type;        // ObjType
   int16_t x, y;        // point monde (centre px) : GOTO -> destination ;
-                       //   ENTER_CAR/KILL -> ou spawner la voiture/cible
+                       //   ENTER_CAR/KILL -> ou spawner la voiture/cible.
+                       //   Resolu au lancement depuis le POI `poi` s'il existe.
   uint8_t radius;      // GOTO : rayon de validation (px)
   bool    requireCar;  // GOTO : exige d'etre au volant ("conduis jusqu'a")
   uint8_t event;       // MissionEvent declenche a la completion, ou EV_NONE
+  const char *poi;     // nom de POI cible (resolu en x,y au lancement), ou nullptr
   const char *text;    // narration affichee quand l'objectif devient ACTIF
   const char *doneText;// narration affichee quand l'objectif est ATTEINT (ou nullptr)
+  // Champs ajoutes en fin de struct : les anciennes initialisations restent
+  // valides (membres absents -> 0 en initialisation aggregat C++).
+  uint8_t  count;      // OBJ_BEAT : nombre de pietons a mettre KO
+  uint16_t limit;      // frames : OBJ_SURVIVE = duree a tenir ; sinon limite de
+                       //   temps (0 = aucune ; depassee -> mission echouee)
 };
 
 struct MissionDef {
@@ -184,6 +193,8 @@ struct MissionState {
   bool driving;           // au volant d'une voiture quelconque
   bool inMissionCar;      // au volant de la voiture de mission precisement
   bool targetAlive;       // cible de mission encore vivante
+  int      beatCount;     // pietons mis KO depuis le debut de l'objectif
+  uint16_t elapsed;       // frames ecoulees sur l'objectif courant
 };
 
 // L'objectif o est-il rempli compte tenu de l'etat s ?
@@ -196,8 +207,16 @@ inline bool missionObjectiveDone(const Objective &o, const MissionState &s) {
     }
     case OBJ_ENTER_CAR: return s.inMissionCar;
     case OBJ_KILL:      return !s.targetAlive;
+    case OBJ_BEAT:      return s.beatCount >= (int)o.count;
+    case OBJ_SURVIVE:   return s.elapsed >= o.limit;
   }
   return false;
+}
+
+// Objectif a-t-il depasse sa limite de temps ? (SURVIVE n'echoue jamais : le
+// temps qui passe le REMPLIT, cf. missionObjectiveDone.)
+inline bool missionTimedOut(const Objective &o, uint16_t elapsed) {
+  return o.limit > 0 && o.type != OBJ_SURVIVE && elapsed > o.limit;
 }
 
 // Passe a l'objectif suivant. Renvoie l'evenement scripte de l'objectif qui

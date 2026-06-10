@@ -36,7 +36,18 @@ def emit_headers(city, out_h, out_cpp):
         f.write("#define PLAYER_START_X %d\n" % sx)
         f.write("#define PLAYER_START_Y %d\n" % sy)
         f.write("#define PLAYER_START_DIR %s\n\n" % DIR_NAMES[sdir])
+        pois = getattr(city, "pois", []) or []
+        f.write("#define CITY_NUM_POIS %d\n\n" % len(pois))
+        f.write("// Point d'interet : bbox en TUILES (inclus) pour la detection\n")
+        f.write("// HUD, point-cible (tx,ty) en PX monde pour les missions/fleche.\n")
+        f.write("struct CityPoi {\n")
+        f.write("  const char *name;\n")
+        f.write("  uint8_t x0, y0, x1, y1;\n")
+        f.write("  int16_t tx, ty;\n")
+        f.write("};\n")
         f.write("extern const uint8_t cityMap[CITY_H*CITY_W];\n")
+        if pois:
+            f.write("extern const CityPoi cityPois[CITY_NUM_POIS];\n")
     with open(out_cpp, "w") as f:
         f.write("// genere par tools/build_city.py -- NE PAS editer\n")
         f.write('#include "citymap.h"\n\n')
@@ -45,6 +56,13 @@ def emit_headers(city, out_h, out_cpp):
             row = city.grid[y * city.w:(y + 1) * city.w]
             f.write("  " + ", ".join(str(v) for v in row) + ",\n")
         f.write("};\n")
+        if pois:
+            f.write("\nconst CityPoi cityPois[CITY_NUM_POIS] = {\n")
+            for p in pois:
+                f.write('  { "%s", %d, %d, %d, %d, %d, %d },\n'
+                        % (p["name"], p["x0"], p["y0"], p["x1"], p["y1"],
+                           p["tx"] * 8 + 4, p["ty"] * 8 + 4))
+            f.write("};\n")
 
 
 def render_png(city, names, tiles8_dir, out_png):

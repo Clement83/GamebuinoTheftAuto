@@ -81,7 +81,7 @@ int main() {
 
   // --- Objectif GOTO : valide dans le rayon, pas hors rayon ---
   {
-    Objective o = { OBJ_GOTO, 100, 100, 8, false, EV_NONE, "go" };
+    Objective o = { OBJ_GOTO, 100, 100, 8, false, EV_NONE, nullptr, "go" };
     MissionState s = {};
     s.actorCx = 104; s.actorCy = 100;        // 4 px -> dans rayon 8
     check("GOTO dans rayon", missionObjectiveDone(o, s));
@@ -90,7 +90,7 @@ int main() {
   }
   // --- Objectif GOTO requireCar : seulement si au volant ---
   {
-    Objective o = { OBJ_GOTO, 100, 100, 8, true, EV_NONE, "drive" };
+    Objective o = { OBJ_GOTO, 100, 100, 8, true, EV_NONE, nullptr, "drive" };
     MissionState s = {};
     s.actorCx = 100; s.actorCy = 100; s.driving = false;
     check("GOTO requireCar a pied -> non", !missionObjectiveDone(o, s));
@@ -99,7 +99,7 @@ int main() {
   }
   // --- Objectif ENTER_CAR : valide quand au volant de la voiture de mission ---
   {
-    Objective o = { OBJ_ENTER_CAR, 0, 0, 0, false, EV_NONE, "enter" };
+    Objective o = { OBJ_ENTER_CAR, 0, 0, 0, false, EV_NONE, nullptr, "enter" };
     MissionState s = {};
     s.inMissionCar = false;
     check("ENTER_CAR pas dans la voiture -> non", !missionObjectiveDone(o, s));
@@ -108,21 +108,46 @@ int main() {
   }
   // --- Objectif KILL : valide quand la cible est morte ---
   {
-    Objective o = { OBJ_KILL, 0, 0, 0, false, EV_NONE, "kill" };
+    Objective o = { OBJ_KILL, 0, 0, 0, false, EV_NONE, nullptr, "kill" };
     MissionState s = {};
     s.targetAlive = true;
     check("KILL cible vivante -> non", !missionObjectiveDone(o, s));
     s.targetAlive = false;
     check("KILL cible morte -> oui", missionObjectiveDone(o, s));
   }
+  // --- Objectif BEAT : valide quand le compteur de KO atteint count ---
+  {
+    Objective o = { OBJ_BEAT, 0, 0, 0, false, EV_NONE, nullptr, "beat", nullptr, 3, 0 };
+    MissionState s = {};
+    s.beatCount = 2;
+    check("BEAT 2/3 -> non", !missionObjectiveDone(o, s));
+    s.beatCount = 3;
+    check("BEAT 3/3 -> oui", missionObjectiveDone(o, s));
+  }
+  // --- Objectif SURVIVE : valide quand le temps ecoule atteint limit ---
+  {
+    Objective o = { OBJ_SURVIVE, 0, 0, 0, false, EV_NONE, nullptr, "surv", nullptr, 0, 100 };
+    MissionState s = {};
+    s.elapsed = 99;
+    check("SURVIVE 99/100 -> non", !missionObjectiveDone(o, s));
+    s.elapsed = 100;
+    check("SURVIVE 100/100 -> oui", missionObjectiveDone(o, s));
+    check("SURVIVE jamais timeout", !missionTimedOut(o, 200));
+  }
+  // --- Limite de temps : GOTO chronometré echoue une fois depassee ---
+  {
+    Objective o = { OBJ_GOTO, 0, 0, 8, false, EV_NONE, nullptr, "timed", nullptr, 0, 50 };
+    check("GOTO dans les temps", !missionTimedOut(o, 50));
+    check("GOTO hors temps -> timeout", missionTimedOut(o, 51));
+  }
 
   // --- Enchainement : missionAdvance renvoie l'evenement et termine au bout ---
   {
     static const Objective objs[] = {
-      { OBJ_ENTER_CAR, 0, 0, 0, false, EV_NONE,      "o0" },
-      { OBJ_GOTO,    50, 50, 8, true,  EV_MARCO_JOIN, "o1" },
-      { OBJ_GOTO,    90, 90, 8, true,  EV_MARCO_DIE,  "o2" },
-      { OBJ_KILL,      0, 0, 0, false, EV_NONE,       "o3" },
+      { OBJ_ENTER_CAR, 0, 0, 0, false, EV_NONE,      nullptr, "o0" },
+      { OBJ_GOTO,    50, 50, 8, true,  EV_MARCO_JOIN, nullptr, "o1" },
+      { OBJ_GOTO,    90, 90, 8, true,  EV_MARCO_DIE,  nullptr, "o2" },
+      { OBJ_KILL,      0, 0, 0, false, EV_NONE,       nullptr, "o3" },
     };
     MissionDef def = { "test", objs, 4 };
     MissionRun run = { 0, 0, true };

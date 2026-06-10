@@ -495,8 +495,10 @@ def generate_into(city, seed, tile_index, solid_index,
     # 8b. stamps POI (APRES les trottoirs : sinon la passe trottoir ecrase les
     # tuiles du stamp bordant la route, dont la porte). Acces+orientation : une
     # route doit se trouver juste au sud de la porte.
+    placed_stamps = {}
     if stamps_avail:
-        pois.place_stamps(city.grid, z, district_id, seed_type, seed, w, h, tile_index)
+        placed_stamps = pois.place_stamps(city.grid, z, district_id, seed_type,
+                                          seed, w, h, tile_index)
 
     # 8c. quais du port : tuile dock (optionnelle) sur la mer cotiere bordant le
     # district port (jetee marchable devant les facades).
@@ -505,6 +507,10 @@ def generate_into(city, seed, tile_index, solid_index,
         if port_d:
             pois.place_docks(city.grid, sea, district_id, port_d[0],
                              tile_index, w, h)
+
+    # 8d. POI exportables (nom + bbox + point-cible) pour le HUD et les missions.
+    city.pois = pois.collect_pois(city.grid, theme, assign, placed_stamps, sea,
+                                  tile_index, solid_index, w, h)
 
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)

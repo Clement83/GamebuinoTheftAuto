@@ -25,6 +25,7 @@ class CompiledCity:
         self.h = h
         self.grid = [0] * (w * h)
         self.spawn = None  # (x, y, dir)
+        self.pois = []     # [dict(name,x0,y0,x1,y1,tx,ty)] -- rempli par citygen
 
     def _i(self, x, y):
         return y * self.w + x

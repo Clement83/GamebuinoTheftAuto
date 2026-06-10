@@ -75,7 +75,7 @@ static const float CAR_STEER_REF    = 1.2f;   // vitesse de braquage "plein"
 static const float CAR_PIVOT_MIN    = 0.5f;   // autorite de braquage mini sous gaz (pivote contre un mur)
 static const float CAR_GRIP         = 0.93f;  // amortissement lateral normal (moins savonneux)
 static const float CAR_DRIFT_GRIP   = 0.975f; // drift : peu de grip lateral -> glisse
-static const int   CAR_HALF         = 3;      // demi-boite de collision (px)
+static const int   CAR_HALF         = 2;      // demi-boite de collision (px) -- plus petite que le sprite
 // Seuils d'aide a la conduite (utilises par l'appelant : input -> throttle/brake).
 static const float CAR_REVERSE_EPS  = 0.15f;  // sous cette vitesse avant, B = marche arriere
 static const float CAR_DRIFT_MIN    = 1.0f;   // vitesse avant mini pour partir en drift

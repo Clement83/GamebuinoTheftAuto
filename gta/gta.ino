@@ -17,6 +17,7 @@
 #endif
 #include <Gamebuino-Meta.h>
 #include <string.h>
+#include <stdio.h>
 #include "assets.h"
 #include "citymap.h"
 #include "engine.h"
@@ -25,6 +26,12 @@
 #include "ai.h"
 #include "combat.h"
 #include "mission.h"
+#include "weapons.h"
+#include "weapons_gfx.h"
+
+// L'enum WeaponId (weapons.h) et les sprites (weapons_gfx.h) doivent rester
+// alignes : meme nombre, meme ordre (cf. tools/build_weapons.py).
+static_assert(WEAPON_COUNT == WEAPON_GFX_COUNT, "weapons.h / weapons_gfx.h desynchronises");
 
 // Pointeur direct sur le framebuffer RGB565 80x64 (gb.display._buffer).
 // On ecrit dedans sans passer par drawPixel (pas d'appel virtuel ni de
@@ -49,9 +56,36 @@ static uint8_t animTimer;
 static CarState car;
 static bool driving = false;
 
-// --- coup de poing a pied : petit effet d'impact (pixels clairs devant) ---
+// --- attaque a pied : petit effet d'impact (pixels clairs devant) ---
 static const int PUNCH_FX_FRAMES = 3;   // duree de l'effet visuel
 static uint8_t punchTimer = 0;          // >0 : effet en cours (decremente/frame)
+
+// --- armes : arme courante, possession, munitions. Le poing (WEAPON_FIST) est
+//     toujours possede et a munitions infinies ; les autres se ramassent au sol
+//     (pickups) et se selectionnent en boucle au bouton MENU (a pied). ---
+static uint8_t curWeapon = WEAPON_FIST;
+static bool    weaponOwned[WEAPON_COUNT] = { true, false, false, false, false, false };
+static int16_t weaponAmmo[WEAPON_COUNT]  = { 0, 0, 0, 0, 0, 0 };
+
+// Pickups d'armes poses dans le monde (objet au sol a ramasser en marchant
+// dessus). Position voulue en TUILES ; setup() la snappe sur une case libre.
+struct WeaponPickupDef { uint8_t tx, ty, weapon; };
+static const WeaponPickupDef WEAPON_SPAWNS[] = {
+  { 20, 22, WEAPON_PISTOL  },
+  { 46, 30, WEAPON_SMG     },
+  { 64, 46, WEAPON_SHOTGUN },
+  { 30, 62, WEAPON_BAZOOKA },
+  { 72, 72, WEAPON_GRENADE },
+};
+static const int NUM_PICKUPS = sizeof(WEAPON_SPAWNS) / sizeof(WEAPON_SPAWNS[0]);
+static int16_t pickupPx[NUM_PICKUPS], pickupPy[NUM_PICKUPS];
+static bool    pickupActive[NUM_PICKUPS];
+static const int PICKUP_REACH = 6;      // px : distance de ramassage (centre a centre)
+
+// Toast d'arme : petit bandeau central (nom de l'arme) qui apparait au
+// changement/ramassage et disparait tout seul. >0 : frames restantes.
+static uint16_t weaponToast = 0;
+static const int WEAPON_TOAST_FRAMES = 55;   // ~2.2 s @ ~25 fps
 
 // ---------------------------------------------------------------------------
 //  Trafic IA : voitures (routes) + pietons (trottoirs) errants, recolores.
@@ -159,39 +193,164 @@ static uint8_t ringStep = 0, ringTimer = 0;
 
 // --- Definitions des missions (flash). Coords monde = centre px de tuiles
 //     valides verifiees sur la map generee (cf. docs/.../specs). ---
+// MISSION_DEAL est le seul dont le KILL est un TUEUR (poursuite) ; partout
+// ailleurs le KILL est un PNJ qui erre/fuit pres du POI (cf. enterObjective).
 #define MISSION_JOE  0
 #define MISSION_DEAL 1
+// Champs : { type, x, y, radius, requireCar, event, poi, text, doneText,
+//            count, limit }. x,y = repli si POI absent (resolus au lancement).
+// limit en frames (~25/s) : SURVIVE = duree a tenir ; sinon delai max (fail).
 static const Objective OBJS_JOE[] = {
-  { OBJ_KILL, 0, 0, 0, false, EV_NONE,
-    "Joe m'a balance aux flics. Retrouve-le et fais-le taire.",
+  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Les Quais",
+    "Joe se planque aux Quais. Retrouve-le et fais-le taire.",
     "Beau boulot. Joe parlera plus." },
 };
 static const Objective OBJS_DEAL[] = {
-  { OBJ_ENTER_CAR, 420, 380,  0, false, EV_NONE,
-    "J'ai laisse une caisse au parking. Va la chercher.", nullptr },
-  { OBJ_GOTO,      196, 420, 12, true,  EV_MARCO_JOIN,
-    "Passe prendre Marco au coin de la rue.", "Marco : roule, au chantier !" },
-  { OBJ_GOTO,      316, 500, 12, true,  EV_MARCO_DIE,
-    "Conduis Marco au chantier.", "Un type surgit... Marco s'effondre !" },
-  { OBJ_KILL,      316, 500,  0, false, EV_NONE,
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Une caisse t'attend a la Casse. Va la prendre.", nullptr },
+  { OBJ_GOTO,      0, 0, 14, true,  EV_MARCO_JOIN, "Chantier",
+    "Passe prendre Marco au Chantier.", "Marco : roule, a Chinatown !" },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_MARCO_DIE, "Chinatown",
+    "Conduis Marco a Chinatown.", "Un type surgit... Marco s'effondre !" },
+  { OBJ_KILL,      0, 0,  0, false, EV_NONE, "Chinatown",
     "Tu peux pas laisser passer ca. Bute le tueur.", "Justice est faite." },
 };
-static const MissionDef MISSIONS[] = {
-  { "Joe",              OBJS_JOE,  1 },
-  { "Mauvaise affaire", OBJS_DEAL, 4 },
+// --- Combat ---
+static const Objective OBJS_FIGHT[] = {
+  { OBJ_BEAT, 0, 0, 0, false, EV_NONE, nullptr,
+    "Bagarre ! Mets 3 gars au tapis.", "Personne te cherche plus.", 3, 0 },
 };
+static const Objective OBJS_VENGEANCE[] = {
+  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Chinatown",
+    "Il se cache a Chinatown. Fais-lui la peau.", "Vengeance accomplie." },
+};
+static const Objective OBJS_CLEAN[] = {
+  { OBJ_GOTO, 0, 0, 24, false, EV_NONE, "Chantier",
+    "Le Chantier grouille de fouineurs. Fonce.", "Maintenant, nettoie." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chantier",
+    "Vire-en 5 du quartier.", "Le coin est calme.", 5, 0 },
+};
+static const Objective OBJS_WITNESS[] = {
+  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Hopital",
+    "Un temoin tourne pres de l'Hopital. Reduis-le au silence.",
+    "Plus de temoin." },
+};
+// --- Conduite ---
+static const Objective OBJS_TAXI[] = {
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Taxi clandestin : prends la caisse a la Casse.", nullptr },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Hopital",
+    "Depose le client a l'Hopital, et vite !", "Course payee !", 0, 1100 },
+};
+static const Objective OBJS_RACE[] = {
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Au volant ! Le chrono tourne.", nullptr },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Chantier",
+    "Checkpoint 1 : le Chantier.", "1/3 !", 0, 800 },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Chinatown",
+    "Checkpoint 2 : Chinatown.", "2/3 !", 0, 800 },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Les Quais",
+    "Checkpoint 3 : les Quais.", "Record battu !", 0, 800 },
+};
+static const Objective OBJS_DELIVERY[] = {
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Un colis a livrer. Prends le vehicule.", nullptr },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Les Quais",
+    "Livre le colis aux Quais avant la fin.", "Colis livre !", 0, 1100 },
+};
+static const Objective OBJS_RUN[] = {
+  { OBJ_SURVIVE, 0, 0, 0, false, EV_NONE, nullptr,
+    "Alerte ! Sème-le et tiens 30 secondes.", "Tu l'as seme. Tranquille.",
+    0, 750 },
+};
+// --- Criminel ---
+static const Objective OBJS_DEBT[] = {
+  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Chinatown",
+    "Un mauvais payeur traine a Chinatown. Va le voir.", "Le voila." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
+    "Fais-lui cracher la dette : tabasse-le.", "Il paiera, crois-moi." },
+};
+static const Objective OBJS_RACKET[] = {
+  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Chinatown",
+    "Tournee de racket. Commerce 1 : Chinatown.", "1 encaisse." },
+  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Chantier",
+    "Commerce 2 : le Chantier.", "2 encaisses." },
+  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Les Quais",
+    "Commerce 3 : les Quais.", "Caisse pleine !" },
+};
+static const Objective OBJS_STEAL[] = {
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Vol de caisse : repère-la a la Casse et embarque.", nullptr },
+  { OBJ_GOTO,      0, 0, 18, true,  EV_NONE, "Commissariat",
+    "Ramène-la planquee derriere le Commissariat.", "Beau brelan." },
+};
+// --- Humour ---
+static const Objective OBJS_ROADHOG[] = {
+  { OBJ_BEAT, 0, 0, 0, true, EV_NONE, nullptr,
+    "Le chauffard : ecrase 10 pietons !", "Carnage total. Bravo (?).", 10, 0 },
+};
+static const Objective OBJS_LOST[] = {
+  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Pompiers",
+    "Livreur perdu : la planque est pres des Pompiers.", "Trouve ! Enfin." },
+};
+static const MissionDef MISSIONS[] = {
+  { "Joe",              OBJS_JOE,      1 },
+  { "Mauvaise affaire", OBJS_DEAL,     4 },
+  { "Bagarre de rue",   OBJS_FIGHT,    1 },
+  { "Vengeance",        OBJS_VENGEANCE,1 },
+  { "Nettoyage",        OBJS_CLEAN,    2 },
+  { "Temoin genant",    OBJS_WITNESS,  1 },
+  { "Taxi clandestin",  OBJS_TAXI,     2 },
+  { "Course folle",     OBJS_RACE,     4 },
+  { "Livraison",        OBJS_DELIVERY, 2 },
+  { "Cavale",           OBJS_RUN,      1 },
+  { "Recouvrement",     OBJS_DEBT,     2 },
+  { "Racket",           OBJS_RACKET,   3 },
+  { "Vol de caisse",    OBJS_STEAL,    2 },
+  { "Le chauffard",     OBJS_ROADHOG,  1 },
+  { "Le livreur perdu", OBJS_LOST,     1 },
+};
+static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
-// --- Telephones a position FIXE (trottoirs proches du spawn). ---
-struct PhoneDef { int16_t x, y; uint8_t mission; };
+// --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
+//     Position voulue en TUILES ; setup() la snappe sur la case libre la plus
+//     proche (la carte change a chaque regeneration). `mission` = index dans
+//     MISSIONS (meme ordre que ci-dessus). ---
+struct PhoneDef { uint8_t tx, ty; uint8_t mission; };
 static const PhoneDef PHONES[] = {
-  { 284, 364, MISSION_JOE },    // trottoir ouest
-  { 436, 364, MISSION_DEAL },   // trottoir est
+  { 14, 14,  0 },   // Joe
+  { 38, 14,  1 },   // Mauvaise affaire
+  { 60, 14,  2 },   // Bagarre de rue
+  { 82, 14,  3 },   // Vengeance
+  { 14, 36,  4 },   // Nettoyage
+  { 38, 36,  5 },   // Temoin genant
+  { 60, 36,  6 },   // Taxi clandestin
+  { 82, 36,  7 },   // Course folle
+  { 14, 58,  8 },   // Livraison
+  { 38, 58,  9 },   // Cavale
+  { 60, 58, 10 },   // Recouvrement
+  { 82, 58, 11 },   // Racket
+  { 14, 80, 12 },   // Vol de caisse
+  { 38, 80, 13 },   // Le chauffard
+  { 60, 80, 14 },   // Le livreur perdu
 };
 static const int NUM_PHONES = sizeof(PHONES) / sizeof(PHONES[0]);
+static int16_t phonePx[NUM_PHONES], phonePy[NUM_PHONES];   // positions monde (px)
 
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
+
+// Copie runtime des objectifs de la mission active : les coords des objectifs
+// references par un POI (champ `poi`) sont resolues ici au lancement, car la
+// carte (donc les POI) change a chaque regeneration. curDef pointe sur curObjs.
+static const int MAX_OBJS = 4;
+static Objective curObjs[MAX_OBJS];
+static MissionDef curDef = { "", curObjs, 0 };
+
+// Compteurs de l'objectif courant : pietons mis KO et frames ecoulees.
+static int      objBeat = 0;
+static uint16_t objElapsed = 0;
 
 // Cible de mission (Joe : erre + fuit ; tueur : fonce sur le joueur).
 enum { T_WANDER = 0, T_FLEE = 1 };
@@ -294,7 +453,28 @@ void setup() {
   for (int i = 0; i < NUM_AI_CARS; i++) aiCars[i].active = false;
   for (int i = 0; i < NUM_AI_PEDS; i++) { aiPeds[i].active = false; aiPeds[i].state = 0; }
 
-  // Missions au repos : les telephones fixes sonnent quand on s'en approche.
+  // Telephones : position resolue sur une case libre proche du decalage voulu.
+  for (int i = 0; i < NUM_PHONES; i++) {
+    int wx = PHONES[i].tx * TILE_W + TILE_W / 2;
+    int wy = PHONES[i].ty * TILE_H + TILE_H / 2;
+    int ox, oy;
+    if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
+    phonePx[i] = wx; phonePy[i] = wy;
+  }
+
+  // Armes : seul le poing au depart ; pickups poses sur une case libre proche
+  // du decalage voulu (la carte change a chaque regeneration).
+  curWeapon = WEAPON_FIST;
+  for (int i = 0; i < WEAPON_COUNT; i++) { weaponOwned[i] = (i == WEAPON_FIST); weaponAmmo[i] = 0; }
+  for (int i = 0; i < NUM_PICKUPS; i++) {
+    int wx = WEAPON_SPAWNS[i].tx * TILE_W + TILE_W / 2;
+    int wy = WEAPON_SPAWNS[i].ty * TILE_H + TILE_H / 2;
+    int ox, oy;
+    if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
+    pickupPx[i] = wx; pickupPy[i] = wy; pickupActive[i] = true;
+  }
+
+  // Missions au repos : les telephones sonnent quand on s'en approche.
   missionRun.active = false;
   target.active = false;
   targetDownTimer = 0;
@@ -374,6 +554,27 @@ static void blitPed(int camX, int camY, int worldCx, int worldCy,
   }
 }
 
+// Blit d'un sprite d'arme 6x6 centre en (worldCx,worldCy) px monde. Pas de
+// recolor : couleurs telles quelles ; WEAPON_TRANSP saute. Sert au sol ET au HUD
+// (passer camX=camY=0 et des coords ecran pour le HUD).
+static void blitWeapon(int camX, int camY, int worldCx, int worldCy, uint8_t weapon) {
+  const uint16_t *src = weaponSprites[weapon];
+  int ox = worldCx - camX - WEAPON_BOX / 2;
+  int oy = worldCy - camY - WEAPON_BOX / 2;
+  for (int ry = 0; ry < WEAPON_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * WEAPON_BOX;
+    for (int rx = 0; rx < WEAPON_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == WEAPON_TRANSP) continue;
+      int x = ox + rx;
+      if (x >= 0 && x < SCREEN_W) row[x] = c;
+    }
+  }
+}
+
 // Petit "splat" (piéton renverse) : quelques pixels sombres au sol.
 static void blitSplat(int camX, int camY, int worldCx, int worldCy) {
   int sx = worldCx - camX, sy = worldCy - camY;
@@ -385,19 +586,30 @@ static void blitSplat(int camX, int camY, int worldCx, int worldCy) {
     }
 }
 
-// Effet d'impact du coup de poing : quelques pixels clairs devant le joueur,
-// dans la direction du regard (playerDir). Dessine pendant punchTimer frames.
-static void blitPunchFx(int camX, int camY) {
+// Effet d'attaque : pour le poing, une petite croix blanche ~5 px devant ; pour
+// une arme a feu, un trait blanc partant du joueur jusqu'a la portee de l'arme
+// (dans la direction du regard). Dessine pendant punchTimer frames.
+static void blitAttackFx(int camX, int camY) {
   int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
-  int fx = pcx + AI_DX[playerDir] * 5 - camX;   // ~5 px devant
-  int fy = pcy + AI_DY[playerDir] * 5 - camY;
-  for (int dy = -1; dy <= 1; dy++)
-    for (int dx = -1; dx <= 1; dx++) {
-      if (dx != 0 && dy != 0) continue;          // petite croix
-      int x = fx + dx, y = fy + dy;
-      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H)
-        fb[y * SCREEN_W + x] = 0xFFFF;           // blanc
-    }
+  if (curWeapon == WEAPON_FIST) {
+    int fx = pcx + AI_DX[playerDir] * 5 - camX;
+    int fy = pcy + AI_DY[playerDir] * 5 - camY;
+    for (int dy = -1; dy <= 1; dy++)
+      for (int dx = -1; dx <= 1; dx++) {
+        if (dx != 0 && dy != 0) continue;        // petite croix
+        int x = fx + dx, y = fy + dy;
+        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H)
+          fb[y * SCREEN_W + x] = 0xFFFF;
+      }
+    return;
+  }
+  int reach = (int)WEAPONS[curWeapon].reach;     // trait de tir le long du regard
+  for (int t = 4; t <= reach; t++) {
+    int x = pcx + AI_DX[playerDir] * t - camX;
+    int y = pcy + AI_DY[playerDir] * t - camY;
+    if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H)
+      fb[y * SCREEN_W + x] = 0xFFFF;
+  }
 }
 
 // Piéton joueur : sprite recolore en teinte fixe (centre sur la boite PLAYER).
@@ -489,26 +701,56 @@ static void aiEjectDriver(int atx_px, int aty_px) {
   p.active = true;
 }
 
-// Coup de poing a pied : frappe le pieton le plus proche devant le joueur.
-// Construit des tableaux paralleles (pietons frappables = actifs et debout),
-// delegue le ciblage a combat.h, puis met la cible au sol + son + effet visuel.
-static void tryPunch() {
-  float px[NUM_AI_PEDS], py[NUM_AI_PEDS];
-  bool act[NUM_AI_PEDS];
-  for (int i = 0; i < NUM_AI_PEDS; i++) {
-    px[i] = aiPeds[i].x; py[i] = aiPeds[i].y;
-    act[i] = aiPeds[i].active && aiPeds[i].state == 0;
+// Met un pieton au sol (KO) + comptabilise l'objectif BEAT. Mutualise poing/arme.
+static void knockDownPed(AiPed &p) {
+  p.state = 1; p.downTimer = PED_DOWN_FRAMES;
+  if (missionRun.active) objBeat++;
+}
+
+// Attaque a pied avec l'arme courante. Cone (portee/largeur) propre a l'arme
+// (cf. weapons.h) : le poing frappe le pieton le plus proche devant ; les armes
+// a feu portent plus loin, et les armes de zone (pompe/bazooka/grenade) mettent
+// au sol TOUS les pietons du cone. Consomme 1 munition (sauf poing) ; arme videe
+// => retiree de l'arsenal et retour au poing. Son + effet visuel.
+static void tryAttack() {
+  const WeaponDef &wd = WEAPONS[curWeapon];
+  // Arme a feu vide : declic, aucune frappe (le poing reste toujours utilisable).
+  if (!weaponInfinite(curWeapon) && weaponAmmo[curWeapon] <= 0) {
+    gb.sound.playTick();
+    return;
   }
-  int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
-  int hit = combatPunchTarget(px, py, act, NUM_AI_PEDS, pcx, pcy, playerDir);
   punchTimer = PUNCH_FX_FRAMES;
-  gb.sound.playTick();                       // bip court (lib, aucun asset)
-  if (hit >= 0) { aiPeds[hit].state = 1; aiPeds[hit].downTimer = PED_DOWN_FRAMES; }
-  // La cible de mission est frappable comme un pieton (un seul element).
-  if (missionRun.active && target.active) {
-    float tpx[1] = { target.x }, tpy[1] = { target.y }; bool ta[1] = { true };
-    if (combatPunchTarget(tpx, tpy, ta, 1, pcx, pcy, playerDir) == 0)
-      killTarget(pcx, pcy);
+  if (curWeapon == WEAPON_FIST) gb.sound.playTick();
+  else gb.sound.tone(110, 50);               // bang court (grave) pour les armes
+
+  int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
+  if (wd.area) {
+    // Zone : tous les pietons debout dans le cone tombent.
+    for (int i = 0; i < NUM_AI_PEDS; i++) {
+      if (!(aiPeds[i].active && aiPeds[i].state == 0)) continue;
+      if (combatInCone(aiPeds[i].x, aiPeds[i].y, pcx, pcy, playerDir, wd.reach, wd.side))
+        knockDownPed(aiPeds[i]);
+    }
+  } else {
+    // Mono-cible : le pieton le plus proche devant dans le cone.
+    float px[NUM_AI_PEDS], py[NUM_AI_PEDS];
+    bool act[NUM_AI_PEDS];
+    for (int i = 0; i < NUM_AI_PEDS; i++) {
+      px[i] = aiPeds[i].x; py[i] = aiPeds[i].y;
+      act[i] = aiPeds[i].active && aiPeds[i].state == 0;
+    }
+    int hit = combatConeTarget(px, py, act, NUM_AI_PEDS, pcx, pcy, playerDir, wd.reach, wd.side);
+    if (hit >= 0) knockDownPed(aiPeds[hit]);
+  }
+  // La cible de mission est frappable comme un pieton (toujours dans le cone).
+  if (missionRun.active && target.active &&
+      combatInCone(target.x, target.y, pcx, pcy, playerDir, wd.reach, wd.side))
+    killTarget(pcx, pcy);
+
+  // Decompte des munitions ; arme videe -> retiree, retour au poing.
+  if (!weaponInfinite(curWeapon) && --weaponAmmo[curWeapon] <= 0) {
+    weaponOwned[curWeapon] = false;
+    curWeapon = WEAPON_FIST;
   }
 }
 
@@ -517,8 +759,8 @@ static void tryPunch() {
 static void aiUpdate(int fcx, int fcy) {
   const int rec2 = RECYCLE_DIST * RECYCLE_DIST;
   // Collision voiture joueur : seuils en px (sommes de demi-boites).
-  const float COL_CC = 9.0f;   // voiture-voiture
-  const float COL_CP = 6.0f;   // voiture-pieton
+  const float COL_CC = 6.0f;   // voiture-voiture (hitbox < sprite)
+  const float COL_CP = 4.0f;   // voiture-pieton
   float spd2 = car.vx * car.vx + car.vy * car.vy;
 
   // Obstacle = entite joueur active (voiture pilotee, ou perso a pied).
@@ -568,6 +810,7 @@ static void aiUpdate(int fcx, int fcy) {
     if (driving && spd2 > RUNOVER_SPEED2) {
       if (fabsf(car.x - p.x) < COL_CP && fabsf(car.y - p.y) < COL_CP) {
         p.state = 1; p.downTimer = PED_DOWN_FRAMES;
+        if (missionRun.active) objBeat++;    // ecrasement comptabilise (BEAT)
       }
     }
   }
@@ -611,6 +854,18 @@ static bool spawnTargetWander(int pcx, int pcy) {
   return false;
 }
 
+// Fait apparaitre Joe (errance + fuite) sur une tuile marchable proche du POI
+// (wx,wy). Comme spawnTargetWander mais ancre autour du quartier cible.
+static bool spawnTargetWanderNear(int wx, int wy) {
+  int tx, ty;
+  if (!aiFindWalkTileNear(wx, wy, tx, ty)) return spawnTargetWander(wx, wy);
+  aiPlace(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
+          target.tgtx, target.tgty, tx, ty, aiIsWalkable, aiRng);
+  target.frame = 0; target.animTimer = 0; target.phase = T_WANDER;
+  target.loseTimer = 0; target.active = true; target.chase = false;
+  return true;
+}
+
 // Fait apparaitre le tueur (poursuite) sur une tuile marchable proche de (wx,wy).
 static void spawnTargetAt(int wx, int wy) {
   int tx, ty;
@@ -621,19 +876,65 @@ static void spawnTargetAt(int wx, int wy) {
   target.loseTimer = 0; target.active = true; target.chase = true;
 }
 
+// Index du POI nomme `name` dans la table exportee, ou -1 si absent.
+static int findPoi(const char *name) {
+#if CITY_NUM_POIS > 0
+  if (name) for (int i = 0; i < CITY_NUM_POIS; i++)
+    if (strcmp(cityPois[i].name, name) == 0) return i;
+#else
+  (void)name;
+#endif
+  return -1;
+}
+
+// Plus petit POI (bbox) contenant la tuile (tx,ty), ou -1. Les stamps (3x3)
+// l'emportent ainsi sur les grands quartiers en cas de chevauchement.
+static int poiAtTile(int tx, int ty) {
+#if CITY_NUM_POIS > 0
+  int best = -1; long bestArea = 0;
+  for (int i = 0; i < CITY_NUM_POIS; i++) {
+    const CityPoi &p = cityPois[i];
+    if (tx < p.x0 || tx > p.x1 || ty < p.y0 || ty > p.y1) continue;
+    long area = (long)(p.x1 - p.x0 + 1) * (p.y1 - p.y0 + 1);
+    if (best < 0 || area < bestArea) { best = i; bestArea = area; }
+  }
+  return best;
+#else
+  (void)tx; (void)ty; return -1;
+#endif
+}
+
+// Construit curDef/curObjs : copie les objectifs de la mission m et resout les
+// coords des objectifs references par un POI (champ poi). Repli sur les coords
+// litterales si le POI est absent de la carte courante.
+static void buildMissionRuntime(uint8_t m) {
+  const MissionDef &src = MISSIONS[m];
+  uint8_t n = src.count <= MAX_OBJS ? src.count : MAX_OBJS;
+  for (uint8_t i = 0; i < n; i++) {
+    curObjs[i] = src.objectives[i];
+    int pi = findPoi(curObjs[i].poi);
+    if (pi >= 0) { curObjs[i].x = cityPois[pi].tx; curObjs[i].y = cityPois[pi].ty; }
+  }
+  curDef.title = src.title;
+  curDef.count = n;
+}
+
 // Active l'objectif courant : narration + spawn des entites necessaires.
 static void enterObjective() {
-  const MissionDef &def = MISSIONS[missionRun.def];
+  const MissionDef &def = curDef;
   const Objective &o = def.objectives[missionRun.step];
   narrate(o.text);
+  objBeat = 0; objElapsed = 0;             // compteurs propres a cet objectif
   if (o.type == OBJ_ENTER_CAR) {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
     mCarActive = true;
   } else if (o.type == OBJ_KILL && !target.active) {
+    if (missionRun.def == MISSION_DEAL) spawnTargetAt(o.x, o.y);
+    else                                spawnTargetWanderNear(o.x, o.y);
+  } else if (o.type == OBJ_SURVIVE) {
     int pcx = driving ? (int)car.x : playerX + PLAYER_W / 2;
     int pcy = driving ? (int)car.y : playerY + PLAYER_H / 2;
-    if (missionRun.def == MISSION_DEAL) spawnTargetAt(o.x, o.y);
-    else                                spawnTargetWander(pcx, pcy);
+    spawnTargetAt(pcx, pcy);               // un poursuivant te colle (pression)
   } else if (o.type == OBJ_GOTO && missionRun.def == MISSION_DEAL && missionRun.step == 1) {
     marcoWaiting = true;                 // Marco attend au coin de la rue
   }
@@ -642,10 +943,21 @@ static void enterObjective() {
 // Demarre une mission (telephone decroche).
 static void startMission(uint8_t m) {
   missionRun.def = m; missionRun.step = 0; missionRun.active = true;
+  buildMissionRuntime(m);                 // resout les coords POI de la mission
   target.active = false; marcoWaiting = false; marcoAboard = false;
   mCarActive = false;
+  narrate(curDef.title);                  // annonce le nom de la mission
   enterObjective();
   gb.sound.playOK();
+}
+
+// Mission echouee (limite de temps depassee) : message + retour au repos.
+static void failMission(const char *msg) {
+  narrate(msg);
+  missionRun.active = false;
+  target.active = false; marcoWaiting = false; marcoAboard = false;
+  mCarActive = false; carIsMission = false;
+  gb.sound.playCancel();
 }
 
 // Cible tuee (poing/voiture) : splat de feedback. L'avancement de mission est
@@ -662,14 +974,18 @@ static void killTarget(int px, int py) {
 // transition (Marco monte / meurt) puis active l'objectif suivant, ou termine.
 static void missionProgress() {
   if (!missionRun.active) return;
-  const MissionDef &def = MISSIONS[missionRun.def];
+  const MissionDef &def = curDef;
   MissionState s;
   s.actorCx = driving ? (int)car.x : playerX + PLAYER_W / 2;
   s.actorCy = driving ? (int)car.y : playerY + PLAYER_H / 2;
   s.driving = driving;
   s.inMissionCar = driving && carIsMission;
   s.targetAlive = target.active;
-  if (!missionObjectiveDone(def.objectives[missionRun.step], s)) return;
+  s.beatCount = objBeat;
+  s.elapsed = objElapsed;
+  const Objective &cur = def.objectives[missionRun.step];
+  if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
+  if (!missionObjectiveDone(cur, s)) return;
 
   const Objective &done = def.objectives[missionRun.step];  // objectif accompli
   uint8_t ev = missionAdvance(missionRun, def);   // step++ (active=false si fini)
@@ -753,11 +1069,36 @@ static void drawPhone1(int camX, int camY, int px, int py) {
   }
 }
 
+// Armes au sol : blit du sprite 6x6 a leur position monde (clipping ecran).
+static void drawWeaponPickups(int camX, int camY) {
+  for (int i = 0; i < NUM_PICKUPS; i++)
+    if (pickupActive[i])
+      blitWeapon(camX, camY, pickupPx[i], pickupPy[i], WEAPON_SPAWNS[i].weapon);
+}
+
+// Ramassage : le joueur a pied passe sur un pickup actif -> arme possedee,
+// munitions creditees, arme equipee automatiquement, narration. (pcx,pcy) px.
+static void tryPickupWeapons(int pcx, int pcy) {
+  for (int i = 0; i < NUM_PICKUPS; i++) {
+    if (!pickupActive[i]) continue;
+    long d = (long)(pcx - pickupPx[i]) * (pcx - pickupPx[i])
+           + (long)(pcy - pickupPy[i]) * (pcy - pickupPy[i]);
+    if (d > (long)PICKUP_REACH * PICKUP_REACH) continue;
+    uint8_t w = WEAPON_SPAWNS[i].weapon;
+    weaponOwned[w] = true;
+    weaponAmmo[w] += WEAPONS[w].ammoPickup;
+    curWeapon = w;                              // equipee a la prise
+    weaponToast = WEAPON_TOAST_FRAMES;          // toast central "Pistolet", ...
+    pickupActive[i] = false;
+    gb.sound.playOK();
+  }
+}
+
 // Dessine les deux telephones fixes quand la mission est au repos (decrochables).
 static void drawPhones(int camX, int camY) {
   if (missionRun.active) return;
   for (int i = 0; i < NUM_PHONES; i++)
-    drawPhone1(camX, camY, PHONES[i].x, PHONES[i].y);
+    drawPhone1(camX, camY, phonePx[i], phonePy[i]);
 }
 
 // Voiture de mission garee (objectif ENTER_CAR) : orange, orientee est.
@@ -769,14 +1110,14 @@ static void drawMissionCar(int camX, int camY) {
 // Marco : pieton cyan debout au marqueur tant qu'il n'est pas pris.
 static void drawMarco(int camX, int camY) {
   if (!marcoWaiting || !missionRun.active) return;
-  const Objective &o = MISSIONS[MISSION_DEAL].objectives[1];
+  const Objective &o = curObjs[1];        // Marco attend au marqueur de l'objectif 1
   blitPed(camX, camY, o.x, o.y, DIR_SOUTH, 0, MARCO_COLOR);
 }
 
 // Marqueur de destination clignotant (objectif GOTO / ENTER_CAR).
 static void drawMarker(int camX, int camY) {
   if (!missionRun.active) return;
-  const Objective &o = MISSIONS[missionRun.def].objectives[missionRun.step];
+  const Objective &o = curObjs[missionRun.step];
   if (o.type != OBJ_GOTO && o.type != OBJ_ENTER_CAR) return;
   int sx = o.x - camX, sy = o.y - camY;
   bool blink = ((missionAnim >> 2) & 1);
@@ -803,8 +1144,9 @@ static void drawTarget(int camX, int camY) {
 // Fleche HUD autour du joueur, pointant la destination ou la cible courante.
 static void drawMissionArrow(int camX, int camY, int fcx, int fcy) {
   if (!missionRun.active) return;
-  const Objective &o = MISSIONS[missionRun.def].objectives[missionRun.step];
+  const Objective &o = curObjs[missionRun.step];
   int tx, ty; uint16_t col;
+  if (o.type == OBJ_BEAT || o.type == OBJ_SURVIVE) return;   // pas de destination
   if (o.type == OBJ_KILL) {
     if (!target.active) return;
     tx = (int)target.x; ty = (int)target.y; col = TARGET_COLOR;
@@ -849,6 +1191,131 @@ static void narrUpdate() {
   if (--narrTimer == 0) { narrHead = (narrHead + 1) % 4; narrCount--; }
 }
 
+// HUD : nom du POI ou se trouve l'entite suivie (bandeau haut-gauche, 2e ligne
+// sous la barre de stats). Affiche tant qu'on est dans la bbox d'un POI. px.
+static void drawPoiHud(int fcx, int fcy) {
+#if CITY_NUM_POIS > 0
+  int pi = poiAtTile(fcx >> 3, fcy >> 3);
+  if (pi < 0) return;
+  const char *name = cityPois[pi].name;
+  int w = (int)strlen(name) * 4 + 1;
+  for (int y = 8; y < 15; y++)
+    for (int x = 0; x < w && x < SCREEN_W; x++) fb[y * SCREEN_W + x] = 0x0000;
+  gb.display.setColor(WHITE);
+  gb.display.setCursor(1, 9);
+  gb.display.print(name);
+#else
+  (void)fcx; (void)fcy;
+#endif
+}
+
+// Indicateur de mission (haut-droite) : compteur de KO "n/N" pour OBJ_BEAT, ou
+// secondes restantes "Ns" pour un objectif chronometre (SURVIVE / limite).
+static void drawMissionStatus() {
+  if (!missionRun.active) return;
+  const Objective &o = curObjs[missionRun.step];
+  char buf[8];
+  if (o.type == OBJ_BEAT) {
+    int n = objBeat > o.count ? o.count : objBeat;
+    snprintf(buf, sizeof(buf), "%d/%d", n, (int)o.count);
+  } else if (o.limit > 0) {
+    int left = (int)o.limit - (int)objElapsed; if (left < 0) left = 0;
+    snprintf(buf, sizeof(buf), "%ds", (left + 24) / 25);   // ~25 fps -> secondes
+  } else {
+    return;
+  }
+  int w = (int)strlen(buf) * 4 + 1;
+  for (int y = 8; y < 15; y++)
+    for (int x = SCREEN_W - w; x < SCREEN_W; x++)
+      if (x >= 0) fb[y * SCREEN_W + x] = 0x0000;
+  gb.display.setColor(WHITE);
+  gb.display.setCursor(SCREEN_W - w + 1, 9);
+  gb.display.print(buf);
+}
+
+// Texte avec ombre portee (noir decale +1,+1 puis blanc) : lisible sur n'importe
+// quel decor sans fond opaque. Police 3x5 (~4 px/caractere).
+static void printShadow(int x, int y, const char *s) {
+  gb.display.setColor(BLACK); gb.display.setCursor(x + 1, y + 1); gb.display.print(s);
+  gb.display.setColor(WHITE); gb.display.setCursor(x, y);         gb.display.print(s);
+}
+
+// Icone d'arme 6x6 en coords ecran avec contour noir 1 px (halo) : se detache du
+// fond sans rectangle opaque. (sx,sy) = coin haut-gauche.
+static void blitWeaponHudIcon(int sx, int sy, uint8_t weapon) {
+  const uint16_t *src = weaponSprites[weapon];
+  static const int8_t nb[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+  for (int ry = 0; ry < WEAPON_BOX; ry++)      // passe 1 : halo noir autour
+    for (int rx = 0; rx < WEAPON_BOX; rx++) {
+      if (src[ry * WEAPON_BOX + rx] == WEAPON_TRANSP) continue;
+      for (int k = 0; k < 4; k++) {
+        int x = sx + rx + nb[k][0], y = sy + ry + nb[k][1];
+        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x0000;
+      }
+    }
+  for (int ry = 0; ry < WEAPON_BOX; ry++)      // passe 2 : sprite par-dessus
+    for (int rx = 0; rx < WEAPON_BOX; rx++) {
+      uint16_t c = src[ry * WEAPON_BOX + rx];
+      if (c == WEAPON_TRANSP) continue;
+      int x = sx + rx, y = sy + ry;
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = c;
+    }
+}
+
+// Petite icone 5x5 a partir d'un motif ('x' = plein, autre = vide) en coords
+// ecran, avec halo noir 1 px (lisible sur le decor sans fond opaque).
+static void blitIcon5(int sx, int sy, const char *const rows[5], uint16_t color) {
+  static const int8_t nb[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+  for (int ry = 0; ry < 5; ry++)               // passe 1 : halo
+    for (int rx = 0; rx < 5; rx++) {
+      if (rows[ry][rx] != 'x') continue;
+      for (int k = 0; k < 4; k++) {
+        int x = sx + rx + nb[k][0], y = sy + ry + nb[k][1];
+        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x0000;
+      }
+    }
+  for (int ry = 0; ry < 5; ry++)               // passe 2 : plein
+    for (int rx = 0; rx < 5; rx++) {
+      if (rows[ry][rx] != 'x') continue;
+      int x = sx + rx, y = sy + ry;
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = color;
+    }
+}
+
+// Motifs 5x5 (cœur, etoile).
+static const char *const ICON_HEART[5] = { "x x x", "xxxxx", "xxxxx", " xxx ", "  x  " };
+static const char *const ICON_STAR[5]  = { "  x  ", " xxx ", "xxxxx", " xxx ", " x x " };
+
+// Stats en dur pour l'instant (a brancher plus tard sur de vrais systemes).
+static const int HUD_HEARTS_MAX = 3, HUD_HEARTS = 3;   // vie : 3 cœurs (pleins)
+static const int HUD_STARS_MAX  = 5, HUD_STARS  = 5;   // recherche police : 5 etoiles
+static const uint16_t HEART_FULL = 0xF800, HEART_EMPTY = 0x4208;  // rouge / gris sombre
+static const uint16_t STAR_FULL  = 0xFFE0, STAR_EMPTY  = 0x4208;  // jaune / gris sombre
+
+// Barre de stats du haut (GTA2-like) sur fond transparent : cœurs a gauche,
+// etoiles a droite, arme + munitions au centre (a pied), toast central au
+// changement d'arme. Dessinee au ras du haut (y=0).
+static void drawTopHud() {
+  for (int i = 0; i < HUD_HEARTS_MAX; i++)      // cœurs (haut-gauche)
+    blitIcon5(1 + i * 6, 1, ICON_HEART, i < HUD_HEARTS ? HEART_FULL : HEART_EMPTY);
+  const int starsX = (SCREEN_W - HUD_STARS_MAX * 6) / 2;
+  for (int i = 0; i < HUD_STARS_MAX; i++)       // etoiles (centre)
+    blitIcon5(starsX + i * 6, 1, ICON_STAR, i < HUD_STARS ? STAR_FULL : STAR_EMPTY);
+  if (!driving) {                               // arme courante (haut-droite)
+    const int sx = SCREEN_W - WEAPON_BOX - 1, sy = 0;
+    blitWeaponHudIcon(sx, sy, curWeapon);
+    if (!weaponInfinite(curWeapon)) {
+      char buf[6];
+      snprintf(buf, sizeof(buf), "%d", (int)weaponAmmo[curWeapon]);
+      printShadow(sx - (int)strlen(buf) * 4 - 1, 1, buf);
+    }
+  }
+  if (weaponToast > 0) {                         // toast central (nom de l'arme)
+    const char *nm = WEAPONS[curWeapon].name;
+    printShadow((SCREEN_W - (int)strlen(nm) * 4) / 2, 26, nm);
+  }
+}
+
 // Narration : bandeau bas + texte (scroll horizontal si trop long).
 static void narrDraw() {
   if (narrCount == 0) return;
@@ -876,6 +1343,13 @@ void loop() {
     } else {
       playerFrame = 0; animTimer = 0;
     }
+    // Ramassage d'une arme au sol (en marchant dessus) et changement d'arme en
+    // boucle (MENU). MENU ne sert a sortir de la voiture qu'au volant : libre ici.
+    tryPickupWeapons(playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);
+    if (gb.buttons.pressed(BUTTON_MENU)) {
+      uint8_t w = weaponCycleNext(weaponOwned, curWeapon);
+      if (w != curWeapon) { curWeapon = w; weaponToast = WEAPON_TOAST_FRAMES; }
+    }
     // A : decrocher un telephone fixe qui sonne (demarre sa mission), sinon
     // monter dans la voiture la plus proche a portee (voiture de mission garee,
     // voiture du joueur, ou voiture IA volee), sinon coup de poing.
@@ -885,10 +1359,11 @@ void loop() {
       bool answered = false;
       if (!missionRun.active) {
         for (int i = 0; i < NUM_PHONES; i++) {
-          long dP = (long)(pcx - PHONES[i].x) * (pcx - PHONES[i].x)
-                  + (long)(pcy - PHONES[i].y) * (pcy - PHONES[i].y);
+          long dP = (long)(pcx - phonePx[i]) * (pcx - phonePx[i])
+                  + (long)(pcy - phonePy[i]) * (pcy - phonePy[i]);
           if (dP <= (long)PHONE_REACH * PHONE_REACH) {
-            startMission(PHONES[i].mission); answered = true; break;
+            startMission(PHONES[i].mission);           // mission dediee a ce telephone
+            answered = true; break;
           }
         }
       }
@@ -927,7 +1402,7 @@ void loop() {
           c.active = false;                  // la voiture quitte le pool IA
           driving = true;
         } else {
-          tryPunch();                        // aucune voiture a portee -> poing
+          tryAttack();                       // aucune voiture a portee -> arme courante
         }
       }
     }
@@ -971,19 +1446,21 @@ void loop() {
   focusX = driving ? (int)car.x : playerX + PLAYER_W / 2;
   focusY = driving ? (int)car.y : playerY + PLAYER_H / 2;
 
-  // Mission : deplacement de la cible, avancement des objectifs, narration.
+  // Mission : chrono de l'objectif, deplacement de la cible, avancement.
+  if (missionRun.active && objElapsed < 0xFFFF) objElapsed++;
   missionUpdate(focusX, focusY);
   missionProgress();
   if (targetDownTimer > 0) targetDownTimer--;
   missionAnim++;                               // clignotement marqueurs/telephones
+  if (weaponToast > 0) weaponToast--;          // toast d'arme : disparait tout seul
   narrUpdate();
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
   if (!missionRun.active) {
     int near = -1; long bestd = (long)PHONE_HEAR_RANGE * PHONE_HEAR_RANGE;
     for (int i = 0; i < NUM_PHONES; i++) {
-      long dP = (long)(focusX - PHONES[i].x) * (focusX - PHONES[i].x)
-              + (long)(focusY - PHONES[i].y) * (focusY - PHONES[i].y);
+      long dP = (long)(focusX - phonePx[i]) * (focusX - phonePx[i])
+              + (long)(focusY - phonePy[i]) * (focusY - phonePy[i]);
       if (dP <= bestd) { bestd = dP; near = i; }
     }
     if (near >= 0) {
@@ -1021,6 +1498,7 @@ void loop() {
 
   // Trafic IA (sous le joueur), entites de mission, puis voiture joueur, perso.
   aiDraw(camX, camY);
+  drawWeaponPickups(camX, camY);
   drawMissionCar(camX, camY);
   drawMarco(camX, camY);
   drawTarget(camX, camY);
@@ -1028,10 +1506,13 @@ void loop() {
   drawMarker(camX, camY);
   drawCar(camX, camY);
   if (!driving) drawPlayer(camX, camY);
-  if (!driving && punchTimer > 0) { blitPunchFx(camX, camY); punchTimer--; }
+  if (!driving && punchTimer > 0) { blitAttackFx(camX, camY); punchTimer--; }
 
-  // HUD : fleche vers l'objectif/cible, puis bandeau de narration.
+  // HUD : nom du POI courant (haut), fleche vers l'objectif/cible, narration.
+  drawPoiHud(focusX, focusY);
   drawMissionArrow(camX, camY, focusX, focusY);
+  drawMissionStatus();
+  drawTopHud();                                // barre stats : cœurs, etoiles, arme
   narrDraw();
 
   // Debug serie periodique (~1/s).
