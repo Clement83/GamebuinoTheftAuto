@@ -42,7 +42,7 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
 | **Chantier** (construction) | quartier thématique | repère + ancrage mission | (ambiance) | ⏳ |
 | **La Casse** (junkyard) | quartier thématique | repère + ancrage mission | **Grue → broyeur** : vendre/détruire sa caisse contre $ | ⏳ À faire |
 | **Commissariat** (police) | stamp 3×3 | repère | (entrer = prison/relâche si arrêté) | ⏳ idée |
-| **Hôpital** | stamp 3×3 | repère + ancrage mission | **Soin** : entrer → vie restaurée (payant) | ⏳ À faire |
+| **Hôpital** | stamp 3×3 | repère + ancrage mission | **Soin** : entrer → vie restaurée (payant) | ✅ Fait |
 | **Pompiers** | stamp 3×3 | repère + ancrage mission | (camion de pompiers / mission incendie) | ⏳ idée |
 
 ---
@@ -69,7 +69,10 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
     **variable** `playerHearts` + une source de **dégâts** (balles ennemies,
     collisions) pour que le soin ait un sens.
   - Effet : `poiAtTile()` == Hôpital → `playerHearts = HUD_HEARTS_MAX` (débit $).
-- **État** : ⏳ À faire (dépend du système de vie/dégâts).
+- **État** : ✅ Fait. Entrer à pied dans la bbox « Hôpital » en étant blessé →
+  soin complet contre 40 $ (gratuit si fauché), via la machine à états
+  (`SEQ_HEAL` : croix verte pulsante + jingle ascendant do-mi-sol). Une fois par
+  entrée ; narration « Pas assez ($40) » si solde insuffisant.
 
 ### 3. Pay'n'Spray — peinture auto 🎨
 - **Service** : entrer **en voiture** → la caisse change de couleur **et on perd
@@ -138,8 +141,7 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 
 ## Prochaines étapes recommandées (ordre)
 
-1. **Hôpital interactif** : entrer à pied → `playerHearts` restauré (payant). Le
-   système de vie est désormais en place.
+1. ~~**Hôpital interactif**~~ ✅ Fait.
 2. **AMU Nation** : tuiles + stamp + UI d'achat (le plus gros morceau « interface »).
 3. **La Casse** : grue/broyeur (revente, selon `carHp`).
 4. **Récompenses de mission** en $ (boucle économique complète).

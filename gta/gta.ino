@@ -162,8 +162,9 @@ static const uint16_t OVERLAY_FRAMES = 55;   // ~2.2 s
 //     fumee, explosion...) continue de tourner. Petite machine d'etats par
 //     phases + minuterie. La teleportation / revie se fait DERRIERE l'ecran
 //     noir, en fin de sequence (et non plus instantanement comme avant). ---
-enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY };
-enum { PH_EXPLODE, PH_MSG, PH_FADE, PH_IN, PH_SPRAY, PH_OUT };
+enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY, SEQ_HEAL, SEQ_CRUSH };
+enum { PH_EXPLODE, PH_MSG, PH_FADE, PH_IN, PH_SPRAY, PH_OUT,
+       PH_HEAL, PH_CRANE, PH_CRUSH, PH_EJECT };
 static uint8_t  seqKind  = SEQ_NONE;
 static uint8_t  seqPhase = 0;
 static uint16_t seqTimer = 0;
@@ -173,6 +174,13 @@ static const uint16_t SEQ_FADE_FRAMES  = 22;    // ~0.9 s : ecran noir avant TP
 static const uint16_t SEQ_IN_FRAMES    = 26;    // voiture qui rentre dans le garage
 static const uint16_t SEQ_SPRAY_FRAMES = 48;    // bombe de peinture + attente
 static const uint16_t SEQ_OUT_FRAMES   = 16;    // voiture qui ressort repeinte
+static const uint16_t SEQ_HEAL_FRAMES  = 40;    // ~1.6 s : soin (croix verte + jingle)
+static const uint16_t SEQ_CRANE_FRAMES = 34;    // grue qui descend + saisit la caisse
+static const uint16_t SEQ_CRUSH_FRAMES = 30;    // broyage de l'epave
+static const uint16_t SEQ_EJECT_FRAMES = 16;    // prime affichee + ejection
+static const int32_t  HEAL_COST   = 40;         // $ d'un soin complet a l'hopital
+static bool           hospInside  = false;      // dans la bbox hopital a la frame -1
+static int32_t        crushReward = 0;          // prime de la casse (broyage), pour l'affichage
 
 // ---------------------------------------------------------------------------
 //  Trafic IA : voitures (routes) + pietons (trottoirs) errants, recolores.
@@ -678,6 +686,7 @@ void setup() {
   boomTimer = 0;
   overlayMsg = nullptr; overlayTimer = 0;
   seqKind = SEQ_NONE; seqPhase = 0; seqTimer = 0; seqPoi = nullptr;
+  hospInside = false; crushReward = 0;
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
   playerMoney = 0;
@@ -985,6 +994,16 @@ static void startEndSeq(uint8_t kind, const char *msg, const char *poi, bool fro
   playerMoney -= playerMoney / 2;              // on lache la moitie du fric
   if (fromCar) { seqPhase = PH_EXPLODE; seqTimer = BOOM_FRAMES + 6; }
   else { seqPhase = PH_MSG; seqTimer = SEQ_MSG_FRAMES; gb.sound.playCancel(); }
+}
+
+// Soin a l'hopital (entree a pied, blesse) : on prend le fric tout de suite et
+// on lance une courte anim (croix verte + jingle) ; la vie remonte a la fin.
+static void startHealSeq() {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_HEAL; seqPhase = PH_HEAL; seqTimer = SEQ_HEAL_FRAMES;
+  int32_t pay = playerMoney < HEAL_COST ? playerMoney : HEAL_COST;
+  playerMoney -= pay;
+  narrate("Soigne. -$40");
 }
 
 // Mort du joueur a pied (plus de cœurs) : reapparition devant l'hopital.
@@ -1886,6 +1905,11 @@ static void updateSequence() {
   if (seqTimer > 0) {
     if (seqKind == SEQ_SPRAY && seqPhase == PH_SPRAY && (seqTimer % 8) == 0)
       gb.sound.tone(2200, 70);                   // pschitt de la bombe de peinture
+    if (seqKind == SEQ_HEAL) {                    // jingle de soin ascendant (do-mi-sol)
+      if (seqTimer == SEQ_HEAL_FRAMES - 1) gb.sound.tone(523, 90);
+      else if (seqTimer == SEQ_HEAL_FRAMES - 10) gb.sound.tone(659, 90);
+      else if (seqTimer == SEQ_HEAL_FRAMES - 19) gb.sound.tone(784, 140);
+    }
     seqTimer--; return;
   }
   switch (seqPhase) {
@@ -1902,6 +1926,9 @@ static void updateSequence() {
       repaintCar(); seqPhase = PH_OUT; seqTimer = SEQ_OUT_FRAMES; break;
     case PH_OUT:                                 // ressortie : on rend la main au joueur
       seqKind = SEQ_NONE; seqPhase = 0; break;
+    case PH_HEAL:                                // soin termine : vie au max
+      playerHearts = PLAYER_HEARTS_MAX;
+      seqKind = SEQ_NONE; seqPhase = 0; break;
   }
 }
 
@@ -1916,6 +1943,16 @@ static void drawSequence(int camX, int camY) {
       int a = missionAnim * 3 + k * 37;
       int x = cx + (a % 13) - 6, y = cy + ((a >> 2) % 13) - 6;
       if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = puff[k % 3];
+    }
+    return;
+  }
+  if (seqKind == SEQ_HEAL) {                       // croix verte pulsante au-dessus du joueur
+    int px = playerX + PLAYER_W / 2 - camX, py = playerY - 5 - camY;
+    int s = 2 + ((missionAnim >> 2) & 1);          // taille qui pulse (2/3 px)
+    for (int d = -s; d <= s; d++) {
+      int hx = px + d, hy = py + d;
+      if (px >= 0 && px < SCREEN_W && hy >= 0 && hy < SCREEN_H) fb[hy * SCREEN_W + px] = 0x07E0;
+      if (hx >= 0 && hx < SCREEN_W && py >= 0 && py < SCREEN_H) fb[py * SCREEN_W + hx] = 0x07E0;
     }
     return;
   }
@@ -2091,6 +2128,19 @@ void loop() {
   }
   if (onSpray && !sprayInside && seqKind == SEQ_NONE) startSpraySeq();  // on entre : cinematique
   sprayInside = onSpray;
+
+  // Hopital : entrer A PIED en etant blesse -> soin paye (anim croix verte). Une
+  // fois par entree dans la bbox ; narre si trop fauche pour payer.
+  bool onHosp = false;
+  if (!driving && seqKind == SEQ_NONE) {
+    int pt = poiAtTile((playerX + PLAYER_W / 2) >> 3, (playerY + PLAYER_H / 2) >> 3);
+    onHosp = (pt >= 0 && strcmp(cityPois[pt].name, "Hopital") == 0);
+  }
+  if (onHosp && !hospInside && playerHearts < PLAYER_HEARTS_MAX) {
+    if (playerMoney >= HEAL_COST) startHealSeq();
+    else narrate("Pas assez ($40)");
+  }
+  hospInside = onHosp;
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
   if (!missionRun.active) {
