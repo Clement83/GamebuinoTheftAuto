@@ -442,10 +442,9 @@ static const SprayDef SPRAYS[] = {
 };
 static const int NUM_SPRAYS = sizeof(SPRAYS) / sizeof(SPRAYS[0]);
 static int16_t sprayPx[NUM_SPRAYS], sprayPy[NUM_SPRAYS];   // px monde (snappes)
-static const int   SPRAY_REACH = 8;     // px : rayon de declenchement (centre voiture)
+static const int   SPRAY_REACH = 10;    // px : rayon de declenchement (centre voiture)
 static const int32_t SPRAY_COST = 50;   // $ preleve si on en a (sinon gratuit)
-static uint8_t sprayCooldown = 0;        // anti-repetition apres une repeinture
-static const uint8_t SPRAY_COOLDOWN_FRAMES = 50;
+static bool sprayInside = false;         // dans la zone a la frame precedente (detection d'entree)
 
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
@@ -640,7 +639,7 @@ void setup() {
     else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
     sprayPx[i] = wx; sprayPy[i] = wy;
   }
-  sprayCooldown = 0;
+  sprayInside = false;
 
   // Armes : seul le poing au depart ; pickups poses sur une case libre proche
   // du decalage voulu (la carte change a chaque regeneration).
@@ -1562,7 +1561,6 @@ static void repaintCar() {
   wantedClear(wanted);
   int32_t pay = playerMoney < SPRAY_COST ? playerMoney : SPRAY_COST;
   playerMoney -= pay;
-  sprayCooldown = SPRAY_COOLDOWN_FRAMES;
   narrate("Repeinte. Plus recherche.");
   gb.sound.playOK();
 }
@@ -1999,15 +1997,18 @@ void loop() {
   if (overlayTimer > 0) overlayTimer--;
   updateDrivenCar();
 
-  // Pay'n'Spray : rouler dans un garage (recherche active) repeint la caisse et
-  // efface les etoiles. Cooldown pour ne pas re-declencher en boucle sur place.
-  if (sprayCooldown > 0) sprayCooldown--;
-  if (driving && sprayCooldown == 0 && wanted.level > 0) {
+  // Pay'n'Spray : entrer en voiture dans un garage repeint la caisse et efface
+  // les etoiles. Detection d'entree (declenche une fois par passage, pas en
+  // boucle si on reste sur place).
+  bool onSpray = false;
+  if (driving) {
     for (int i = 0; i < NUM_SPRAYS; i++) {
       long ddx = (int)car.x - sprayPx[i], ddy = (int)car.y - sprayPy[i];
-      if (ddx * ddx + ddy * ddy <= (long)SPRAY_REACH * SPRAY_REACH) { repaintCar(); break; }
+      if (ddx * ddx + ddy * ddy <= (long)SPRAY_REACH * SPRAY_REACH) { onSpray = true; break; }
     }
   }
+  if (onSpray && !sprayInside) repaintCar();   // on vient d'entrer dans le garage
+  sprayInside = onSpray;
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
   if (!missionRun.active) {
