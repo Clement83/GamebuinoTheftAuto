@@ -48,8 +48,8 @@ int main() {
   check_move(8, 0, 4, 4, 8, 0);
   check_move(0, 0, -4, -4, 0, 0);      // hors-bornes -> bloque
   check_move(376, 368, 1, 0, 377, 368);// spawn px : libre en x
-  check_move(376, 368, 0, 1, 376, 368);// bloque en y
-  check_move(376, 368, 1, 1, 377, 368);// glisse : x bouge, y bloque
+  check_move(376, 368, 0, 1, 376, 369);// boite retrecie (inset 1px) : 1px de jeu en y
+  check_move(376, 368, 1, 1, 377, 369);// x et y bougent (clearance des deux cotes)
 
   // --- voiture : invariants physique arcade ---
   // Place la voiture sur le spawn (non-solide), cap est, plein gaz : avance en +x.

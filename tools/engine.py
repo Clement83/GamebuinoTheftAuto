@@ -26,12 +26,18 @@ def is_solid(grid, w: int, h: int, solid_set: set, tx: int, ty: int) -> bool:
     return grid[ty * w + tx] in solid_set
 
 
+# Marge de collision : on retrecit la boite du joueur de COL_INSET px par cote
+# (boite 6x6 pour un sprite 8x8) -> passe plus facilement dans les passages
+# etroits, sans changer le sprite affiche. Doit rester en parite avec engine.h.
+COL_INSET = 1
+
+
 def _box_hits_solid(px: int, py: int, grid, w: int, h: int, solid_set: set) -> bool:
-    """Return True if the PLAYER×PLAYER AABB at (px, py) overlaps any solid tile."""
-    tx_min = px // TILE
-    tx_max = (px + PLAYER - 1) // TILE
-    ty_min = py // TILE
-    ty_max = (py + PLAYER - 1) // TILE
+    """Return True if the inset PLAYER AABB at (px, py) overlaps any solid tile."""
+    tx_min = (px + COL_INSET) // TILE
+    tx_max = (px + PLAYER - 1 - COL_INSET) // TILE
+    ty_min = (py + COL_INSET) // TILE
+    ty_max = (py + PLAYER - 1 - COL_INSET) // TILE
     for ty in range(ty_min, ty_max + 1):
         for tx in range(tx_min, tx_max + 1):
             if is_solid(grid, w, h, solid_set, tx, ty):

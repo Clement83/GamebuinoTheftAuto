@@ -26,13 +26,18 @@ inline bool isSolidAt(int tx, int ty) {
   return (tileFlags[id] & TILE_SOLID) != 0;
 }
 
-// L'AABB PLAYER x PLAYER en (px,py) chevauche-t-elle une tuile solide ?
+// Marge de collision : la boite du joueur est retrecie de PLAYER_COL_INSET px
+// par cote (boite 6x6 pour un sprite 8x8) -> passe plus facilement dans les
+// passages etroits, sans toucher au sprite. Parite : engine.COL_INSET.
+static const int PLAYER_COL_INSET = 1;
+
+// L'AABB (retrecie) du joueur en (px,py) chevauche-t-elle une tuile solide ?
 // Decalage arithmetique >>3 == floor-div par 8 (meme pour px<0), parite //TILE.
 inline bool boxHitsSolid(int px, int py) {
-  int txMin = px >> 3;
-  int txMax = (px + PLAYER_W - 1) >> 3;
-  int tyMin = py >> 3;
-  int tyMax = (py + PLAYER_H - 1) >> 3;
+  int txMin = (px + PLAYER_COL_INSET) >> 3;
+  int txMax = (px + PLAYER_W - 1 - PLAYER_COL_INSET) >> 3;
+  int tyMin = (py + PLAYER_COL_INSET) >> 3;
+  int tyMax = (py + PLAYER_H - 1 - PLAYER_COL_INSET) >> 3;
   for (int ty = tyMin; ty <= tyMax; ty++) {
     for (int tx = txMin; tx <= txMax; tx++) {
       if (isSolidAt(tx, ty)) return true;
