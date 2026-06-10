@@ -55,6 +55,25 @@ int main() {
     check("repeinture remet a zero", w.level == 0);
   }
 
+  // --- tuer un flic : +1 etoile immediate, sans passer par le streak ---
+  {
+    WantedState w; wantedReset(w);
+    wantedOnCopKill(w);
+    check("flic tue : 1 etoile direct", w.level == 1);
+    check("flic tue : streak intact", w.streak == 0);
+    wantedOnCopKill(w);
+    check("2e flic : 2 etoiles", w.level == 2);
+  }
+
+  // --- tuer un flic au plafond : reste a 5, ne deborde pas ---
+  {
+    WantedState w; wantedReset(w);
+    for (int s = 0; s < WANTED_MAX; s++) wantedOnCopKill(w);
+    check("5 flics : plafonne a 5", w.level == WANTED_MAX);
+    wantedOnCopKill(w);
+    check("6e flic : toujours 5", w.level == WANTED_MAX);
+  }
+
   if (failures == 0) printf("OK test_wanted_host\n");
   return failures ? 1 : 0;
 }

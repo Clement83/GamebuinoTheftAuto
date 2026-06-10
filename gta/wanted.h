@@ -38,6 +38,14 @@ inline void wantedOnKill(WantedState &w) {
   if (w.level > 0) w.decayTimer = WANTED_DECAY_FRAMES;
 }
 
+// Tuer un policier = crime majeur : +1 etoile IMMEDIATEMENT (sans passer par le
+// streak des 3 meurtres) et relance le decompte de decroissance (60 s). Au
+// niveau max, on reste au plafond mais on rafraichit quand meme la fenetre.
+inline void wantedOnCopKill(WantedState &w) {
+  if (w.level < WANTED_MAX) w.level++;
+  w.decayTimer = WANTED_DECAY_FRAMES;
+}
+
 // Avance d'une frame. Le streak expire apres 20 s sans crime. Hors niveau 5,
 // l'expiration du decompte fait perdre une etoile (et relance pour la suivante).
 inline void wantedTick(WantedState &w) {
