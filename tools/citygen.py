@@ -548,6 +548,13 @@ def generate_into(city, seed, tile_index, solid_index,
     city.district_id = district_id
     city.theme_assign = assign
 
-    # 9. spawn
-    city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
+    # 9. spawn : JW demarre a la Planque (sur la tuile porte, face au sud comme
+    # s'il en sortait). Repli sur la spirale par defaut si elle n'a pas ete posee.
+    plan = placed_stamps.get('planque') if placed_stamps else None
+    if plan is not None:
+        drow, dcol = pois._door_cell(pois.STAMP_BLUEPRINT)
+        px, py = plan
+        city.spawn = (px + dcol, py + drow, 2)
+    else:
+        city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
     return city.spawn

@@ -5,8 +5,8 @@
 
 #define CITY_W 96
 #define CITY_H 96
-#define PLAYER_START_X 49
-#define PLAYER_START_Y 47
+#define PLAYER_START_X 90
+#define PLAYER_START_Y 18
 #define PLAYER_START_DIR DIR_SOUTH
 
 #define CITY_NUM_POIS 27

@@ -540,25 +540,30 @@ static const PhoneDef PHONES[] = {
 static const int NUM_PHONES = sizeof(PHONES) / sizeof(PHONES[0]);
 static int16_t phonePx[NUM_PHONES], phonePy[NUM_PHONES];   // positions monde (px)
 
-// --- Telephones de la TRAME PRINCIPALE (couleur rouge, distincts des cabines
-//     bleues de missions secondaires). Disperses sur la carte. Pour l'instant
-//     ILS NE SONNENT PAS : ce sont des points d'ancrage poses d'avance pour la
-//     future mission scenarisee ; quand elle sera branchee, l'un d'eux sonnera
-//     et fera avancer l'histoire. Position voulue en TUILES, snappee sur le
-//     trottoir le plus proche dans setup() (cf. findSidewalkSpot). ---
-struct StoryPhoneDef { uint8_t tx, ty; };
-static const StoryPhoneDef STORY_PHONES[] = {
-  { 26, 25 },
-  { 70, 25 },
-  { 26, 70 },
-  { 70, 70 },
-};
-static const int NUM_STORY_PHONES = sizeof(STORY_PHONES) / sizeof(STORY_PHONES[0]);
+// --- Telephone de la TRAME PRINCIPALE (couleur rouge, distinct des cabines
+//     bleues de missions secondaires). UNE seule cabine, posee a cote de la
+//     Planque (position calculee dans setup() depuis le POI "Planque", snappee
+//     sur le trottoir le plus proche). Pour l'instant ELLE NE SONNE PAS : point
+//     d'ancrage de la future campagne ; quand elle sera branchee, elle sonnera
+//     et fera avancer l'histoire. ---
+static const int NUM_STORY_PHONES = 1;
 static int16_t storyPx[NUM_STORY_PHONES], storyPy[NUM_STORY_PHONES];  // px monde
 
 // Couleurs de corps de cabine : bleu = missions secondaires, rouge = trame.
 static const uint16_t PHONE_BODY_MISSION = 0x019F;   // bleu
 static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
+
+// Cabine rouge pas encore branchee (campagne) : Marco, un pote, fait patienter.
+// Une phrase tiree au hasard a chaque decroche, pour donner de la vie.
+static const char *MARCO_BUSY_LINES[] = {
+  "Marco: ouais mec ? La je peux pas, je te rappelle !",
+  "Marco: dsl vieux, gros bordel ici. A plus tard !",
+  "Marco: pas maintenant frangin, je suis sur un coup.",
+  "Marco: t'es deja en manque de moi ? Patiente !",
+  "Repondeur: c'est Marco, laisse un message... ou pas.",
+  "Repondeur: Marco injoignable. Reessaye plus tard.",
+};
+static const int NUM_MARCO_BUSY = sizeof(MARCO_BUSY_LINES) / sizeof(MARCO_BUSY_LINES[0]);
 
 // --- Pay'n'Spray : garages eparpilles, accessibles EN VOITURE. Positions
 //     GENEREES par tools/pois.py (en bord de route, cote sans trottoir,
@@ -729,14 +734,11 @@ void setup() {
   playerFrame = 0;
   animTimer = 0;
 
-  // Voiture garee sur une case libre juste a cote du perso.
-  int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
-  int sx = pcx + 2 * TILE_W, sy = pcy;        // 2 cases a l'est par defaut
-  if (carBoxHitsSolid(sx, sy, CAR_HALF)) {
-    int ox, oy;
-    if (findFootSpot(pcx + 2 * TILE_W, pcy, ox, oy)) { sx = ox + PLAYER_W / 2; sy = oy + PLAYER_H / 2; }
-  }
-  car.x = sx; car.y = sy; car.angle = 0.0f; car.vx = 0.0f; car.vy = 0.0f;
+  // Pas de voiture de depart : JW commence a pied (il en volera une au besoin).
+  // carGone => caisse perso ni dessinee ni "remontable" ; voler une caisse IA
+  // (ENTER_AI_DIST) repasse carGone a false et remplit car.*.
+  car.x = 0.0f; car.y = 0.0f; car.angle = 0.0f; car.vx = 0.0f; car.vy = 0.0f;
+  carGone = true;
 
   // Pools IA vides : remplis au premier tour autour du point de vue (aiUpdate).
   for (int i = 0; i < NUM_AI_CARS; i++) aiCars[i].active = false;
@@ -753,14 +755,18 @@ void setup() {
     phonePx[i] = wx; phonePy[i] = wy;
   }
 
-  // Cabines de la trame principale : meme snap trottoir (muettes pour l'instant).
-  for (int i = 0; i < NUM_STORY_PHONES; i++) {
-    int wx = STORY_PHONES[i].tx * TILE_W + TILE_W / 2;
-    int wy = STORY_PHONES[i].ty * TILE_H + TILE_H / 2;
+  // Cabine rouge de la campagne : posee a cote de la Planque (muette pour
+  // l'instant). On part du point-cible du POI "Planque" (devant la porte) et on
+  // snappe sur le trottoir le plus proche ; repli case libre, puis spawn joueur.
+  {
+    int wx = PLAYER_START_X * TILE_W + TILE_W / 2;
+    int wy = PLAYER_START_Y * TILE_H + TILE_H / 2;
+    int pi = findPoi("Planque");
+    if (pi >= 0) { wx = cityPois[pi].tx; wy = cityPois[pi].ty; }
     int ox, oy;
     if (findSidewalkSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
     else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
-    storyPx[i] = wx; storyPy[i] = wy;
+    storyPx[0] = wx; storyPy[0] = wy;
   }
 
   // Pay'n'Spray : positions generees (citySprays[]), deja en bord de route cote
@@ -3085,6 +3091,16 @@ void loop() {
             startMission(PHONES[i].mission);           // mission dediee a ce telephone
             answered = true; break;
           }
+        }
+      }
+      // Cabine rouge de la campagne : pas encore branchee -> Marco fait patienter.
+      if (!answered && !missionRun.active) {
+        long dS = (long)(pcx - storyPx[0]) * (pcx - storyPx[0])
+                + (long)(pcy - storyPy[0]) * (pcy - storyPy[0]);
+        if (dS <= (long)PHONE_REACH * PHONE_REACH) {
+          narrate(MARCO_BUSY_LINES[aiRngNext(aiRng) % NUM_MARCO_BUSY]);
+          gb.sound.playOK();
+          answered = true;
         }
       }
       if (answered) {
