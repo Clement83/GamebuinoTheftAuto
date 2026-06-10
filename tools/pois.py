@@ -141,21 +141,28 @@ STAMP_DEFS = {
     "fire": dict(tiles={"F": "fire_facade", "S": "fire_sign", "D": "fire_door"},
                  prefer=None),
     # --- batiments-reperes de la trame principale (cf. campagne.md) ---
+    # prefer=None : leur dispersion est geree par STORY_STAMPS (placement le
+    # plus eloigne possible des autres reperes) plutot que par une zone, sinon
+    # ils s'agglutinent tous dans le meme quartier (downtown / Chinatown).
     "planque": dict(tiles={"F": "plan_facade", "S": "plan_sign", "D": "plan_door"},
-                    prefer=Z_RESIDENTIAL),
+                    prefer=None),
     "garage": dict(tiles={"F": "gar_facade", "S": "gar_sign", "D": "gar_door"},
                    prefer=None),
     "bar": dict(tiles={"F": "bar_facade", "S": "bar_sign", "D": "bar_door"},
-                prefer=Z_DOWNTOWN),
+                prefer=None),
     "bureaux": dict(tiles={"F": "bur_facade", "S": "bur_sign", "D": "bur_door"},
-                    prefer=Z_DOWNTOWN),
+                    prefer=None),
     "casino": dict(tiles={"F": "cas_facade", "S": "cas_sign", "D": "cas_door"},
-                   prefer=Z_DOWNTOWN),
+                   prefer=None),
     "commerces": dict(tiles={"F": "com_facade", "S": "com_sign", "D": "com_door"},
                       prefer=None),
 }
 STAMP_ORDER = ("police", "hospital", "fire", "planque", "garage", "bar",
                "bureaux", "casino", "commerces")
+# Reperes de la trame : disperses (chacun le plus loin possible des deja poses)
+# pour couvrir la carte. Les 3 premiers (services) gardent leur placement.
+STORY_STAMPS = frozenset(("planque", "garage", "bar", "bureaux", "casino",
+                          "commerces"))
 
 # --- noms d'affichage (HUD) des POI ------------------------------------------
 # Clefs : theme_id (quartiers) et nom de stamp (batiments-reperes). Servent a la
@@ -260,6 +267,7 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
     road_ids = {tile_index["road_h"], tile_index["road_v"], tile_index["road_cross"]}
     blocked = road_ids | {tile_index["water"]}
     occupied, placed = set(), {}
+    centers = []        # centres (tx,ty) des stamps deja poses (pour dispersion)
 
     for k, name in enumerate(STAMP_ORDER):
         sdef = STAMP_DEFS[name]
@@ -282,15 +290,27 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
         if not cands:
             placed[name] = None
             continue
-        rng = random.Random(seed + 20 + k)
-        rng.shuffle(cands)
-        cands.sort(key=lambda c: c[0])         # zone privilegiee d'abord (tri stable)
+        if name in STORY_STAMPS and centers:
+            # repere de trame : on le pose le plus LOIN possible de tous les
+            # reperes deja places (services + reperes precedents) -> dispersion
+            # sur la carte. Deterministe (distance, puis zone, puis x,y).
+            def _spread_key(c):
+                _, cxx, cyy, _cells = c
+                mx, my = cxx + sw // 2, cyy + sh // 2
+                dmin = min((mx - px) ** 2 + (my - py) ** 2 for px, py in centers)
+                return (-dmin, c[0], cxx, cyy)
+            cands.sort(key=_spread_key)
+        else:
+            rng = random.Random(seed + 20 + k)
+            rng.shuffle(cands)
+            cands.sort(key=lambda c: c[0])     # zone privilegiee d'abord (tri stable)
         _, x, y, cells = cands[0]
         for ci, c in enumerate(cells):
             ry, rx = divmod(ci, sw)
             grid[c] = tile_index[sdef["tiles"][blueprint[ry][rx]]]
             occupied.add(c)
         placed[name] = (x, y)
+        centers.append((x + sw // 2, y + sh // 2))
     return placed
 
 
@@ -574,14 +594,14 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
 #
 # Legende : G=palissade  .=terre  F=ossature  K=base de grue
 #           (l'unique '.' de la derniere ligne = entree, route exigee au sud).
+# 5x5 : compact, pour TENIR a l'interieur du quartier construction (ses blocs
+# sont petits -- un 9x7 ne rentre pas sans chevaucher une route).
 CONS_BLUEPRINT = (
-    "GGGGGGGGG",
-    "G.F...F.G",
-    "G.......G",
-    "GF..K..FG",
-    "G.......G",
-    "G.F...F.G",
-    "GGGG.GGGG",
+    "GGGGG",
+    "GF.FG",
+    "G.K.G",
+    "G...G",
+    "GG.GG",
 )
 CONS_TILE_OF = {"G": "cons_fence", ".": "cons_ground",
                 "F": "cons_frame", "K": "cons_crane"}
@@ -644,12 +664,19 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
             if ey + 1 >= h or grid[(ey + 1) * w + ex] not in roads:
                 continue                            # route exigee juste au sud
             ccx, ccy = x + bw // 2, y + bh // 2
-            inc = 0 if district_id[ccy * w + ccx] == cd else 1
-            d = (ccx - cx) ** 2 + (ccy - cy) ** 2
-            cands.append((inc, d, y, x, block))
+            # niveau d'appartenance au quartier construction : 0 = enceinte
+            # ENTIEREMENT dans le quartier (vise), 1 = centre dedans, 2 = hors.
+            if all(district_id[c] == cd for c in block):
+                tier = 0
+            elif district_id[ccy * w + ccx] == cd:
+                tier = 1
+            else:
+                tier = 2
+            d = (ccx - cx) ** 2 + (ccy - cy) ** 2   # proche du centroide -> centre
+            cands.append((tier, d, y, x, block))
     if not cands:
         return None
-    cands.sort()                                    # district d'abord, puis centroide
+    cands.sort()                                    # quartier d'abord, puis centroide
     _, _, y, x, block = cands[0]
     for ci, c in enumerate(block):
         ry, rx = divmod(ci, bw)

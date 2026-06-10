@@ -544,6 +544,10 @@ def generate_into(city, seed, tile_index, solid_index,
     city.chantier = pois.place_construction(city.grid, district_id, assign,
                                             tile_index, w, h)
 
+    # expose le decoupage interne (diagnostic / placement POI affine)
+    city.district_id = district_id
+    city.theme_assign = assign
+
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
     return city.spawn
