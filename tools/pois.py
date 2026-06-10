@@ -430,6 +430,121 @@ def place_casse(grid, district_id, assign, tile_index, solid_index, w, h):
     return (best % w, best // w)
 
 
+def place_crane(grid, casse, tile_index, w, h):
+    """Cabine de la grue de La Casse -> (tx, ty), tuile de FACADE junkyard la
+    plus proche de la zone de depose `casse`. La grue est plantee sur un
+    batiment du quartier ; sa fleche pivote vers la voiture garee puis vers le
+    broyeur. Deterministe. None si pas de zone ou pas de facade junkyard."""
+    if not casse:
+        return None
+    facades = {tile_index[n] for n in ("junk_facade_a", "junk_facade_b", "junk_sign")
+               if n in tile_index}
+    if not facades:
+        return None
+    cx, cy = casse
+    best, best_key = None, None
+    for i in range(w * h):
+        if grid[i] not in facades:
+            continue
+        x, y = i % w, i // w
+        key = ((x - cx) ** 2 + (y - cy) ** 2, i)
+        if best_key is None or key < best_key:
+            best_key, best = key, (x, y)
+    return best
+
+
+# --- enceinte de La Casse (casse automobile clôturée) -----------------------
+# Plutot qu'un simple point sur la route, on TAMPONNE une vraie cour de casse
+# dans le district junkyard : grille tout autour (junk_fence, solide), sol de
+# cambouis carrossable (junk_ground), epaves statiques (junk_wreck, solides,
+# rendues comme des batiments -> zero cout CPU), base de grue (junk_crane) et
+# zone de depose centrale. Une seule ouverture (entree) bordee par une route.
+#
+# Legende : G=grille  .=sol  w=epave  K=base de grue  Z=zone de depose
+#           (l'unique '.' de la derniere ligne = entree, route exigee au sud).
+JUNK_BLUEPRINT = (
+    "GGGGGGGGG",
+    "G.w...w.G",
+    "G...K...G",
+    "Gw.....wG",
+    "G...Z...G",
+    "G.w...w.G",
+    "GGGG.GGGG",
+)
+JUNK_TILE_OF = {"G": "junk_fence", ".": "junk_ground", "Z": "junk_ground",
+                "w": "junk_wreck", "K": "junk_crane"}
+
+
+def junkyard_tiles_available(tile_index):
+    """Vrai si les 4 tuiles de l'enceinte sont dans le tileset."""
+    return all(t in tile_index for t in JUNK_TILE_OF.values())
+
+
+def _blueprint_find(ch):
+    for ry, row in enumerate(JUNK_BLUEPRINT):
+        c = row.find(ch)
+        if c >= 0:
+            return ry, c
+    return None
+
+
+def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
+    """Tamponne l'enceinte de La Casse dans le district junkyard.
+
+    Cherche une fenetre de la taille du blueprint, libre de route/eau, dont
+    l'entree (bas-centre) est bordee par une route au sud (acces voiture) ;
+    priorite aux fenetres centrees dans le district junkyard puis proches de son
+    centroide (deterministe). Ecrit les tuiles sur `grid` et renvoie
+    {zone:(tx,ty), crane:(tx,ty), entrance:(tx,ty)} en TUILES, ou None si pas de
+    theme junkyard, tuiles manquantes, ou aucune fenetre valide (repli : l'appelant
+    retombe sur place_casse/place_crane)."""
+    if not junkyard_tiles_available(tile_index):
+        return None
+    junk = [d for d, t in assign.items() if t == THEME_JUNKYARD]
+    if not junk:
+        return None
+    jd = junk[0]
+    bh, bw = len(JUNK_BLUEPRINT), len(JUNK_BLUEPRINT[0])
+    roads = {tile_index[n] for n in ("road_h", "road_v", "road_cross")
+             if n in tile_index}
+    if not roads:
+        return None
+    water = tile_index.get("water")
+    erow, ecol = (bh - 1), JUNK_BLUEPRINT[bh - 1].index(".")  # entree (gap du bas)
+
+    cells = [i for i in range(w * h) if district_id[i] == jd]
+    if not cells:
+        return None
+    cx = sum(i % w for i in cells) // len(cells)
+    cy = sum(i // w for i in cells) // len(cells)
+
+    cands = []
+    for y in range(margin, h - margin - bh):
+        for x in range(margin, w - margin - bw):
+            block = [(y + ry) * w + (x + rx)
+                     for ry in range(bh) for rx in range(bw)]
+            if any(grid[c] in roads or grid[c] == water for c in block):
+                continue
+            ey, ex = y + erow, x + ecol         # case d'entree
+            if ey + 1 >= h or grid[(ey + 1) * w + ex] not in roads:
+                continue                        # route exigee juste au sud
+            ccx, ccy = x + bw // 2, y + bh // 2
+            inj = 0 if district_id[ccy * w + ccx] == jd else 1
+            d = (ccx - cx) ** 2 + (ccy - cy) ** 2
+            cands.append((inj, d, y, x, block))
+    if not cands:
+        return None
+    cands.sort()                                # district d'abord, puis centroide
+    _, _, y, x, block = cands[0]
+    for ci, c in enumerate(block):
+        ry, rx = divmod(ci, bw)
+        grid[c] = tile_index[JUNK_TILE_OF[JUNK_BLUEPRINT[ry][rx]]]
+    zr, zc = _blueprint_find("Z")
+    kr, kc = _blueprint_find("K")
+    return dict(zone=(x + zc, y + zr), crane=(x + kc, y + kr),
+                entrance=(x + ecol, y + erow))
+
+
 def place_services(grid, tile_index, seed, w, h, occupied=None):
     """Positions des Pay'n'Spray et AMU Nation -> (sprays, ammus) en TUILES.
 

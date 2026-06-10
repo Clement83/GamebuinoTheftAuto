@@ -6,7 +6,7 @@ from tools.citygen import Z_DOWNTOWN, Z_RESIDENTIAL
 from tools.pois import (THEME_CHINATOWN, THEME_PORT, THEME_CONSTRUCTION,
                         THEME_JUNKYARD)
 
-# tileset complet (29 tuiles) ; ordre = enum de gta/assets.h
+# tileset complet ; ordre = enum de gta/assets.h
 NAMES = ["grass", "road_h", "road_v", "road_cross", "pavement", "water",
          "building_a", "building_b",
          "cn_facade_a", "cn_facade_b", "cn_sign",
@@ -15,12 +15,15 @@ NAMES = ["grass", "road_h", "road_v", "road_cross", "pavement", "water",
          "fire_facade", "fire_sign", "fire_door",
          "port_facade_a", "port_facade_b", "port_sign",
          "cons_facade_a", "cons_facade_b", "cons_sign",
-         "junk_facade_a", "junk_facade_b", "junk_sign"]
+         "junk_facade_a", "junk_facade_b", "junk_sign",
+         "junk_ground", "junk_fence", "junk_wreck", "junk_crane"]
 TI = {n: i for i, n in enumerate(NAMES)}
 DOORS = {"police_door", "hosp_door", "fire_door"}
-# solides : water/building + toutes les tuiles POI sauf les portes
+# non solides parmi les tuiles POI : portes + sol de casse (carrossable)
+NONSOLID = DOORS | {"junk_ground"}
+# solides : water/building + toutes les tuiles POI sauf portes / sol de casse
 SI = {TI["water"], TI["building_a"], TI["building_b"]} | \
-     {i for i, n in enumerate(NAMES) if i >= 8 and n not in DOORS}
+     {i for i, n in enumerate(NAMES) if i >= 8 and n not in NONSOLID}
 TI8 = {n: v for n, v in TI.items() if v < 8}
 SI8 = {5, 6, 7}
 
@@ -202,33 +205,73 @@ def test_place_services_empty_without_blocks():
     assert sprays == [] and ammus == []
 
 
-# ----- place_casse (zone de depose / grue de La Casse) ----------------------
+# ----- enceinte de La Casse (place_junkyard) --------------------------------
 
 ROADS = {TI["road_h"], TI["road_v"], TI["road_cross"]}
 
 
-def test_place_casse_is_drivable_road_point():
+def test_junkyard_compound_stamped_in_full_gen():
+    # la generation complete tamponne l'enceinte : zone de depose sur sol de
+    # casse (carrossable) et base de grue sur tuile junk_crane.
     c = _gen()
-    assert c.casse is not None, "le theme junkyard est place -> un point Casse attendu"
-    tx, ty = c.casse
-    assert c.grid[ty * c.w + tx] in ROADS, "la zone Casse doit etre une tuile route (carrossable)"
-    assert c.get(tx, ty) not in SI, "tuile route -> non solide -> accessible en voiture"
+    assert c.casse is not None and c.crane is not None
+    zx, zy = c.casse
+    assert c.grid[zy * c.w + zx] == TI["junk_ground"], "zone de depose = sol de casse"
+    assert c.get(zx, zy) not in SI, "sol de casse non solide -> carrossable"
+    kx, ky = c.crane
+    assert c.grid[ky * c.w + kx] == TI["junk_crane"], "base de grue = tuile junk_crane"
 
 
-def test_place_casse_deterministic():
+def test_junkyard_compound_fenced_and_has_wrecks():
+    # autour de la zone : au moins une grille (enceinte) et une epave statique.
+    c = _gen()
+    zx, zy = c.casse
+    seen = Counter(c.get(zx + dx, zy + dy)
+                   for dy in range(-5, 6) for dx in range(-6, 7)
+                   if 0 <= zx + dx < c.w and 0 <= zy + dy < c.h)
+    assert seen[TI["junk_fence"]] > 0, "enceinte (grille) absente autour de la zone"
+    assert seen[TI["junk_wreck"]] > 0, "aucune epave statique dans la casse"
+
+
+def test_junkyard_entrance_borders_a_road():
+    # l'enceinte a une entree (sol de casse) bordee par une route au sud.
+    c = _gen()
+    grid, w = c.grid, c.w
+    gap = None
+    for y in range(c.h - 1):
+        for x in range(w):
+            if grid[y * w + x] == TI["junk_ground"] and grid[(y + 1) * w + x] in ROADS:
+                gap = (x, y)
+    assert gap is not None, "aucune entree de casse bordant une route"
+
+
+def test_junkyard_deterministic():
     a, b = _gen(seed=11), _gen(seed=11)
-    assert a.casse == b.casse
+    assert a.casse == b.casse and a.crane == b.crane
 
 
-def test_place_casse_in_junkyard_district():
-    # un point Casse doit etre proche du district junkyard : facade junk a portee
-    c = _gen()
-    tx, ty = c.casse
-    junk = {TI["junk_facade_a"], TI["junk_facade_b"], TI["junk_sign"]}
-    near = any(c.get(tx + dx, ty + dy) in junk
-               for dy in range(-16, 17) for dx in range(-16, 17)
-               if 0 <= tx + dx < c.w and 0 <= ty + dy < c.h)
-    assert near, "la zone Casse doit etre au sein/bord du district junkyard"
+def test_place_junkyard_none_without_theme_or_tiles():
+    # pas de theme junkyard -> None ; tuiles manquantes -> None
+    grid = [TI["grass"]] * (16 * 16)
+    assert pois.place_junkyard(grid, [0] * (16 * 16), {}, TI, 16, 16) is None
+    assert pois.place_junkyard(grid, [0] * (16 * 16), {0: THEME_JUNKYARD},
+                               TI8, 16, 16) is None
+
+
+# ----- place_casse / place_crane (repli quand l'enceinte ne tient pas) -------
+
+def test_place_casse_fallback_road_point():
+    # repli : sur un district sans place pour l'enceinte, place_casse rend une
+    # tuile route carrossable (comportement historique conserve).
+    ti = {n: i for i, n in enumerate(("grass", "road_h", "road_v", "road_cross",
+                                      "pavement", "water"))}
+    w = h = 8
+    grid = [ti["grass"]] * (w * h)
+    for x in range(w):
+        grid[3 * w + x] = ti["road_h"]
+    did = [0] * (w * h)
+    pt = pois.place_casse(grid, did, {0: THEME_JUNKYARD}, ti, {ti["water"]}, w, h)
+    assert pt is not None and grid[pt[1] * w + pt[0]] in ROADS
 
 
 def test_place_casse_none_without_junkyard_theme():
@@ -237,3 +280,9 @@ def test_place_casse_none_without_junkyard_theme():
     grid = [ti["road_h"]] * (8 * 8)
     did = [0] * (8 * 8)
     assert pois.place_casse(grid, did, {}, ti, {ti["water"]}, 8, 8) is None
+
+
+def test_place_crane_none_without_casse():
+    ti = {n: i for i, n in enumerate(("grass", "road_h", "junk_facade_a"))}
+    grid = [ti["grass"]] * (8 * 8)
+    assert pois.place_crane(grid, None, ti, 8, 8) is None

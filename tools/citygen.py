@@ -524,10 +524,18 @@ def generate_into(city, seed, tile_index, solid_index,
     city.sprays, city.ammus = pois.place_services(city.grid, tile_index,
                                                   seed, w, h)
 
-    # 8f. point de depose / grue de La Casse : tuile route precise du district
-    # junkyard (deterministe, accessible en voiture), exportee comme les services.
-    city.casse = pois.place_casse(city.grid, district_id, assign,
-                                  tile_index, solid_index, w, h)
+    # 8f. La Casse : on TAMPONNE une enceinte clôturee (grilles + epaves
+    # statiques + base de grue + zone de depose) dans le district junkyard. La
+    # zone de depose et la base de grue en sortent. Repli (tuiles ou fenetre
+    # absentes) : ancien placement (zone sur une route + grue sur facade).
+    yard = pois.place_junkyard(city.grid, district_id, assign, tile_index, w, h)
+    if yard:
+        city.casse = yard["zone"]      # zone de depose (sol de casse, carrossable)
+        city.crane = yard["crane"]     # base de grue (pivot du bras / broyeur)
+    else:
+        city.casse = pois.place_casse(city.grid, district_id, assign,
+                                      tile_index, solid_index, w, h)
+        city.crane = pois.place_crane(city.grid, city.casse, tile_index, w, h)
 
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)

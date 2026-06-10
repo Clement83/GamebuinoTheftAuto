@@ -30,3 +30,7 @@ junk_facade_b,assets/named/tiles/junk_facade_b.png,1
 junk_sign,assets/named/tiles/junk_sign.png,1
 sand,assets/named/tiles/sand.png,0
 dock,assets/named/tiles/dock.png,0
+junk_ground,assets/named/tiles/junk_ground.png,0
+junk_fence,assets/named/tiles/junk_fence.png,1
+junk_wreck,assets/named/tiles/junk_wreck.png,1
+junk_crane,assets/named/tiles/junk_crane.png,1

@@ -18,6 +18,7 @@
 #include <Gamebuino-Meta.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include "assets.h"
 #include "citymap.h"
 #include "engine.h"
@@ -164,7 +165,7 @@ static const uint16_t OVERLAY_FRAMES = 55;   // ~2.2 s
 //     noir, en fin de sequence (et non plus instantanement comme avant). ---
 enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY, SEQ_HEAL, SEQ_CRUSH };
 enum { PH_EXPLODE, PH_MSG, PH_FADE, PH_IN, PH_SPRAY, PH_OUT,
-       PH_HEAL, PH_CRANE, PH_CRUSH, PH_EJECT };
+       PH_HEAL, PH_SWING, PH_CARRY, PH_CRUSH, PH_EJECT };
 static uint8_t  seqKind  = SEQ_NONE;
 static uint8_t  seqPhase = 0;
 static uint16_t seqTimer = 0;
@@ -175,7 +176,8 @@ static const uint16_t SEQ_IN_FRAMES    = 26;    // voiture qui rentre dans le ga
 static const uint16_t SEQ_SPRAY_FRAMES = 48;    // bombe de peinture + attente
 static const uint16_t SEQ_OUT_FRAMES   = 16;    // voiture qui ressort repeinte
 static const uint16_t SEQ_HEAL_FRAMES  = 40;    // ~1.6 s : soin (croix verte + jingle)
-static const uint16_t SEQ_CRANE_FRAMES = 34;    // grue qui descend + saisit la caisse
+static const uint16_t SEQ_SWING_FRAMES = 30;    // fleche pivote vers la voiture garee
+static const uint16_t SEQ_CARRY_FRAMES = 32;    // fleche repivote avec la voiture vers le broyeur
 static const uint16_t SEQ_CRUSH_FRAMES = 30;    // broyage de l'epave
 static const uint16_t SEQ_EJECT_FRAMES = 16;    // prime affichee + ejection
 static const int32_t  HEAL_COST   = 40;         // $ d'un soin complet a l'hopital
@@ -842,7 +844,10 @@ static void drawCar(int camX, int camY) {
   // ce qu'elle ressorte (PH_OUT). Au broyage, elle disparait des PH_CRUSH. Et si
   // elle a ete broyee, plus de voiture du tout.
   if (seqKind == SEQ_SPRAY && (seqPhase == PH_IN || seqPhase == PH_SPRAY)) return;
-  if (seqKind == SEQ_CRUSH && (seqPhase == PH_CRUSH || seqPhase == PH_EJECT)) return;
+  // Au broyage, des que la grue l'a saisie (PH_CARRY) la voiture est dessinee
+  // au bout de la fleche par drawSequence : on la masque ici.
+  if (seqKind == SEQ_CRUSH &&
+      (seqPhase == PH_CARRY || seqPhase == PH_CRUSH || seqPhase == PH_EJECT)) return;
   if (carGone) return;
   float a = car.angle;
   int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);
@@ -1669,7 +1674,7 @@ static void startSpraySeq() {
 // (epave plus chere si la caisse est saine). On fige la caisse.
 static void startCrushSeq() {
   if (seqKind != SEQ_NONE) return;
-  seqKind = SEQ_CRUSH; seqPhase = PH_CRANE; seqTimer = SEQ_CRANE_FRAMES;
+  seqKind = SEQ_CRUSH; seqPhase = PH_SWING; seqTimer = SEQ_SWING_FRAMES;
   crushReward = 40 + (carHp > 0 ? carHp : 0) * 4;   // ~40..160 $
   car.vx = 0.0f; car.vy = 0.0f;
   gb.sound.tone(200, 120);                           // demarrage de la grue
@@ -1986,8 +1991,8 @@ static void updateSequence() {
       else if (seqTimer == SEQ_HEAL_FRAMES - 19) gb.sound.tone(784, 140);
     }
     if (seqKind == SEQ_CRUSH) {
-      if (seqPhase == PH_CRANE && (seqTimer % 6) == 0)
-        gb.sound.tone(150 + seqTimer * 4, 50);    // vrombissement descendant de la grue
+      if ((seqPhase == PH_SWING || seqPhase == PH_CARRY) && (seqTimer % 6) == 0)
+        gb.sound.tone(180 + (seqTimer & 31) * 6, 50);  // vrombissement du moteur de grue
       else if (seqPhase == PH_CRUSH && (seqTimer % 5) == 0)
         gb.sound.tone(70, 90);                     // grincement du broyeur
     }
@@ -2010,7 +2015,10 @@ static void updateSequence() {
     case PH_HEAL:                                // soin termine : vie au max
       playerHearts = PLAYER_HEARTS_MAX;
       seqKind = SEQ_NONE; seqPhase = 0; break;
-    case PH_CRANE:                               // caisse saisie : on la broie
+    case PH_SWING:                               // fleche au-dessus de la voiture : on l'agrippe
+      seqPhase = PH_CARRY; seqTimer = SEQ_CARRY_FRAMES;
+      gb.sound.tone(440, 90); break;             // clac du crochet
+    case PH_CARRY:                               // voiture au-dessus du broyeur : on la lache
       seqPhase = PH_CRUSH; seqTimer = SEQ_CRUSH_FRAMES;
       gb.sound.tone(60, 200); break;             // gros craquement
     case PH_CRUSH:                               // broyee : prime (joueur deja a pied)
@@ -2023,6 +2031,59 @@ static void updateSequence() {
       seqKind = SEQ_NONE; seqPhase = 0; break;
   }
 }
+
+// Trait epais (2 px) entre deux points ecran, par interpolation entiere. Sert a
+// la fleche de la grue (vue de dessus).
+static void drawThickLine(int x0, int y0, int x1, int y1, uint16_t col) {
+  int dx = x1 - x0, dy = y1 - y0;
+  int n = (abs(dx) > abs(dy) ? abs(dx) : abs(dy));
+  if (n < 1) n = 1;
+  for (int i = 0; i <= n; i++) {
+    int x = x0 + dx * i / n, y = y0 + dy * i / n;
+    for (int oy = 0; oy <= 1; oy++)
+      for (int ox = 0; ox <= 1; ox++) {
+        int xx = x + ox, yy = y + oy;
+        if (xx >= 0 && xx < SCREEN_W && yy >= 0 && yy < SCREEN_H)
+          fb[yy * SCREEN_W + xx] = col;
+      }
+  }
+}
+
+// Petit carre plein cerne (cabine de grue / bouche du broyeur), centre ecran.
+static void drawBox(int cx, int cy, int r, uint16_t fill, uint16_t edge) {
+  for (int dy = -r; dy <= r; dy++)
+    for (int dx = -r; dx <= r; dx++) {
+      int x = cx + dx, y = cy + dy;
+      if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+      bool e = (dx <= -r || dx >= r || dy <= -r || dy >= r);
+      fb[y * SCREEN_W + x] = e ? edge : fill;
+    }
+}
+
+// Grue + broyeur de La Casse dessines EN PERMANENCE (vue de dessus), au repos :
+// le bras est parque en pointant la zone de depose et le broyeur reste visible.
+// Plante sur la base de grue (tuile junk_crane). Pendant le broyage, c'est
+// drawSequence qui anime la grue -> on s'efface pour ne pas dessiner deux fois.
+#if CITY_HAS_CASSE
+static void drawJunkyardRig(int camX, int camY) {
+  if (seqKind == SEQ_CRUSH) return;
+  const float SWEEP = 2.3f;                        // meme amplitude que la cinematique
+  float px = CITY_CRANE_TX, py = CITY_CRANE_TY;    // pivot (base de grue)
+  float dxz = (float)CITY_CASSE_TX - px, dyz = (float)CITY_CASSE_TY - py;
+  float L = sqrtf(dxz * dxz + dyz * dyz);
+  if (L < 10.0f) L = 10.0f;
+  float aZone = atan2f(dyz, dxz);                  // bras au repos -> zone de depose
+  float tx = px + L * cosf(aZone), ty = py + L * sinf(aZone);
+  float bx = px + L * cosf(aZone + SWEEP), by = py + L * sinf(aZone + SWEEP);  // broyeur
+  int pxS = (int)px - camX, pyS = (int)py - camY;
+  int txS = (int)tx - camX, tyS = (int)ty - camY;
+  int bxS = (int)bx - camX, byS = (int)by - camY;
+  drawBox(bxS, byS, 4, 0x18E3, 0xFFE0);            // fosse du broyeur (contour jaune)
+  drawThickLine(pxS, pyS, txS, tyS, 0x8410);       // bras parque (gris)
+  drawBox(txS, tyS, 1, 0xFD20, 0xFD20);            // crochet
+  drawBox(pxS, pyS, 3, 0x4208, 0xFD20);            // cabine (par-dessus la base)
+}
+#endif
 
 // Calque cinematique dessine par-dessus la scene selon la phase courante.
 static void drawSequence(int camX, int camY) {
@@ -2048,33 +2109,57 @@ static void drawSequence(int camX, int camY) {
     }
     return;
   }
-  if (seqKind == SEQ_CRUSH) {                      // grue + broyeur a La Casse
-    int cx = (int)car.x - camX, cy = (int)car.y - camY;
-    if (seqPhase == PH_CRANE) {                    // pince qui descend sur la caisse
-      int p = SEQ_CRANE_FRAMES - seqTimer;         // 0..CRANE
-      int clawY = cy - 22 + (p * 22) / SEQ_CRANE_FRAMES;
-      for (int y = 0; y < clawY; y++)              // cable
-        if (cx >= 0 && cx < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + cx] = 0x4208;
-      for (int dx = -3; dx <= 3; dx++) {           // pince (barre + crochets)
-        int x = cx + dx, y = clawY;
-        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xFD20;
-        if ((dx == -3 || dx == 3) && x >= 0 && x < SCREEN_W && y + 1 >= 0 && y + 1 < SCREEN_H)
-          fb[(y + 1) * SCREEN_W + x] = 0xFD20;
+  if (seqKind == SEQ_CRUSH) {                      // grue vue de dessus + broyeur
+#if CITY_HAS_CASSE
+    // Geometrie (px monde) : cabine = pivot, voiture garee = bout de fleche au
+    // repos, broyeur = bout de fleche apres un balayage fixe. La fleche pivote
+    // de la voiture (PH_SWING) puis revient avec elle vers le broyeur (PH_CARRY).
+    const float SWEEP = 2.3f;                      // amplitude du balayage (rad)
+    float px = CITY_CRANE_TX, py = CITY_CRANE_TY;  // pivot (cabine)
+    float dxc = car.x - px, dyc = car.y - py;
+    float L = sqrtf(dxc * dxc + dyc * dyc);
+    if (L < 10.0f) L = 10.0f;                       // bras minimal lisible
+    float aCar = atan2f(dyc, dxc);                  // angle pivot->voiture
+    float aBro = aCar + SWEEP;                      // angle pivot->broyeur
+    float bx = px + L * cosf(aBro), by = py + L * sinf(aBro);  // broyeur (monde)
+    int pxS = (int)px - camX, pyS = (int)py - camY;            // pivot ecran
+    int bxS = (int)bx - camX, byS = (int)by - camY;            // broyeur ecran
+
+    // broyeur (bouche raye jaune/noir) + cabine de la grue : toujours visibles.
+    drawBox(bxS, byS, 4, 0x18E3, 0xFFE0);          // fosse sombre, contour jaune
+    drawBox(pxS, pyS, 3, 0x4208, 0xFD20);          // cabine gris fonce, contour orange
+
+    if (seqPhase == PH_SWING || seqPhase == PH_CARRY) {
+      bool carry = (seqPhase == PH_CARRY);
+      int tot = carry ? SEQ_CARRY_FRAMES : SEQ_SWING_FRAMES;
+      float prog = (float)(tot - seqTimer) / (float)tot;        // 0..1
+      // SWING : du broyeur vers la voiture ; CARRY : de la voiture au broyeur.
+      float ang = carry ? (aCar + SWEEP * prog) : (aCar + SWEEP * (1.0f - prog));
+      float tx = px + L * cosf(ang), ty = py + L * sinf(ang);   // bout de fleche
+      int txS = (int)tx - camX, tyS = (int)ty - camY;
+      drawThickLine(pxS, pyS, txS, tyS, 0xFD20);                // la fleche
+      if (carry) {                                              // voiture portee
+        int idx = (int)(ang / TWO_PI * CAR_FRAMES + 0.5f) % CAR_FRAMES;
+        if (idx < 0) idx += CAR_FRAMES;
+        blitCar(camX, camY, (int)tx, (int)ty, idx, carColor);
       }
-    } else if (seqPhase == PH_CRUSH) {             // caisse ecrasee : bloc qui s'aplatit
+      drawBox(txS, tyS, 1, 0xFD20, 0xFD20);                     // crochet
+    } else if (seqPhase == PH_CRUSH) {             // voiture lachee : ecrasee au broyeur
+      drawThickLine(pxS, pyS, bxS, byS, 0xFD20);                // fleche au-dessus du broyeur
       int p = SEQ_CRUSH_FRAMES - seqTimer;
       int h = 1 + (7 * seqTimer) / SEQ_CRUSH_FRAMES;
       for (int dy = -h; dy <= h; dy++)
         for (int dx = -5; dx <= 5; dx++) {
-          int x = cx + dx, y = cy + dy;
+          int x = bxS + dx, y = byS + dy;
           if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x632C;
         }
       for (int k = 0; k < 6; k++) {                // eclats de metal
         int a = p * 5 + k * 41;
-        int x = cx + (a % 15) - 7, y = cy + ((a >> 2) % 9) - 4;
+        int x = bxS + (a % 15) - 7, y = byS + ((a >> 2) % 9) - 4;
         if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xC618;
       }
     } else {                                       // PH_EJECT : prime qui monte
+#endif
       char r[10]; snprintf(r, sizeof(r), "+$%ld", (long)crushReward);
       int len = (int)strlen(r), yy = 28 - (SEQ_EJECT_FRAMES - seqTimer);
       gb.display.setColor(BLACK); gb.display.setCursor((SCREEN_W - len * 4) / 2 + 1, yy + 1); gb.display.print(r);
@@ -2397,6 +2482,9 @@ void loop() {
   // Trafic IA (sous le joueur), entites de mission, puis voiture joueur, perso.
   drawSprayShops(camX, camY);                  // garages (marquage au sol, sur route)
   drawAmmuShops(camX, camY);                    // armureries (devanture, sur trottoir)
+#if CITY_HAS_CASSE
+  drawJunkyardRig(camX, camY);                  // grue + broyeur permanents (La Casse)
+#endif
   drawCasseZone(camX, camY);                    // zone de broyage (La Casse)
   aiDraw(camX, camY);
   drawWeaponPickups(camX, camY);

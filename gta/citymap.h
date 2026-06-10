@@ -32,5 +32,7 @@ extern const CityService citySprays[CITY_NUM_SPRAYS];
 extern const CityService cityAmmus[CITY_NUM_AMMUS];
 
 #define CITY_HAS_CASSE 1
-#define CITY_CASSE_TX 580
-#define CITY_CASSE_TY 36
+#define CITY_CASSE_TX 596
+#define CITY_CASSE_TY 132
+#define CITY_CRANE_TX 596
+#define CITY_CRANE_TY 116
