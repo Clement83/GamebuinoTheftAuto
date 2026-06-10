@@ -674,6 +674,14 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
         return None
     cands.sort()
     _, _, _, y, x, block = cands[0]
+    # decalage esthetique d'une case vers la gauche (demande), si la fenetre
+    # decalee reste valide (dans les bornes, sans tuile interdite).
+    if x - 1 >= margin:
+        shifted = [(y + ry) * w + (x - 1 + rx)
+                   for ry in range(bh) for rx in range(bw)]
+        if not any(grid[c] in hard for c in shifted):
+            x -= 1
+            block = shifted
     for ci, c in enumerate(block):
         ry, rx = divmod(ci, bw)
         grid[c] = tile_index[CONS_TILE_OF[CONS_BLUEPRINT[ry][rx]]]
