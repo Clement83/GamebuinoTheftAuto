@@ -28,6 +28,7 @@
 #include "mission.h"
 #include "weapons.h"
 #include "weapons_gfx.h"
+#include "wanted.h"
 
 // L'enum WeaponId (weapons.h) et les sprites (weapons_gfx.h) doivent rester
 // alignes : meme nombre, meme ordre (cf. tools/build_weapons.py).
@@ -120,6 +121,42 @@ static const int   NUM_BULLETS  = 10;
 static const float BULLET_SPEED = 4.0f;  // px/frame
 static Bullet bullets[NUM_BULLETS];
 
+// --- vie du joueur : cœurs perdus sous les balles ennemies / explosions ;
+//     restauree a la mort (hopital) ou a l'arrestation (commissariat). ---
+static const int PLAYER_HEARTS_MAX = 3;
+static int       playerHearts = PLAYER_HEARTS_MAX;
+static const uint8_t PLAYER_HURT_COOLDOWN = 25;  // ~1 s d'invuln. apres un coup
+static uint8_t   playerHurtTimer = 0;
+
+// --- recherche police (etoiles). wanted.h = machine d'etat pure. ---
+static WantedState wanted = { 0, 0, 0, 0 };
+
+// --- vie de la voiture pilotee : accidents + tirs l'usent ; a 0 elle explose
+//     (le joueur dedans meurt). CAR_MAX_HP fixe a l'embarquement. ---
+static const int16_t CAR_MAX_HP   = 30;
+static int16_t       carHp        = CAR_MAX_HP;
+static const int16_t CAR_HIT_DMG  = 6;    // degats d'un tir d'arme sur une voiture
+static const int16_t CAR_AREA_DMG = 12;   // degats d'une arme de zone (pompe/bazooka)
+static const int16_t CAR_CRASH_DMG= 2;    // degats par accident (collision voiture)
+static const uint8_t CAR_CRASH_COOLDOWN = 12;  // frames entre deux comptages d'accident
+static uint8_t       carCrashTimer = 0;
+
+// --- police : portees de poursuite/arrestation/tir (px), cadence de tir. ---
+static const int COP_ARREST_DIST  = 7;    // px : contact = arrestation (a pied)
+static const int COP_SHOOT_RANGE  = 60;   // px : portee de tir du policier
+static const uint16_t COP_SHOOT_PERIOD = 35;  // frames entre deux balles
+static const int COP_SPAWN_PCT    = 45;   // % de pietons remplaces par des flics si recherche
+
+// --- explosion (voiture) : un seul slot, anime quelques frames (cercle de feu). ---
+static int     boomX = 0, boomY = 0;
+static uint8_t boomTimer = 0;
+static const uint8_t BOOM_FRAMES = 12;
+
+// --- bandeau plein ecran a la mort / l'arrestation (facon "WASTED"/"BUSTED"). ---
+static const char *overlayMsg = nullptr;
+static uint16_t    overlayTimer = 0;
+static const uint16_t OVERLAY_FRAMES = 55;   // ~2.2 s
+
 // ---------------------------------------------------------------------------
 //  Trafic IA : voitures (routes) + pietons (trottoirs) errants, recolores.
 //  Logique de deplacement = couche pure ai.h (errance sur grille + voies).
@@ -173,6 +210,7 @@ struct AiCar {
   uint8_t dir;         // 0..3 (N E S W)
   int tgtx, tgty;      // point-cible (lane point de la tuile destination)
   uint16_t color;
+  int16_t hp;          // points de vie (tir/accidents) -> explosion a 0
   bool active;
 };
 
@@ -184,6 +222,9 @@ struct AiPed {
   uint8_t frame, animTimer;
   uint8_t state;       // 0 = marche, 1 = au sol (renverse)
   uint16_t downTimer;
+  uint8_t hp;          // 3 coups de poing pour tomber ; 1 balle suffit
+  bool isCop;          // policier (bleu) : poursuit/arrete/tire quand recherche
+  uint16_t shootTimer; // cadence de tir du policier (recharge entre deux balles)
   bool active;
 };
 
@@ -438,6 +479,9 @@ static const int NARR_ENDPAD  = 35;  // frames cale a la fin
 static void killTarget(int px, int py);
 static void startMission(uint8_t m);
 static void narrate(const char *s);
+static int  findPoi(const char *name);
+static void hurtPlayer(int dmg);
+static void explodeCarAt(int wx, int wy);
 
 // estimation RAM libre (debug serie)
 extern "C" char *sbrk(int incr);
@@ -559,6 +603,14 @@ void setup() {
     if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
     pickupPx[i] = wx; pickupPy[i] = wy; pickupActive[i] = true;
   }
+
+  // Vie, recherche, etat voiture : valeurs de depart.
+  playerHearts = PLAYER_HEARTS_MAX;
+  playerHurtTimer = 0;
+  wantedReset(wanted);
+  carHp = CAR_MAX_HP;
+  boomTimer = 0;
+  overlayMsg = nullptr; overlayTimer = 0;
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
   playerMoney = 0;
@@ -734,6 +786,7 @@ static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
     aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
             tx, ty, aiIsDrivable, aiRng);
     c.color = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
+    c.hp = CAR_MAX_HP;
     c.active = true;
   } else {
     c.active = false;
@@ -745,8 +798,12 @@ static void aiRespawnPed(AiPed &p, int ccx, int ccy) {
   if (aiFindTileInRing(ccx, ccy, RING_MIN, RING_MAX, aiIsWalkable, tx, ty)) {
     aiPlace(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
             tx, ty, aiIsWalkable, aiRng);
-    p.color = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
     p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0;
+    p.hp = 3; p.shootTimer = COP_SHOOT_PERIOD;
+    // Si la police nous recherche, une partie des pietons spawn en flics (bleus)
+    // qui foncent sur le joueur (cf. aiUpdate). Sinon, pieton civil recolore.
+    p.isCop = (wanted.level > 0) && ((aiRngNext(aiRng) % 100) < COP_SPAWN_PCT);
+    p.color = p.isCop ? 0x001F : AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
     p.active = true;
   } else {
     p.active = false;
@@ -781,6 +838,7 @@ static void aiEjectDriver(int atx_px, int aty_px) {
           tx, ty, aiIsWalkable, aiRng);
   p.color = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
   p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0;
+  p.hp = 3; p.isCop = false; p.shootTimer = COP_SHOOT_PERIOD;
   p.active = true;
 }
 
@@ -805,11 +863,82 @@ static void dropLoot(int wx, int wy) {
     spawnLoot(wx + 4, wy, LOOT_AMMO, WEAPON_PISTOL, WEAPONS[WEAPON_PISTOL].ammoPickup);
 }
 
-// Met un pieton au sol (KO) + comptabilise l'objectif BEAT. Mutualise poing/arme.
+// Met un pieton au sol (KO/mort) + comptabilise l'objectif BEAT + fait monter la
+// recherche police (un mort = un crime). Mutualise poing/arme/ecrasement.
 static void knockDownPed(AiPed &p) {
   p.state = 1; p.downTimer = PED_DOWN_FRAMES;
   if (missionRun.active) objBeat++;
+  wantedOnKill(wanted);                    // crime : streak -> etoiles
   dropLoot((int)p.x, (int)p.y);
+}
+
+// Inflige un coup au pieton. lethal = arme a feu (1 balle suffit) ; sinon poing
+// (3 coups : on entame les PV, KO quand ils tombent a 0).
+static void hitPed(AiPed &p, bool lethal) {
+  if (lethal || p.hp <= 1) knockDownPed(p);
+  else p.hp--;
+}
+
+// Place le joueur a pied sur une case libre proche du POI nomme (repli : coords
+// brutes). Utilise pour reapparaitre a l'hopital / au commissariat.
+static void respawnAtPoi(const char *poiName) {
+  int wx = playerX + PLAYER_W / 2, wy = playerY + PLAYER_H / 2;
+  int pi = findPoi(poiName);
+  if (pi >= 0) { wx = cityPois[pi].tx; wy = cityPois[pi].ty; }
+  int ox, oy;
+  if (findFootSpot(wx, wy, ox, oy)) { playerX = ox; playerY = oy; }
+  else { playerX = wx - PLAYER_W / 2; playerY = wy - PLAYER_H / 2; }
+  playerDir = DIR_SOUTH; playerFrame = 0; animTimer = 0;
+  driving = false; carIsMission = false;
+}
+
+// Remet le joueur d'aplomb apres mort/arrestation : vie pleine, recherche a zero,
+// invulnerabilite breve, et on coupe l'arme courante au poing.
+static void reviveCommon() {
+  playerHearts = PLAYER_HEARTS_MAX;
+  playerHurtTimer = PLAYER_HURT_COOLDOWN * 2;
+  wantedClear(wanted);
+  if (missionRun.active) {                  // une mission en cours echoue
+    missionRun.active = false; target.active = false;
+    marcoWaiting = false; marcoAboard = false;
+    mCarActive = false;
+  }
+}
+
+// Mort du joueur (explosion de sa voiture, ou plus de cœurs) : message facon GTA,
+// perte d'argent, reapparition devant l'hopital.
+static void wastedPlayer() {
+  overlayMsg = "MORT"; overlayTimer = OVERLAY_FRAMES;
+  playerMoney -= playerMoney / 2;           // on lache la moitie du fric
+  reviveCommon();
+  respawnAtPoi("Hopital");
+  gb.sound.playCancel();
+}
+
+// Arrestation (un flic te touche) : message, perte d'argent, retour au commissariat.
+static void bustedPlayer() {
+  overlayMsg = "ARRETE"; overlayTimer = OVERLAY_FRAMES;
+  playerMoney -= playerMoney / 2;
+  reviveCommon();
+  respawnAtPoi("Commissariat");
+  gb.sound.playCancel();
+}
+
+// Le joueur encaisse dmg cœur(s) (balle de flic, etc.), avec invulnerabilite
+// breve pour eviter de tout perdre d'un coup. Mort si plus de cœurs.
+static void hurtPlayer(int dmg) {
+  if (playerHurtTimer > 0) return;
+  playerHearts -= dmg;
+  playerHurtTimer = PLAYER_HURT_COOLDOWN;
+  gb.sound.tone(180, 60);
+  if (playerHearts <= 0) { playerHearts = 0; wastedPlayer(); }
+}
+
+// Declenche une explosion de voiture en (wx,wy) : effet visuel + son. Si le
+// joueur conduit cette voiture, il meurt.
+static void explodeCarAt(int wx, int wy) {
+  boomX = wx; boomY = wy; boomTimer = BOOM_FRAMES;
+  gb.sound.tone(70, 200);
 }
 
 // Tir d'arme a feu : engendre un ou plusieurs pixels-projectiles partant du
@@ -871,12 +1000,13 @@ static void tryAttack() {
   int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
   if (curWeapon == WEAPON_FIST) gb.sound.playTick();
   else { gb.sound.tone(110, 50); fireBullets(pcx, pcy); }  // bang + pixels de tir
+  bool firearm = (curWeapon != WEAPON_FIST);   // arme a feu : 1 touche = mort
   if (wd.area) {
-    // Zone : tous les pietons debout dans le cone tombent.
+    // Zone : tous les pietons debout dans le cone tombent (armes a feu).
     for (int i = 0; i < NUM_AI_PEDS; i++) {
       if (!(aiPeds[i].active && aiPeds[i].state == 0)) continue;
       if (combatInCone(aiPeds[i].x, aiPeds[i].y, pcx, pcy, playerDir, wd.reach, wd.side))
-        knockDownPed(aiPeds[i]);
+        hitPed(aiPeds[i], true);
     }
   } else {
     // Mono-cible : le pieton le plus proche devant dans le cone.
@@ -887,7 +1017,17 @@ static void tryAttack() {
       act[i] = aiPeds[i].active && aiPeds[i].state == 0;
     }
     int hit = combatConeTarget(px, py, act, NUM_AI_PEDS, pcx, pcy, playerDir, wd.reach, wd.side);
-    if (hit >= 0) knockDownPed(aiPeds[hit]);
+    if (hit >= 0) hitPed(aiPeds[hit], firearm);   // poing : 3 coups ; arme : 1
+  }
+  // Les armes a feu abiment aussi les voitures IA dans le cone : a 0 PV, boom.
+  if (firearm) {
+    int16_t dmg = wd.area ? CAR_AREA_DMG : CAR_HIT_DMG;
+    for (int i = 0; i < NUM_AI_CARS; i++) {
+      if (!aiCars[i].active) continue;
+      if (!combatInCone(aiCars[i].x, aiCars[i].y, pcx, pcy, playerDir, wd.reach, wd.side)) continue;
+      aiCars[i].hp -= dmg;
+      if (aiCars[i].hp <= 0) { explodeCarAt((int)aiCars[i].x, (int)aiCars[i].y); aiCars[i].active = false; }
+    }
   }
   // La cible de mission est frappable comme un pieton (toujours dans le cone).
   if (missionRun.active && target.active &&
@@ -929,13 +1069,18 @@ static void aiUpdate(int fcx, int fcy) {
     if (!blocked)
       aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
              AI_CAR_SPEED, aiIsDrivable, aiRng);
-    // Solide vis-a-vis de la voiture joueur : on repousse le joueur.
+    // Solide vis-a-vis de la voiture joueur : on repousse le joueur, et un
+    // accident a vitesse use la caisse (PV). Trop d'accidents -> elle fume puis
+    // explose (cf. updateDrivenCar).
     if (driving) {
       float dx = car.x - c.x, dy = car.y - c.y;
       if (fabsf(dx) < COL_CC && fabsf(dy) < COL_CC) {
         float px = COL_CC - fabsf(dx), py = COL_CC - fabsf(dy);
         if (px < py) { car.x += (dx < 0 ? -px : px); car.vx *= -0.3f; }
         else { car.y += (dy < 0 ? -py : py); car.vy *= -0.3f; }
+        if (spd2 > RUNOVER_SPEED2 && carCrashTimer == 0) {
+          carHp -= CAR_CRASH_DMG; carCrashTimer = CAR_CRASH_COOLDOWN;
+        }
       }
     }
   }
@@ -948,15 +1093,38 @@ static void aiUpdate(int fcx, int fcy) {
       int ddx = (int)p.x - fcx, ddy = (int)p.y - fcy;
       if (ddx * ddx + ddy * ddy > rec2) p.active = false;
     }
+    // Plus de recherche : les flics debout redeviennent de simples passants.
+    if (p.isCop && wanted.level == 0 && p.state == 0) { p.active = false; aiRespawnPed(p, fcx, fcy); continue; }
     if (!p.active) { aiRespawnPed(p, fcx, fcy); continue; }
     if (p.state == 1) continue;               // renverse : immobile
-    aiStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
-           AI_PED_SPEED, aiIsWalkable, aiRng);
+    if (p.isCop)                              // flic : fonce sur le joueur
+      missionChaseStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
+                       AI_PED_SPEED + 0.15f, fcx, fcy, aiRng);
+    else                                      // civil : errance trottoirs
+      aiStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
+             AI_PED_SPEED, aiIsWalkable, aiRng);
     if (++p.animTimer >= AI_PED_ANIM) { p.animTimer = 0; p.frame ^= 1; }
-    // Renversement par la voiture joueur lancee.
-    if (driving && spd2 > RUNOVER_SPEED2) {
-      if (fabsf(car.x - p.x) < COL_CP && fabsf(car.y - p.y) < COL_CP)
-        knockDownPed(p);                     // ecrasement : KO + butin eventuel
+    // Renversement par la voiture joueur lancee (vaut aussi pour les flics).
+    if (driving && spd2 > RUNOVER_SPEED2 &&
+        fabsf(car.x - p.x) < COL_CP && fabsf(car.y - p.y) < COL_CP) {
+      knockDownPed(p);                        // ecrasement : KO + butin eventuel
+      continue;
+    }
+    // Police : arrestation au contact (a pied) ; tir au-dela d'une etoile.
+    if (p.isCop) {
+      float ddx = (float)fcx - p.x, ddy = (float)fcy - p.y;
+      float d2 = ddx * ddx + ddy * ddy;
+      if (!driving && d2 < (float)(COP_ARREST_DIST * COP_ARREST_DIST)) {
+        bustedPlayer(); return;               // touche a pied -> arrete
+      }
+      if (wanted.level >= 2) {
+        if (p.shootTimer > 0) p.shootTimer--;
+        else if (d2 < (float)(COP_SHOOT_RANGE * COP_SHOOT_RANGE)) {
+          p.shootTimer = COP_SHOOT_PERIOD;    // tir : son + chance de toucher
+          gb.sound.tone(140, 40);
+          if ((aiRngNext(aiRng) % 100) < 60) hurtPlayer(1);
+        }
+      }
     }
   }
 }
@@ -1499,9 +1667,9 @@ static void blitIcon5(int sx, int sy, const char *const rows[5], uint16_t color)
 static const char *const ICON_HEART[5] = { "x x x", "xxxxx", "xxxxx", " xxx ", "  x  " };
 static const char *const ICON_STAR[5]  = { "  x  ", " xxx ", "xxxxx", " xxx ", " x x " };
 
-// Stats en dur pour l'instant (a brancher plus tard sur de vrais systemes).
-static const int HUD_HEARTS_MAX = 3, HUD_HEARTS = 3;   // vie : 3 cœurs (pleins)
-static const int HUD_STARS_MAX  = 5, HUD_STARS  = 5;   // recherche police : 5 etoiles
+// Bornes d'affichage (la valeur courante vient de playerHearts / wanted.level).
+static const int HUD_HEARTS_MAX = PLAYER_HEARTS_MAX;   // vie : 3 cœurs
+static const int HUD_STARS_MAX  = WANTED_MAX;          // recherche police : 5 etoiles
 static const uint16_t HEART_FULL = 0xF800, HEART_EMPTY = 0x4208;  // rouge / gris sombre
 static const uint16_t STAR_FULL  = 0xFFE0, STAR_EMPTY  = 0x4208;  // jaune / gris sombre
 
@@ -1510,10 +1678,10 @@ static const uint16_t STAR_FULL  = 0xFFE0, STAR_EMPTY  = 0x4208;  // jaune / gri
 // changement d'arme. Dessinee au ras du haut (y=0).
 static void drawTopHud() {
   for (int i = 0; i < HUD_HEARTS_MAX; i++)      // cœurs (haut-gauche)
-    blitIcon5(1 + i * 6, 1, ICON_HEART, i < HUD_HEARTS ? HEART_FULL : HEART_EMPTY);
+    blitIcon5(1 + i * 6, 1, ICON_HEART, i < playerHearts ? HEART_FULL : HEART_EMPTY);
   const int starsX = (SCREEN_W - HUD_STARS_MAX * 6) / 2;
   for (int i = 0; i < HUD_STARS_MAX; i++)       // etoiles (centre)
-    blitIcon5(starsX + i * 6, 1, ICON_STAR, i < HUD_STARS ? STAR_FULL : STAR_EMPTY);
+    blitIcon5(starsX + i * 6, 1, ICON_STAR, i < wanted.level ? STAR_FULL : STAR_EMPTY);
   if (!driving) {                               // arme courante (haut-droite)
     const int sx = SCREEN_W - WEAPON_BOX - 1, sy = 0;
     blitWeaponHudIcon(sx, sy, curWeapon);
@@ -1542,6 +1710,58 @@ static void narrDraw() {
   gb.display.setColor(WHITE);
   gb.display.setCursor(1 - narrScroll, SCREEN_H - 6);
   gb.display.print(narrQueue[narrHead]);
+}
+
+// Etat de la voiture pilotee : a 0 PV elle explose, le joueur meurt (hopital).
+// Appelee chaque frame au volant (apres les collisions/tirs de la frame).
+static void updateDrivenCar() {
+  if (!driving) return;
+  if (carCrashTimer > 0) carCrashTimer--;
+  if (carHp <= 0) {
+    explodeCarAt((int)car.x, (int)car.y);
+    wastedPlayer();                            // dedans = mort
+  }
+}
+
+// Fumee de la voiture endommagee : 1 panache leger sous ~60 % de PV, plus dense
+// sous ~30 %. Pixels gris/sombres au-dessus de la caisse, scintillants.
+static void drawCarSmoke(int camX, int camY) {
+  if (!driving || carHp > (CAR_MAX_HP * 3) / 5) return;
+  bool heavy = carHp <= (CAR_MAX_HP * 3) / 10;
+  int n = heavy ? 4 : 2;
+  int cx = (int)car.x - camX, cy = (int)car.y - camY;
+  for (int k = 0; k < n; k++) {
+    int ph = (missionAnim + k * 5) % 12;         // montee du panache
+    int x = cx + ((k & 1) ? 1 : -1) * (k / 2) + ((ph >> 2) & 1);
+    int y = cy - 3 - ph;
+    if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+    fb[y * SCREEN_W + x] = heavy ? 0x4208 : 0x8410;  // gris sombre / gris
+  }
+}
+
+// Explosion : cercle de feu en expansion (orange -> jaune) sur quelques frames.
+static void drawBoom(int camX, int camY) {
+  if (boomTimer == 0) return;
+  int cx = boomX - camX, cy = boomY - camY;
+  int age = BOOM_FRAMES - boomTimer;             // 0..BOOM_FRAMES
+  int r = 1 + age;                               // rayon croissant
+  uint16_t col = (boomTimer > BOOM_FRAMES / 2) ? 0xFFE0 : 0xFC00;  // jaune puis orange
+  for (int dy = -r; dy <= r; dy++)
+    for (int dx = -r; dx <= r; dx++) {
+      int d2 = dx * dx + dy * dy;
+      if (d2 > r * r || d2 < (r - 1) * (r - 1)) continue;   // anneau
+      int x = cx + dx, y = cy + dy;
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = col;
+    }
+}
+
+// Bandeau plein ecran "MORT"/"ARRETE" apres une mort/arrestation (facon GTA).
+static void drawOverlay() {
+  if (overlayTimer == 0 || !overlayMsg) return;
+  for (int y = 24; y < 38; y++)                  // bande sombre centrale
+    for (int x = 0; x < SCREEN_W; x++) fb[y * SCREEN_W + x] = 0x0000;
+  int len = (int)strlen(overlayMsg);
+  printShadow((SCREEN_W - len * 4) / 2, 28, overlayMsg);
 }
 
 void loop() {
@@ -1609,15 +1829,17 @@ void loop() {
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
           carColor = MISSION_CAR_COLOR; carIsMission = true;
-          mCarActive = false; driving = true;
+          mCarActive = false; driving = true; carHp = CAR_MAX_HP;
         } else if (best == -1) {
           driving = true; carIsMission = false;   // remonter dans sa voiture
+          carHp = CAR_MAX_HP;
         } else if (best >= 0) {
           AiCar &c = aiCars[best];           // vol : le conducteur descend
           aiEjectDriver((int)c.x, (int)c.y);
           car.x = c.x; car.y = c.y; car.vx = 0.0f; car.vy = 0.0f;
           car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
           carColor = c.color; carIsMission = false;
+          carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;   // herite de l'usure de la caisse volee
           c.active = false;                  // la voiture quitte le pool IA
           driving = true;
         } else {
@@ -1674,6 +1896,14 @@ void loop() {
   if (weaponToast > 0) weaponToast--;          // toast d'arme : disparait tout seul
   updateBullets();                             // projectiles de tir (visuel)
   narrUpdate();
+
+  // Recherche police + minuteries de degats/effets ; explosion eventuelle de la
+  // voiture pilotee (peut tuer le joueur -> reapparition hopital).
+  wantedTick(wanted);
+  if (playerHurtTimer > 0) playerHurtTimer--;
+  if (boomTimer > 0) boomTimer--;
+  if (overlayTimer > 0) overlayTimer--;
+  updateDrivenCar();
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
   if (!missionRun.active) {
@@ -1729,6 +1959,8 @@ void loop() {
   if (!driving) drawPlayer(camX, camY);
   if (!driving && punchTimer > 0) { blitAttackFx(camX, camY); punchTimer--; }
   drawBullets(camX, camY);                     // pixels de tir par-dessus la scene
+  drawCarSmoke(camX, camY);                    // fumee si la caisse est amochee
+  drawBoom(camX, camY);                        // explosion de voiture
 
   // HUD : nom du POI courant (haut), fleche vers l'objectif/cible, narration.
   drawPoiHud(focusX, focusY);
@@ -1736,6 +1968,7 @@ void loop() {
   drawMissionStatus();
   drawTopHud();                                // barre stats : cœurs, etoiles, arme
   narrDraw();
+  drawOverlay();                               // "MORT"/"ARRETE" par-dessus tout
 
   // Debug serie periodique (~1/s).
   static uint32_t frame = 0;

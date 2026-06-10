@@ -118,11 +118,25 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 - ✅ Butin des piétons : argent et/ou pistolet, ramassage au sol.
 - ✅ Tir des armes à feu = **petits pixels** qui filent (gerbe pour la pompe),
   fini le gros trait blanc (`fireBullets` / `drawBullets`).
+- ✅ **Vie variable** (`playerHearts`, 3 cœurs) : balle de flic = -1 cœur (invuln.
+  brève), explosion de voiture = mort. HUD branché sur la variable.
+- ✅ **Recherche police variable** (`wanted`, machine d'état pure `wanted.h` +
+  test host) : 3 meurtres rapprochés (<20 s) = 1 étoile ; une étoile retombe
+  après 60 s sans crime ; montée jusqu'à 5 (gelée à 5).
+- ✅ **Police** : sous recherche, des piétons spawn en flics (bleus) qui foncent
+  sur le joueur. Contact à pied = **arrestation** (commissariat, perte d'argent) ;
+  à ≥2 étoiles, ils **tirent** (perte de cœur).
+- ✅ **PV des PNJ** : 3 coups de poing ou 1 balle d'arme à feu pour tomber.
+- ✅ **PV des voitures** (~30) : tirs et accidents les usent ; fumée légère puis
+  dense, puis explosion. Dedans = mort → **hôpital** (« MORT », perte d'argent).
 
 ## Prochaines étapes recommandées (ordre)
 
-1. **Système de vie variable** (`playerHearts` + dégâts) → débloque Hôpital + Marché.
-2. **Système d'étoiles variable** (`wantedLevel` + montée sur crime) → débloque Pay'n'Spray + police.
+1. **Pay'n'Spray** (garage) : seul moyen « propre » de purger 5 étoiles —
+   `wantedClear(wanted)` est prêt, reste le **stamp + tuiles** (cf. POI #3).
+   En attendant, on purge la recherche par arrestation ou mort.
+2. **Hôpital interactif** : entrer à pied → `playerHearts` restauré (payant). Le
+   système de vie est désormais en place.
 3. **AMU Nation** : tuiles + stamp + UI d'achat (le plus gros morceau « interface »).
-4. **La Casse** : grue/broyeur (revente).
+4. **La Casse** : grue/broyeur (revente, selon `carHp`).
 5. **Récompenses de mission** en $ (boucle économique complète).
