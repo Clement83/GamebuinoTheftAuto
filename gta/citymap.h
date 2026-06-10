@@ -9,7 +9,7 @@
 #define PLAYER_START_Y 47
 #define PLAYER_START_DIR DIR_SOUTH
 
-#define CITY_NUM_POIS 21
+#define CITY_NUM_POIS 27
 
 // Point d'interet : bbox en TUILES (inclus) pour la detection
 // HUD, point-cible (tx,ty) en PX monde pour les missions/fleche.

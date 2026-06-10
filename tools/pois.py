@@ -140,8 +140,22 @@ STAMP_DEFS = {
                      prefer=None),
     "fire": dict(tiles={"F": "fire_facade", "S": "fire_sign", "D": "fire_door"},
                  prefer=None),
+    # --- batiments-reperes de la trame principale (cf. campagne.md) ---
+    "planque": dict(tiles={"F": "plan_facade", "S": "plan_sign", "D": "plan_door"},
+                    prefer=Z_RESIDENTIAL),
+    "garage": dict(tiles={"F": "gar_facade", "S": "gar_sign", "D": "gar_door"},
+                   prefer=None),
+    "bar": dict(tiles={"F": "bar_facade", "S": "bar_sign", "D": "bar_door"},
+                prefer=Z_DOWNTOWN),
+    "bureaux": dict(tiles={"F": "bur_facade", "S": "bur_sign", "D": "bur_door"},
+                    prefer=Z_DOWNTOWN),
+    "casino": dict(tiles={"F": "cas_facade", "S": "cas_sign", "D": "cas_door"},
+                   prefer=Z_DOWNTOWN),
+    "commerces": dict(tiles={"F": "com_facade", "S": "com_sign", "D": "com_door"},
+                      prefer=None),
 }
-STAMP_ORDER = ("police", "hospital", "fire")
+STAMP_ORDER = ("police", "hospital", "fire", "planque", "garage", "bar",
+               "bureaux", "casino", "commerces")
 
 # --- noms d'affichage (HUD) des POI ------------------------------------------
 # Clefs : theme_id (quartiers) et nom de stamp (batiments-reperes). Servent a la
@@ -157,6 +171,12 @@ STAMP_NAMES = {
     "police": "Commissariat",
     "hospital": "Hopital",
     "fire": "Pompiers",
+    "planque": "Planque",
+    "garage": "Le Garage",
+    "bar": "Le Bar",
+    "bureaux": "Les Bureaux",
+    "casino": "Le Casino",
+    "commerces": "Commerces",
 }
 
 

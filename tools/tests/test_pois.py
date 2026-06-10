@@ -17,11 +17,20 @@ NAMES = ["grass", "road_h", "road_v", "road_cross", "pavement", "water",
          "cons_facade_a", "cons_facade_b", "cons_sign",
          "junk_facade_a", "junk_facade_b", "junk_sign",
          "junk_ground", "junk_fence", "junk_wreck", "junk_crane",
-         "cons_ground", "cons_fence", "cons_frame", "cons_crane"]
+         "cons_ground", "cons_fence", "cons_frame", "cons_crane",
+         "plan_facade", "plan_sign", "plan_door",
+         "gar_facade", "gar_sign", "gar_door",
+         "bar_facade", "bar_sign", "bar_door",
+         "bur_facade", "bur_sign", "bur_door",
+         "cas_facade", "cas_sign", "cas_door",
+         "com_facade", "com_sign", "com_door"]
 TI = {n: i for i, n in enumerate(NAMES)}
 DOORS = {"police_door", "hosp_door", "fire_door"}
+# portes des batiments-reperes de la campagne (non solides comme les autres)
+STORY_DOORS = {"plan_door", "gar_door", "bar_door", "bur_door",
+               "cas_door", "com_door"}
 # non solides parmi les tuiles POI : portes + sols carrossables (casse, chantier)
-NONSOLID = DOORS | {"junk_ground", "cons_ground"}
+NONSOLID = DOORS | STORY_DOORS | {"junk_ground", "cons_ground"}
 # solides : water/building + toutes les tuiles POI sauf portes / sol de casse
 SI = {TI["water"], TI["building_a"], TI["building_b"]} | \
      {i for i, n in enumerate(NAMES) if i >= 8 and n not in NONSOLID}
@@ -150,6 +159,26 @@ def test_each_stamp_placed_once_in_full_gen():
     for name, sign in SIGNS.items():
         assert n[sign] == 1, "stamp %s : %d enseignes" % (name, n[sign])
     assert sum(n[d] for d in STAMP_DOORS) == 3
+
+
+STORY_STAMP_SIGNS = ("plan_sign", "gar_sign", "bar_sign", "bur_sign",
+                     "cas_sign", "com_sign")
+
+
+def test_story_stamps_present_on_roomy_map():
+    # sur une carte avec de la place, les 6 batiments-reperes de la campagne
+    # sont tamponnes une fois chacun (seed 11 : tous les stamps tiennent).
+    n = Counter(_gen(seed=11).grid)
+    for sign in STORY_STAMP_SIGNS:
+        assert n[TI[sign]] == 1, "stamp campagne %s : %d enseignes" % (sign, n[TI[sign]])
+
+
+def test_story_stamps_never_duplicated():
+    # invariant : jamais place plus d'une fois (peut etre absent si pas de place).
+    for seed in (7, 11, 3, 42):
+        n = Counter(_gen(seed=seed).grid)
+        for sign in STORY_STAMP_SIGNS:
+            assert n[TI[sign]] <= 1, "stamp %s duplique (seed %d)" % (sign, seed)
 
 
 def test_stamps_never_on_road_or_water():
