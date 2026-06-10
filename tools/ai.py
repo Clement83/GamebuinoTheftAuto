@@ -21,6 +21,7 @@ GRASS, ROAD_H, ROAD_V, ROAD_CROSS, PAVEMENT = 0, 1, 2, 3, 4
 ROAD_TILES = (ROAD_H, ROAD_V, ROAD_CROSS)
 WALK_TILES = (PAVEMENT, GRASS)   # piétons : trottoirs + herbe (parcs/espaces)
 
+OPEN_TILES = (GRASS, ROAD_H, ROAD_V, ROAD_CROSS, PAVEMENT)  # tout sol non bâti
 LANE = 2            # décalage latéral (px) à droite du centre de tuile
 STRAIGHT_WEIGHT = 4  # poids « tout droit » vs 1 pour tourner
 STUCK = 0xFF         # aucune sortie valide (tuile isolée)
@@ -38,6 +39,18 @@ def is_drivable(grid, w, h, tx, ty):
 def is_walkable(grid, w, h, tx, ty):
     """Tuile marchable (trottoir ou herbe) et en bornes."""
     return _in_bounds(w, h, tx, ty) and grid[ty * w + tx] in WALK_TILES
+
+
+def is_open(grid, w, h, tx, ty):
+    """Tuile franchissable à pied en panique (herbe, trottoir OU route) et en
+    bornes. Un piéton paniqué traverse les routes (« sans respecter les
+    trottoirs »), mais jamais un bâtiment."""
+    return _in_bounds(w, h, tx, ty) and grid[ty * w + tx] in OPEN_TILES
+
+
+def tile_center(tx, ty):
+    """Centre px monde d'une tuile (pas de décalage de voie : fuite tout droit)."""
+    return (tx * TILE + TILE // 2, ty * TILE + TILE // 2)
 
 
 def has_exit(grid, w, h, tx, ty, classify):
@@ -130,3 +143,44 @@ def step(grid, w, h, x, y, d, tgtx, tgty, speed, classify, state):
         x += dx * inv
         y += dy * inv
     return (x, y, d, tgtx, tgty, state)
+
+
+def panic_dir(grid, w, h, tx, ty, away_dx, away_dy):
+    """Direction de fuite depuis (tx,ty) : la tuile OUVERTE voisine la mieux
+    alignée avec le vecteur (away_dx, away_dy) « loin de la menace ».
+
+    Déterministe (pas de rng) : départage par ordre d'énumération N,E,S,W.
+    Renvoie STUCK si aucune voisine ouverte (acculé)."""
+    best = STUCK
+    best_dot = None
+    for di, (dx, dy) in enumerate(DIRS):
+        if not is_open(grid, w, h, tx + dx, ty + dy):
+            continue
+        dot = dx * away_dx + dy * away_dy
+        if best_dot is None or dot > best_dot:
+            best_dot = dot
+            best = di
+    return best
+
+
+def panic_step(grid, w, h, x, y, d, tgtx, tgty, speed, srcx, srcy):
+    """Avance un piéton paniqué qui FUIT le point (srcx, srcy).
+
+    Comme `step`, mais : cible = centre de tuile (course tout droit), choix de
+    direction = `panic_dir` (s'éloigner de la menace), classifieur = `is_open`
+    (routes franchissables). Pas de rng. Renvoie (x, y, d, tgtx, tgty)."""
+    dx, dy = tgtx - x, tgty - y
+    d2 = dx * dx + dy * dy
+    if d2 <= speed * speed:
+        x, y = float(tgtx), float(tgty)
+        tx, ty = int(x) >> 3, int(y) >> 3
+        nd = panic_dir(grid, w, h, tx, ty, x - srcx, y - srcy)
+        if nd != STUCK:
+            d = nd
+            ntx, nty = tx + DIRS[d][0], ty + DIRS[d][1]
+            tgtx, tgty = tile_center(ntx, nty)
+    else:
+        inv = speed / math.sqrt(d2)
+        x += dx * inv
+        y += dy * inv
+    return (x, y, d, tgtx, tgty)

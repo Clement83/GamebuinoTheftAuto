@@ -23,6 +23,7 @@
 #include "citymap.h"
 #include "engine.h"
 #include "car.h"
+#include "smoke.h"
 #include "player.h"
 #include "ai.h"
 #include "combat.h"
@@ -142,6 +143,23 @@ static const int16_t CAR_CRASH_DMG= 2;    // degats par accident (collision voit
 static const uint8_t CAR_CRASH_COOLDOWN = 12;  // frames entre deux comptages d'accident
 static uint8_t       carCrashTimer = 0;
 
+// --- mort lente de la caisse : a 0 PV elle prend feu et laisse ~10 s (grosse
+//     flamme + fumee) avant d'exploser ; conduisible pendant ce temps. Si on
+//     saute en marche elle continue sur sa lancee (runaway) et explose plus
+//     loin. L'explosion fait un petit saut (oppose au dernier choc) + des
+//     degats de zone (PNJ tues, joueur -1 coeur). ---
+static const uint16_t CAR_FUSE_FRAMES = 250;   // ~10 s a ~25 fps
+static uint16_t       carFuse        = 0;       // >0 : compte a rebours avant boom
+static bool           carRunaway     = false;   // caisse sans conducteur, sur sa lancee
+static float          carImpactX = 0.0f, carImpactY = 0.0f;  // sens du dernier choc
+static const float    CAR_BAIL_SPEED2 = 0.6f;   // vitesse^2 mini pour un "saut en marche"
+static const float    CAR_RUNAWAY_FRICTION = 0.94f;  // decel de la caisse lancee
+static const int      SMOKE_HOOD_DIST = 4;      // px : avance du panache sur le capot
+static const int      BOOM_HURT_RADIUS  = 16;   // px : zone letale (PNJ) / -1 coeur (joueur a pied)
+static const int      BOOM_PANIC_RADIUS = 40;   // px : PNJ alentour pris de panique
+static const int      BOOM_VEHICLE_RADIUS = 24; // px : portee des degats de zone aux vehicules
+static const int16_t  BOOM_CENTER_DMG     = 40; // degats au centre (> CAR_MAX_HP : detruit a l'impact)
+
 // --- police : portees de poursuite/arrestation/tir (px), cadence de tir. ---
 static const int COP_ARREST_DIST  = 7;    // px : contact = arrestation (a pied)
 static const int COP_SHOOT_RANGE  = 60;   // px : portee de tir du policier
@@ -203,6 +221,11 @@ static const int RUNOVER_SPEED2 = 1;       // vitesse^2 mini pour renverser
 static const int STOP_AHEAD = 15;          // px : distance d'arret devant obstacle
 static const int STOP_SIDE  = 6;           // px : tolerance laterale de l'obstacle
 static const int ENTER_AI_DIST = 12;       // px : portee pour voler une voiture IA
+static const uint16_t PED_PANIC_FRAMES   = 70;   // duree de la fuite affolee
+static const float    AI_PED_PANIC_SPEED = 0.6f; // plus rapide qu'en flanerie
+static const int      GUNSHOT_PANIC_RANGE = 36;  // px : PNJ qui entendent un tir
+static const int      KILL_PANIC_RANGE    = 22;  // px : PNJ temoin d'un meurtre proche
+static const uint8_t  WRECK_HOP_FRAMES   = 8;    // frames du petit saut a l'explosion
 
 // Frame de rotation voiture par direction cardinale (N E S W).
 // Angle 0 = est -> frame 0 ; +pi/2 = sud -> 6 ; pi = ouest -> 12 ; -pi/2 = nord -> 18.
@@ -247,13 +270,22 @@ struct AiPed {
   int tgtx, tgty;
   uint16_t color;
   uint8_t frame, animTimer;
-  uint8_t state;       // 0 = marche, 1 = au sol (renverse)
+  uint8_t state;       // 0 = marche, 1 = au sol (renverse), 2 = panique (fuite)
   uint16_t downTimer;
   uint8_t hp;          // 3 coups de poing pour tomber ; 1 balle suffit
   bool isCop;          // policier (bleu) : poursuit/arrete/tire quand recherche
   uint16_t shootTimer; // cadence de tir du policier (recharge entre deux balles)
+  uint16_t panicTimer; // >0 (state==2) : frames de fuite affolee restantes
+  int16_t panicX, panicY; // point a fuir (px monde) : explosion/tireur/agresseur
   bool active;
 };
+
+// Epave : carcasse laissee par une voiture explosee. Obstacle statique (trafic
+// + voiture joueur), fume (palier leger), petit saut a la naissance puis
+// immobile. Recyclee quand on s'eloigne. Non conduisible.
+struct Wreck { float x, y, vx, vy; uint8_t frame; uint8_t hop; bool active; };
+static const int NUM_WRECKS = 2;
+static Wreck wrecks[NUM_WRECKS];
 
 static AiCar aiCars[NUM_AI_CARS];
 static AiPed aiPeds[NUM_AI_PEDS];
@@ -548,7 +580,8 @@ static void startMission(uint8_t m);
 static void narrate(const char *s);
 static int  findPoi(const char *name);
 static void hurtPlayer(int dmg);
-static void explodeCarAt(int wx, int wy);
+static void explodeCarAt(int wx, int wy, uint8_t frameIdx, float hopx, float hopy);
+static void startPanic(AiPed &p, int srcx, int srcy);
 
 // estimation RAM libre (debug serie)
 extern "C" char *sbrk(int incr);
@@ -692,6 +725,8 @@ void setup() {
   playerHurtTimer = 0;
   wantedReset(wanted);
   carHp = CAR_MAX_HP;
+  carFuse = 0; carRunaway = false; carImpactX = 0.0f; carImpactY = 0.0f;
+  for (int i = 0; i < NUM_WRECKS; i++) wrecks[i].active = false;
   boomTimer = 0;
   overlayMsg = nullptr; overlayTimer = 0;
   seqKind = SEQ_NONE; seqPhase = 0; seqTimer = 0; seqPoi = nullptr;
@@ -758,6 +793,94 @@ static void blitCar(int camX, int camY, int worldCx, int worldCy,
       int x = ox + rx;
       if (x >= 0 && x < SCREEN_W) row[x] = c;
     }
+  }
+}
+
+// Index de frame de rotation pour l'angle courant de la voiture pilotee.
+static inline int carFrameIdx() {
+  int idx = (int)(car.angle / TWO_PI * CAR_FRAMES + 0.5f);
+  idx %= CAR_FRAMES;
+  if (idx < 0) idx += CAR_FRAMES;
+  return idx;
+}
+
+// Blit d'un petit sprite de fumee pre-rendu (SMOKE_BOX), centre ecran (scx,scy).
+static void blitSmoke(int scx, int scy, int tier, int frame) {
+  const uint16_t *src = smokeFrames[tier][frame];
+  int ox = scx - SMOKE_BOX / 2, oy = scy - SMOKE_BOX / 2;
+  for (int ry = 0; ry < SMOKE_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * SMOKE_BOX;
+    for (int rx = 0; rx < SMOKE_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == SMOKE_TRANSPARENT) continue;
+      int x = ox + rx;
+      if (x >= 0 && x < SCREEN_W) row[x] = c;
+    }
+  }
+}
+
+// Blit "epave brulee" : la silhouette d'une frame voiture recoloriee charbon
+// (deux tons : corps fonce, vitres/feux clairs). Reutilise carFrames -> zero
+// octet de flash supplementaire.
+static void blitCarBurnt(int camX, int camY, int worldCx, int worldCy, int frameIdx) {
+  const uint16_t *src = carFrames[frameIdx];
+  int ox = worldCx - camX - CAR_BOX / 2;
+  int oy = worldCy - camY - CAR_BOX / 2;
+  for (int ry = 0; ry < CAR_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * CAR_BOX;
+    for (int rx = 0; rx < CAR_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == CAR_TRANSPARENT) continue;
+      int x = ox + rx;
+      if (x < 0 || x >= SCREEN_W) continue;
+      row[x] = (c == CAR_BODY_KEY) ? 0x2104 : 0x4208;   // charbon fonce / clair
+    }
+  }
+}
+
+// --- Epaves : naissance (petit saut), recyclage au loin, rendu (carcasse +
+//     fumee residuelle). spawnWreck est appele par explodeCarAt. ---
+static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float hopy) {
+  float n = sqrtf(hopx * hopx + hopy * hopy);
+  float ux = 0.0f, uy = 0.0f;
+  if (n > 0.01f) { ux = hopx / n; uy = hopy / n; }
+  int slot = -1;
+  for (int i = 0; i < NUM_WRECKS; i++) if (!wrecks[i].active) { slot = i; break; }
+  if (slot < 0) slot = 0;                       // pool plein : recycle le slot 0
+  Wreck &w = wrecks[slot];
+  w.x = wx; w.y = wy; w.vx = ux * 1.6f; w.vy = uy * 1.6f;
+  w.frame = frameIdx; w.hop = WRECK_HOP_FRAMES; w.active = true;
+}
+
+static void updateWrecks(int fcx, int fcy) {
+  const int rec2 = RECYCLE_DIST * RECYCLE_DIST;
+  for (int i = 0; i < NUM_WRECKS; i++) {
+    Wreck &w = wrecks[i];
+    if (!w.active) continue;
+    if (w.hop > 0) {                            // saut initial : avance, freine, bute
+      float nx = w.x + w.vx, ny = w.y + w.vy;
+      if (!carBoxHitsSolid(nx, w.y, CAR_HALF)) w.x = nx; else w.vx = 0.0f;
+      if (!carBoxHitsSolid(w.x, ny, CAR_HALF)) w.y = ny; else w.vy = 0.0f;
+      w.vx *= 0.7f; w.vy *= 0.7f; w.hop--;
+    }
+    int ddx = (int)w.x - fcx, ddy = (int)w.y - fcy;
+    if (ddx * ddx + ddy * ddy > rec2) w.active = false;   // trop loin -> disparait
+  }
+}
+
+static void drawWrecks(int camX, int camY) {
+  for (int i = 0; i < NUM_WRECKS; i++) {
+    Wreck &w = wrecks[i];
+    if (!w.active) continue;
+    blitCarBurnt(camX, camY, (int)w.x, (int)w.y, w.frame);
+    int frame = (missionAnim / 6 + i) % SMOKE_FRAMES;     // fumee residuelle (legere)
+    blitSmoke((int)w.x - camX, (int)w.y - camY, 0, frame);
   }
 }
 
@@ -892,7 +1015,7 @@ static void aiRespawnPed(AiPed &p, int ccx, int ccy) {
   if (aiFindTileInRing(ccx, ccy, RING_MIN, RING_MAX, aiIsWalkable, tx, ty)) {
     aiPlace(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
             tx, ty, aiIsWalkable, aiRng);
-    p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0;
+    p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0; p.panicTimer = 0;
     p.hp = 3; p.shootTimer = COP_SHOOT_PERIOD;
     // Si la police nous recherche, une partie des pietons spawn en flics (bleus)
     // qui foncent sur le joueur (cf. aiUpdate). Sinon, pieton civil recolore.
@@ -931,9 +1054,10 @@ static void aiEjectDriver(int atx_px, int aty_px) {
   aiPlace(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
           tx, ty, aiIsWalkable, aiRng);
   p.color = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
-  p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0;
+  p.frame = 0; p.animTimer = 0; p.state = 0; p.downTimer = 0; p.panicTimer = 0;
   p.hp = 3; p.isCop = false; p.shootTimer = COP_SHOOT_PERIOD;
   p.active = true;
+  startPanic(p, atx_px, aty_px);           // descend en panique : fuit la caisse volee
 }
 
 // Pose un butin (argent/munitions) sur une case libre du pool. Ecrase le plus
@@ -957,6 +1081,14 @@ static void dropLoot(int wx, int wy) {
     spawnLoot(wx + 4, wy, LOOT_AMMO, WEAPON_PISTOL, WEAPONS[WEAPON_PISTOL].ammoPickup);
 }
 
+// Affole un PNJ civil : il part en courant loin du point (srcx,srcy) sans
+// respecter les trottoirs (cf. aiPanicStep). Flics et PNJ au sol non concernes.
+static void startPanic(AiPed &p, int srcx, int srcy) {
+  if (p.isCop || p.state == 1) return;
+  p.state = 2; p.panicTimer = PED_PANIC_FRAMES;
+  p.panicX = (int16_t)srcx; p.panicY = (int16_t)srcy;
+}
+
 // Met un pieton au sol (KO/mort) + comptabilise l'objectif BEAT + fait monter la
 // recherche police (un mort = un crime). Mutualise poing/arme/ecrasement.
 static void knockDownPed(AiPed &p) {
@@ -964,13 +1096,20 @@ static void knockDownPed(AiPed &p) {
   if (missionRun.active) objBeat++;
   wantedOnKill(wanted);                    // crime : streak -> etoiles
   dropLoot((int)p.x, (int)p.y);
+  // Temoins proches : un meurtre a cote affole (rayon court).
+  for (int i = 0; i < NUM_AI_PEDS; i++) {
+    AiPed &o = aiPeds[i];
+    if (&o == &p || !o.active || o.state == 1) continue;
+    int dx = (int)o.x - (int)p.x, dy = (int)o.y - (int)p.y;
+    if (dx * dx + dy * dy <= KILL_PANIC_RANGE * KILL_PANIC_RANGE) startPanic(o, (int)p.x, (int)p.y);
+  }
 }
 
 // Inflige un coup au pieton. lethal = arme a feu (1 balle suffit) ; sinon poing
 // (3 coups : on entame les PV, KO quand ils tombent a 0).
 static void hitPed(AiPed &p, bool lethal) {
   if (lethal || p.hp <= 1) knockDownPed(p);
-  else p.hp--;
+  else { p.hp--; startPanic(p, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2); }  // encaisse + detale
 }
 
 // Place le joueur a pied sur une case libre proche du POI nomme (repli : coords
@@ -1040,9 +1179,47 @@ static void hurtPlayer(int dmg) {
 
 // Declenche une explosion de voiture en (wx,wy) : effet visuel + son. Si le
 // joueur conduit cette voiture, il meurt.
-static void explodeCarAt(int wx, int wy) {
+static void explodeCarAt(int wx, int wy, uint8_t frameIdx, float hopx, float hopy) {
   boomX = wx; boomY = wy; boomTimer = BOOM_FRAMES;
   gb.sound.tone(70, 200);
+  // Degats de zone : PNJ debout tues dans le rayon letal ; affoles un peu au-dela.
+  for (int i = 0; i < NUM_AI_PEDS; i++) {
+    AiPed &p = aiPeds[i];
+    if (!p.active || p.state == 1) continue;
+    int dx = (int)p.x - wx, dy = (int)p.y - wy;
+    int d2 = dx * dx + dy * dy;
+    if (d2 <= BOOM_HURT_RADIUS * BOOM_HURT_RADIUS) knockDownPed(p);
+    else if (d2 <= BOOM_PANIC_RADIUS * BOOM_PANIC_RADIUS) startPanic(p, wx, wy);
+  }
+  // Joueur a pied dans le rayon -> -1 coeur (au volant : la mort est deja geree).
+  if (!driving) {
+    int dx = (playerX + PLAYER_W / 2) - wx, dy = (playerY + PLAYER_H / 2) - wy;
+    if (dx * dx + dy * dy <= BOOM_HURT_RADIUS * BOOM_HURT_RADIUS) hurtPlayer(1);
+  }
+  // Degats de zone aux vehicules : decroissance lineaire ; au centre > PV (detruit).
+  // Un vehicule tombe a 0 explose a son tour (CHAINE) -- desactive AVANT l'appel
+  // recursif pour ne pas etre re-touche ; chaine bornee par NUM_AI_CARS.
+  for (int i = 0; i < NUM_AI_CARS; i++) {
+    AiCar &c = aiCars[i];
+    if (!c.active) continue;
+    float ddx = c.x - wx, ddy = c.y - wy;
+    float dist = sqrtf(ddx * ddx + ddy * ddy);
+    if (dist >= BOOM_VEHICLE_RADIUS) continue;
+    c.hp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
+    if (c.hp <= 0) {
+      c.active = false;
+      explodeCarAt((int)c.x, (int)c.y, AI_CAR_FRAME[c.dir], ddx, ddy);
+    }
+  }
+  // Voiture du joueur dans le rayon (sans etre le centre source) : elle encaisse
+  // aussi -> a 0 PV la meche s'allume via updateCarFuse (pas de cas special ici).
+  if (!carGone) {
+    float ddx = car.x - wx, ddy = car.y - wy;
+    float dist = sqrtf(ddx * ddx + ddy * ddy);
+    if (dist > 0.5f && dist < BOOM_VEHICLE_RADIUS)
+      carHp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
+  }
+  spawnWreck((float)wx, (float)wy, frameIdx, hopx, hopy);   // carcasse fumante
 }
 
 // Tir d'arme a feu : engendre un ou plusieurs pixels-projectiles partant du
@@ -1105,10 +1282,32 @@ static void tryAttack() {
   if (curWeapon == WEAPON_FIST) gb.sound.playTick();
   else { gb.sound.tone(110, 50); fireBullets(pcx, pcy); }  // bang + pixels de tir
   bool firearm = (curWeapon != WEAPON_FIST);   // arme a feu : 1 touche = mort
-  if (wd.area) {
-    // Zone : tous les pietons debout dans le cone tombent (armes a feu).
+  if (wd.explosive) {
+    // Arme explosive : detonation au POINT D'IMPACT = entite (vehicule ou PNJ) la
+    // plus proche dans le cone, sinon un point devant le joueur a portee. Les
+    // degats radiaux d'explodeCarAt couvrent PNJ et vehicules (inutile de repasser
+    // par les cones ci-dessous).
+    float fdx = AI_DX[playerDir], fdy = AI_DY[playerDir];
+    int ix = pcx + (int)(fdx * wd.reach), iy = pcy + (int)(fdy * wd.reach);
+    float best = wd.reach + 1.0f;
+    for (int i = 0; i < NUM_AI_CARS; i++) {
+      if (!aiCars[i].active) continue;
+      if (!combatInCone(aiCars[i].x, aiCars[i].y, pcx, pcy, playerDir, wd.reach, wd.side)) continue;
+      float fwd = (aiCars[i].x - pcx) * fdx + (aiCars[i].y - pcy) * fdy;
+      if (fwd < best) { best = fwd; ix = (int)aiCars[i].x; iy = (int)aiCars[i].y; }
+    }
     for (int i = 0; i < NUM_AI_PEDS; i++) {
-      if (!(aiPeds[i].active && aiPeds[i].state == 0)) continue;
+      if (!(aiPeds[i].active && aiPeds[i].state != 1)) continue;
+      if (!combatInCone(aiPeds[i].x, aiPeds[i].y, pcx, pcy, playerDir, wd.reach, wd.side)) continue;
+      float fwd = (aiPeds[i].x - pcx) * fdx + (aiPeds[i].y - pcy) * fdy;
+      if (fwd < best) { best = fwd; ix = (int)aiPeds[i].x; iy = (int)aiPeds[i].y; }
+    }
+    explodeCarAt(ix, iy, 0, fdx, fdy);            // boom + degats radiaux + chaine
+  } else if (wd.area) {
+    // Zone : tous les pietons debout dans le cone tombent (armes a feu).
+    // state != 1 : debout OU en panique (les paniques restent frappables).
+    for (int i = 0; i < NUM_AI_PEDS; i++) {
+      if (!(aiPeds[i].active && aiPeds[i].state != 1)) continue;
       if (combatInCone(aiPeds[i].x, aiPeds[i].y, pcx, pcy, playerDir, wd.reach, wd.side))
         hitPed(aiPeds[i], true);
     }
@@ -1118,19 +1317,33 @@ static void tryAttack() {
     bool act[NUM_AI_PEDS];
     for (int i = 0; i < NUM_AI_PEDS; i++) {
       px[i] = aiPeds[i].x; py[i] = aiPeds[i].y;
-      act[i] = aiPeds[i].active && aiPeds[i].state == 0;
+      act[i] = aiPeds[i].active && aiPeds[i].state != 1;   // debout ou panique (pas au sol)
     }
     int hit = combatConeTarget(px, py, act, NUM_AI_PEDS, pcx, pcy, playerDir, wd.reach, wd.side);
     if (hit >= 0) hitPed(aiPeds[hit], firearm);   // poing : 3 coups ; arme : 1
   }
-  // Les armes a feu abiment aussi les voitures IA dans le cone : a 0 PV, boom.
-  if (firearm) {
+  // Les armes a feu A BALLES abiment les voitures du cone (pistolet/PM : CAR_HIT_DMG ;
+  // pompe : CAR_AREA_DMG, plus fort). Les explosives passent par explodeCarAt ci-dessus.
+  if (firearm && !wd.explosive) {
     int16_t dmg = wd.area ? CAR_AREA_DMG : CAR_HIT_DMG;
     for (int i = 0; i < NUM_AI_CARS; i++) {
       if (!aiCars[i].active) continue;
       if (!combatInCone(aiCars[i].x, aiCars[i].y, pcx, pcy, playerDir, wd.reach, wd.side)) continue;
       aiCars[i].hp -= dmg;
-      if (aiCars[i].hp <= 0) { explodeCarAt((int)aiCars[i].x, (int)aiCars[i].y); aiCars[i].active = false; }
+      if (aiCars[i].hp <= 0) {
+        float hx = aiCars[i].x - pcx, hy = aiCars[i].y - pcy;   // saut a l'oppose du tireur
+        explodeCarAt((int)aiCars[i].x, (int)aiCars[i].y, AI_CAR_FRAME[aiCars[i].dir], hx, hy);
+        aiCars[i].active = false;
+      }
+    }
+  }
+  // Le bruit du tir affole les civils alentour (toutes armes a feu : ils detalent du tireur).
+  if (firearm) {
+    for (int i = 0; i < NUM_AI_PEDS; i++) {
+      AiPed &p = aiPeds[i];
+      if (!p.active || p.state != 0 || p.isCop) continue;
+      int dx = (int)p.x - pcx, dy = (int)p.y - pcy;
+      if (dx * dx + dy * dy <= GUNSHOT_PANIC_RANGE * GUNSHOT_PANIC_RANGE) startPanic(p, pcx, pcy);
     }
   }
   // La cible de mission est frappable comme un pieton (toujours dans le cone).
@@ -1170,18 +1383,42 @@ static void aiUpdate(int fcx, int fcy) {
     float fwd = relx * AI_DX[c.dir] + rely * AI_DY[c.dir];
     float lat = relx * AI_DX[AI_RIGHT[c.dir]] + rely * AI_DY[AI_RIGHT[c.dir]];
     bool blocked = (fwd > 0.0f && fwd < STOP_AHEAD && fabsf(lat) < STOP_SIDE);
+    // Une epave en travers de la voie est aussi un obstacle (le trafic s'arrete).
+    for (int wI = 0; wI < NUM_WRECKS && !blocked; wI++) {
+      if (!wrecks[wI].active) continue;
+      float wrx = wrecks[wI].x - c.x, wry = wrecks[wI].y - c.y;
+      float wf = wrx * AI_DX[c.dir] + wry * AI_DY[c.dir];
+      float wl = wrx * AI_DX[AI_RIGHT[c.dir]] + wry * AI_DY[AI_RIGHT[c.dir]];
+      if (wf > 0.0f && wf < STOP_AHEAD && fabsf(wl) < STOP_SIDE) blocked = true;
+    }
     if (!blocked)
       aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
              AI_CAR_SPEED, aiIsDrivable, aiRng);
     // Solide vis-a-vis de la voiture joueur : on repousse le joueur, et un
-    // accident a vitesse use la caisse (PV). Trop d'accidents -> elle fume puis
-    // explose (cf. updateDrivenCar).
+    // accident a vitesse use la caisse (PV). On retient le sens du choc pour le
+    // saut a l'explosion. Trop d'accidents -> elle prend feu (cf. updateCarFuse).
     if (driving) {
       float dx = car.x - c.x, dy = car.y - c.y;
       if (fabsf(dx) < COL_CC && fabsf(dy) < COL_CC) {
         float px = COL_CC - fabsf(dx), py = COL_CC - fabsf(dy);
-        if (px < py) { car.x += (dx < 0 ? -px : px); car.vx *= -0.3f; }
-        else { car.y += (dy < 0 ? -py : py); car.vy *= -0.3f; }
+        if (px < py) { car.x += (dx < 0 ? -px : px); car.vx *= -0.3f; carImpactX = (dx < 0 ? -1.0f : 1.0f); carImpactY = 0.0f; }
+        else { car.y += (dy < 0 ? -py : py); car.vy *= -0.3f; carImpactX = 0.0f; carImpactY = (dy < 0 ? -1.0f : 1.0f); }
+        if (spd2 > RUNOVER_SPEED2 && carCrashTimer == 0) {
+          carHp -= CAR_CRASH_DMG; carCrashTimer = CAR_CRASH_COOLDOWN;
+        }
+      }
+    }
+  }
+
+  // Collision voiture joueur <-> epaves : solide (repousse + use la caisse).
+  if (driving) {
+    for (int i = 0; i < NUM_WRECKS; i++) {
+      if (!wrecks[i].active) continue;
+      float dx = car.x - wrecks[i].x, dy = car.y - wrecks[i].y;
+      if (fabsf(dx) < COL_CC && fabsf(dy) < COL_CC) {
+        float px = COL_CC - fabsf(dx), py = COL_CC - fabsf(dy);
+        if (px < py) { car.x += (dx < 0 ? -px : px); car.vx *= -0.3f; carImpactX = (dx < 0 ? -1.0f : 1.0f); carImpactY = 0.0f; }
+        else { car.y += (dy < 0 ? -py : py); car.vy *= -0.3f; carImpactX = 0.0f; carImpactY = (dy < 0 ? -1.0f : 1.0f); }
         if (spd2 > RUNOVER_SPEED2 && carCrashTimer == 0) {
           carHp -= CAR_CRASH_DMG; carCrashTimer = CAR_CRASH_COOLDOWN;
         }
@@ -1201,6 +1438,36 @@ static void aiUpdate(int fcx, int fcy) {
     if (p.isCop && wanted.level == 0 && p.state == 0) { p.active = false; aiRespawnPed(p, fcx, fcy); continue; }
     if (!p.active) { aiRespawnPed(p, fcx, fcy); continue; }
     if (p.state == 1) continue;               // renverse : immobile
+    if (p.state == 2) {                        // PANIQUE : fuite affolee (hors trottoirs)
+      if (p.panicTimer > 0) p.panicTimer--;
+      bool calm = (p.panicTimer == 0);
+      int ptx = (int)p.x >> 3, pty = (int)p.y >> 3;
+      bool onPave = aiInBounds(CITY_W, CITY_H, ptx, pty) &&
+                    cityMap[pty * CITY_W + ptx] == TILE_PAVEMENT;
+      if (calm && onPave) {                    // REGLE : fin de panique seulement sur trottoir
+        aiPlace(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
+                ptx, pty, aiIsWalkable, aiRng);   // recale la ronde sur SA tuile (pas de TP)
+        p.state = 0; p.frame = 0; p.animTimer = 0;
+        continue;
+      }
+      if (calm) {
+        // Compteur ecoule mais pas encore sur un trottoir : COURT vers le plus
+        // proche (aiPanicStep avec une "source" opposee au but -> fuite = approche).
+        int ox, oy;
+        if (findSidewalkSpot((int)p.x, (int)p.y, ox, oy))
+          aiPanicStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
+                      AI_PED_PANIC_SPEED, 2.0f * p.x - ox, 2.0f * p.y - oy);
+        else { p.active = false; continue; }   // aucun trottoir a portee (rare) : recyclage
+      } else {                                 // encore affole : FUIT la menace
+        aiPanicStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
+                    AI_PED_PANIC_SPEED, (float)p.panicX, (float)p.panicY);
+      }
+      if (++p.animTimer >= AI_PED_ANIM) { p.animTimer = 0; p.frame ^= 1; }
+      if (driving && spd2 > RUNOVER_SPEED2 &&        // toujours renversable
+          fabsf(car.x - p.x) < COL_CP && fabsf(car.y - p.y) < COL_CP)
+        knockDownPed(p);
+      continue;
+    }
     if (p.isCop)                              // flic : fonce sur le joueur
       missionChaseStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
                        AI_PED_SPEED + 0.15f, fcx, fcy, aiRng);
@@ -1686,6 +1953,7 @@ static void repaintCar() {
   uint16_t nc;
   do { nc = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N]; } while (nc == carColor);
   carColor = nc;
+  carHp = CAR_MAX_HP; carFuse = 0; carRunaway = false;   // service complet : reparee, feu eteint
   wantedClear(wanted);
   int32_t pay = playerMoney < SPRAY_COST ? playerMoney : SPRAY_COST;
   playerMoney -= pay;
@@ -1795,12 +2063,13 @@ static void narrUpdate() {
 // sous la barre de stats). Affiche tant qu'on est dans la bbox d'un POI. px.
 static void drawPoiHud(int fcx, int fcy) {
 #if CITY_NUM_POIS > 0
+  if (narrCount > 0) return;                      // un message defile : on cache le POI
   int pi = poiAtTile(fcx >> 3, fcy >> 3);
   if (pi < 0) return;
   const char *name = cityPois[pi].name;
   int w = (int)strlen(name) * 4 + 1;
-  const int top = SCREEN_H - 13;                 // en bas a gauche, juste au-dessus
-  for (int y = top; y < top + 6; y++)            // du bandeau de narration
+  const int top = SCREEN_H - 7;                  // tout en bas (meme ligne que la narration)
+  for (int y = top; y < top + 6; y++)
     for (int x = 0; x < w && x < SCREEN_W; x++) fb[y * SCREEN_W + x] = 0x0000;
   gb.display.setColor(WHITE);
   gb.display.setCursor(1, top + 1);
@@ -1932,31 +2201,65 @@ static void narrDraw() {
   gb.display.print(narrQueue[narrHead]);
 }
 
-// Etat de la voiture pilotee : a 0 PV elle explose, le joueur meurt (hopital).
-// Appelee chaque frame au volant (apres les collisions/tirs de la frame).
-static void updateDrivenCar() {
-  if (!driving) return;
-  if (seqKind != SEQ_NONE) return;             // cinematique en cours : caisse figee
+// Mecanisme d'auto-destruction : a 0 PV la caisse prend feu (mèche de ~10 s,
+// grosse flamme + fumee), conduisible pendant ce temps. La mèche consommee ->
+// explosion (epave + degats de zone) ; le joueur au volant meurt. Appelee chaque
+// frame (que le joueur soit dedans ou non : la caisse lancee explose aussi).
+static void updateCarFuse() {
   if (carCrashTimer > 0) carCrashTimer--;
-  if (carHp <= 0) {
-    explodeCarAt((int)car.x, (int)car.y);
-    startEndSeq(SEQ_WASTED, "MORT", "Hopital", true);  // dedans = mort, on voit le boom
+  if (carGone) return;
+  if (carFuse == 0) {
+    if (carHp > 0) return;
+    carFuse = CAR_FUSE_FRAMES;                   // 0 PV : la mèche s'allume
+    gb.sound.tone(120, 200);
+  }
+  carFuse--;
+  uint16_t period = carFuse > CAR_FUSE_FRAMES / 2 ? 18
+                  : (carFuse > CAR_FUSE_FRAMES / 4 ? 9 : 4);  // bips accelerant
+  if ((carFuse % period) == 0) gb.sound.tone(1400, 24);
+  if (carFuse > 0) return;
+  explodeCarAt((int)car.x, (int)car.y, (uint8_t)carFrameIdx(), carImpactX, carImpactY);
+  carGone = true; carHp = CAR_MAX_HP; carRunaway = false; carFuse = 0;
+  if (driving) startEndSeq(SEQ_WASTED, "MORT", "Hopital", true);  // dedans = mort
+}
+
+// Voiture sans conducteur (apres un saut en marche) : continue sur sa lancee,
+// freine peu a peu, s'arrete aux murs. Si elle ne brule pas et s'immobilise,
+// redevient une caisse garee ordinaire.
+static void updateRunawayCar() {
+  if (!carRunaway || driving || carGone || seqKind != SEQ_NONE) return;
+  float nx = car.x + car.vx, ny = car.y + car.vy;
+  if (!carBoxHitsSolid(nx, car.y, CAR_HALF)) car.x = nx; else car.vx = 0.0f;
+  if (!carBoxHitsSolid(car.x, ny, CAR_HALF)) car.y = ny; else car.vy = 0.0f;
+  car.vx *= CAR_RUNAWAY_FRICTION; car.vy *= CAR_RUNAWAY_FRICTION;
+  if (car.vx * car.vx + car.vy * car.vy < 0.02f) {
+    car.vx = 0.0f; car.vy = 0.0f;
+    if (carFuse == 0) carRunaway = false;        // arretee et pas en feu -> garee
   }
 }
 
-// Fumee de la voiture endommagee : 1 panache leger sous ~60 % de PV, plus dense
-// sous ~30 %. Pixels gris/sombres au-dessus de la caisse, scintillants.
+// Fumee de la caisse du joueur (au volant OU lancee). Sprite pre-rendu ancre au
+// CAPOT (avance (cos,sin) selon l'angle) : palier leger sous ~60 % de PV, dense
+// sous ~30 %. En feu (mèche) : grosse flamme + 2e panache qui monte.
 static void drawCarSmoke(int camX, int camY) {
-  if (!driving || carHp > (CAR_MAX_HP * 3) / 5) return;
-  bool heavy = carHp <= (CAR_MAX_HP * 3) / 10;
-  int n = heavy ? 4 : 2;
-  int cx = (int)car.x - camX, cy = (int)car.y - camY;
-  for (int k = 0; k < n; k++) {
-    int ph = (missionAnim + k * 5) % 12;         // montee du panache
-    int x = cx + ((k & 1) ? 1 : -1) * (k / 2) + ((ph >> 2) & 1);
-    int y = cy - 3 - ph;
-    if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
-    fb[y * SCREEN_W + x] = heavy ? 0x4208 : 0x8410;  // gris sombre / gris
+  if (carGone) return;
+  bool burning = carFuse > 0;
+  if (!burning && carHp > (CAR_MAX_HP * 3) / 5) return;     // caisse saine : rien
+  if (!driving && !carRunaway && !burning) return;          // garee tranquille : rien
+  int tier = (burning || carHp <= (CAR_MAX_HP * 3) / 10) ? 1 : 0;
+  int frame = (missionAnim / (tier ? 3 : 6)) % SMOKE_FRAMES;
+  float a = car.angle;
+  int hx = (int)(car.x + cosf(a) * SMOKE_HOOD_DIST) - camX;
+  int hy = (int)(car.y + sinf(a) * SMOKE_HOOD_DIST) - camY;
+  blitSmoke(hx, hy, tier, frame);
+  if (burning) {
+    blitSmoke(hx, hy - 4, 1, (frame + 2) % SMOKE_FRAMES);   // panache qui monte plus haut
+    if (missionAnim & 2) {                                  // lechee de flamme clignotante
+      uint16_t fcol = (missionAnim & 4) ? 0xFD20 : 0xFFE0;
+      if (hx >= 0 && hx < SCREEN_W && hy >= 0 && hy < SCREEN_H) fb[hy * SCREEN_W + hx] = fcol;
+      int hx2 = hx + ((missionAnim & 8) ? 1 : -1);
+      if (hx2 >= 0 && hx2 < SCREEN_W && hy >= 0 && hy < SCREEN_H) fb[hy * SCREEN_W + hx2] = fcol;
+    }
   }
 }
 
@@ -2309,13 +2612,16 @@ void loop() {
                  + (long)(pcy - (int)aiCars[i].y) * (pcy - (int)aiCars[i].y);
           if (d <= aiThr && d < bestd) { best = i; bestd = d; }
         }
+        // Monter dans une AUTRE caisse (mission/volee) coupe une mèche/lancee
+        // heritee de l'ancienne. Remonter dans SA propre caisse (best == -1) ne
+        // reinitialise rien : PV et feu appartiennent a la voiture (persistants).
+        if (best == -3 || best >= 0) { carFuse = 0; carRunaway = false; }
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
           carColor = MISSION_CAR_COLOR; carIsMission = true;
           mCarActive = false; driving = true; carHp = CAR_MAX_HP; carGone = false;
         } else if (best == -1) {
-          driving = true; carIsMission = false;   // remonter dans sa voiture
-          carHp = CAR_MAX_HP;
+          driving = true; carIsMission = false;   // remonter dans sa voiture (PV gardes)
         } else if (best >= 0) {
           AiCar &c = aiCars[best];           // vol : le conducteur descend
           aiEjectDriver((int)c.x, (int)c.y);
@@ -2349,12 +2655,20 @@ void loop() {
     }
     bool drift = brakeBtn && steer != 0.0f && fwd > CAR_DRIFT_MIN;
     carUpdate(car, throttle, steer, drift, brake);
-    // Descendre (MENU) : poser le perso sur une case libre a cote.
+    // Descendre (MENU) : poser le perso sur une case libre a cote. A vitesse,
+    // c'est un SAUT en marche : -1 coeur et la caisse continue sur sa lancee
+    // (runaway) -> elle explose plus loin si elle est en feu.
     if (gb.buttons.pressed(BUTTON_MENU)) {
       int ox, oy;
       if (findFootSpot((int)car.x, (int)car.y, ox, oy)) {
         playerX = ox; playerY = oy; driving = false;
         playerFrame = 0; animTimer = 0;
+        if (car.vx * car.vx + car.vy * car.vy > CAR_BAIL_SPEED2) {
+          carRunaway = true; gb.sound.tone(300, 70);
+          hurtPlayer(1);                      // cout du saut (peut etre fatal)
+        } else {
+          car.vx = 0.0f; car.vy = 0.0f;       // quasi a l'arret : on se gare
+        }
       }
     }
   }
@@ -2386,7 +2700,9 @@ void loop() {
   if (playerHurtTimer > 0) playerHurtTimer--;
   if (boomTimer > 0) boomTimer--;
   if (overlayTimer > 0) overlayTimer--;
-  updateDrivenCar();
+  updateRunawayCar();                          // caisse sans conducteur sur sa lancee
+  updateCarFuse();                             // mèche -> explosion (mort si dedans)
+  updateWrecks(focusX, focusY);                // epaves : petit saut puis despawn au loin
   updateSequence();                            // avance la cinematique mort/arret/spray
 
   // Pay'n'Spray : entrer en voiture dans un garage repeint la caisse et efface
@@ -2486,6 +2802,7 @@ void loop() {
   drawJunkyardRig(camX, camY);                  // grue + broyeur permanents (La Casse)
 #endif
   drawCasseZone(camX, camY);                    // zone de broyage (La Casse)
+  drawWrecks(camX, camY);                       // epaves fumantes (sous le trafic)
   aiDraw(camX, camY);
   drawWeaponPickups(camX, camY);
   drawLoot(camX, camY);

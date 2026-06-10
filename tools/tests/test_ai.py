@@ -1,7 +1,8 @@
 """Tests de la couche IA pure (errance sur grille, voies, choix d'intersection)."""
 from tools.ai import (
     DIRS, RIGHT, LEFT, BACK, LANE, STUCK,
-    is_drivable, is_walkable, has_exit, lane_point, rng_next, pick_exit, place, step,
+    is_drivable, is_walkable, is_open, has_exit, lane_point, tile_center,
+    rng_next, pick_exit, place, step, panic_dir, panic_step,
     DIR_N, DIR_E, DIR_S, DIR_W,
 )
 
@@ -140,6 +141,53 @@ def test_agent_actually_moves():
         moved += abs(nx - x) + abs(ny - y)
         x, y = nx, ny
     assert moved > 10.0   # a parcouru du chemin
+
+
+def test_is_open_includes_roads_and_pavement_not_buildings():
+    # panique : herbe, trottoir ET route franchissables ; bâtiment non.
+    mixed = _grid(["PH#..", ".....", ".....", ".....", "....."])
+    assert is_open(mixed, W, H, 0, 0) is True    # pavement
+    assert is_open(mixed, W, H, 1, 0) is True     # route (franchie en panique)
+    assert is_open(mixed, W, H, 2, 0) is False    # bâtiment
+    assert is_open(mixed, W, H, -1, 0) is False   # hors-bornes
+
+
+def test_panic_dir_flees_away_from_threat():
+    # plein ouvert : menace à l'OUEST (away pointe vers l'est) -> fuir vers l'est.
+    g = _grid([".....", ".....", ".....", ".....", "....."])
+    assert panic_dir(g, W, H, 2, 2, away_dx=1, away_dy=0) == DIR_E
+    assert panic_dir(g, W, H, 2, 2, away_dx=-1, away_dy=0) == DIR_W
+    assert panic_dir(g, W, H, 2, 2, away_dx=0, away_dy=1) == DIR_S
+    assert panic_dir(g, W, H, 2, 2, away_dx=0, away_dy=-1) == DIR_N
+
+
+def test_panic_dir_routes_around_building():
+    # fuite vers l'est bloquée par un bâtiment -> contourne par une case ouverte.
+    g = _grid([".....", ".....", "..#..", ".....", "....."])
+    # depuis (1,2) menace à l'ouest (away est) mais (2,2) est un bâtiment :
+    nd = panic_dir(g, W, H, 1, 2, away_dx=1, away_dy=0)
+    assert nd != DIR_E
+    nx, ny = 1 + DIRS[nd][0], 2 + DIRS[nd][1]
+    assert is_open(g, W, H, nx, ny)
+
+
+def test_panic_dir_cornered_returns_stuck():
+    g = _grid([".#...", "#H#..", ".#...", ".....", "....."])
+    # (1,1) route cernée de bâtiments des 4 côtés -> aucune fuite
+    assert panic_dir(g, W, H, 1, 1, away_dx=1, away_dy=0) == STUCK
+
+
+def test_panic_step_increases_distance_and_stays_open():
+    g = _grid([".....", ".....", ".....", ".....", "....."])
+    sx, sy = tile_center(0, 0)            # menace en haut-gauche
+    x, y = float(tile_center(2, 2)[0]), float(tile_center(2, 2)[1])
+    d = DIR_E
+    tx, ty = tile_center(3, 2)
+    d0 = (x - sx) ** 2 + (y - sy) ** 2
+    for _ in range(40):
+        x, y, d, tx, ty = panic_step(g, W, H, x, y, d, tx, ty, 0.5, sx, sy)
+        assert is_open(g, W, H, int(x) >> 3, int(y) >> 3)
+    assert (x - sx) ** 2 + (y - sy) ** 2 > d0   # s'est éloigné de la menace
 
 
 def test_pick_exit_dead_end_does_uturn():

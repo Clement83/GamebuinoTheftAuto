@@ -41,6 +41,14 @@ inline bool aiIsWalkable(const uint8_t *grid, int w, int h, int tx, int ty) {
   return t == 4 || t == 0;             // PAVEMENT ou GRASS (trottoirs + herbe)
 }
 
+// Tuile franchissable a pied EN PANIQUE : herbe, trottoir OU route (le piéton
+// paniqué traverse les routes), jamais un batiment. Parite ai.py:is_open.
+inline bool aiIsOpen(const uint8_t *grid, int w, int h, int tx, int ty) {
+  if (!aiInBounds(w, h, tx, ty)) return false;
+  uint8_t t = grid[ty * w + tx];
+  return t == 0 || t == 1 || t == 2 || t == 3 || t == 4;   // GRASS/ROADs/PAVEMENT
+}
+
 // True si au moins une des 4 tuiles voisines est valide (sortie possible).
 inline bool aiHasExit(const uint8_t *grid, int w, int h, int tx, int ty,
                       AiClassify classify) {
@@ -125,6 +133,44 @@ inline void aiStep(const uint8_t *grid, int w, int h, float &x, float &y,
       dir = nd;
       int ntx = tx + AI_DX[dir], nty = ty + AI_DY[dir];
       aiLanePoint(ntx, nty, dir, tgtx, tgty);
+    }
+  } else {
+    float inv = speed / sqrtf(d2);
+    x += dx * inv; y += dy * inv;
+  }
+}
+
+// Direction de fuite depuis (tx,ty) : tuile OUVERTE voisine la mieux alignee
+// avec (awayDx,awayDy) « loin de la menace ». Deterministe (depart par ordre
+// N,E,S,W). AI_STUCK si acculee. Parite ai.py:panic_dir.
+inline uint8_t aiPanicDir(const uint8_t *grid, int w, int h, int tx, int ty,
+                          float awayDx, float awayDy) {
+  uint8_t best = AI_STUCK;
+  float bestDot = 0.0f; bool has = false;
+  for (uint8_t di = 0; di < 4; di++) {
+    if (!aiIsOpen(grid, w, h, tx + AI_DX[di], ty + AI_DY[di])) continue;
+    float dot = AI_DX[di] * awayDx + AI_DY[di] * awayDy;
+    if (!has || dot > bestDot) { bestDot = dot; best = di; has = true; }
+  }
+  return best;
+}
+
+// Avance un pieton paniqué qui FUIT (srcx,srcy) : cible = centre de tuile, choix
+// = aiPanicDir, classifieur = aiIsOpen, sans rng. Parite ai.py:panic_step.
+inline void aiPanicStep(const uint8_t *grid, int w, int h, float &x, float &y,
+                        uint8_t &dir, int &tgtx, int &tgty, float speed,
+                        float srcx, float srcy) {
+  float dx = (float)tgtx - x, dy = (float)tgty - y;
+  float d2 = dx * dx + dy * dy;
+  if (d2 <= speed * speed) {
+    x = (float)tgtx; y = (float)tgty;
+    int tx = (int)x >> 3, ty = (int)y >> 3;
+    uint8_t nd = aiPanicDir(grid, w, h, tx, ty, x - srcx, y - srcy);
+    if (nd != AI_STUCK) {
+      dir = nd;
+      int ntx = tx + AI_DX[dir], nty = ty + AI_DY[dir];
+      tgtx = ntx * AI_TILE + AI_TILE / 2;
+      tgty = nty * AI_TILE + AI_TILE / 2;
     }
   } else {
     float inv = speed / sqrtf(d2);

@@ -22,18 +22,20 @@ struct WeaponDef {
   float    side;       // px : demi-largeur du cone (precision)
   bool     area;       // true : frappe TOUS les pietons du cone (sinon le + proche)
   int16_t  ammoPickup; // munitions par ramassage (FIST : -1 = infini)
+  bool     explosive;  // true : declenche une explosion de zone au point d'impact
+                       //        (bazooka/grenade) au lieu d'user les PV par coups
 };
 
 // Equilibrage arcade. Poing = cone court herite de combat.h ; armes a feu =
 // portee plus longue. Pompe = courte mais large (zone). Bazooka = longue + zone.
 // Grenade = jet court mais large rayon (zone). 1 touche met le pieton au sol.
 static const WeaponDef WEAPONS[WEAPON_COUNT] = {
-  { "Poing",    PUNCH_REACH, PUNCH_SIDE, false, -1 },
-  { "Pistolet", 40.0f,  4.0f,  false, 12 },
-  { "PM",       34.0f,  6.0f,  false, 30 },
-  { "Pompe",    22.0f, 11.0f,  true,   8 },
-  { "Bazooka",  58.0f,  8.0f,  true,   4 },
-  { "Grenade",  20.0f, 16.0f,  true,   3 },
+  { "Poing",    PUNCH_REACH, PUNCH_SIDE, false, -1, false },
+  { "Pistolet", 40.0f,  4.0f,  false, 12, false },
+  { "PM",       34.0f,  6.0f,  false, 30, false },
+  { "Pompe",    22.0f, 11.0f,  true,   8, false },
+  { "Bazooka",  58.0f,  8.0f,  true,   4, true  },
+  { "Grenade",  20.0f, 16.0f,  true,   3, true  },
 };
 
 // Munitions infinies pour cette arme (le poing).

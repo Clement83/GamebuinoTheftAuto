@@ -78,6 +78,26 @@ int main() {
       }
   }
 
+  // --- panique : is_open + panic_dir (parite ai.py) ---
+  check_int("open road", aiIsOpen(CROSS, 5, 5, 0, 2), 1);   // route franchie en panique
+  check_int("open grass", aiIsOpen(CROSS, 5, 5, 0, 0), 1);
+  {
+    // plein ouvert 5x5 : fuite alignee sur le vecteur "away".
+    static const uint8_t OPEN[25] = {0};
+    check_int("panic E", aiPanicDir(OPEN, 5, 5, 2, 2,  1,  0), DIR_E);
+    check_int("panic W", aiPanicDir(OPEN, 5, 5, 2, 2, -1,  0), DIR_W);
+    check_int("panic S", aiPanicDir(OPEN, 5, 5, 2, 2,  0,  1), DIR_S);
+    check_int("panic N", aiPanicDir(OPEN, 5, 5, 2, 2,  0, -1), DIR_N);
+  }
+  {
+    // batiment au centre : fuite est bloquee -> contourne (pas DIR_E).
+    static const uint8_t BLK[25] = {
+      0,0,0,0,0, 0,0,0,0,0, 0,0,6,0,0, 0,0,0,0,0, 0,0,0,0,0,
+    };
+    uint8_t nd = aiPanicDir(BLK, 5, 5, 1, 2, 1.0f, 0.0f);
+    if (nd == DIR_E) { printf("FAIL panic detour : a traverse le batiment\n"); failures++; }
+  }
+
   if (failures == 0) { printf("OK : parite ai.h <-> ai.py verifiee\n"); return 0; }
   printf("%d echec(s)\n", failures);
   return 1;

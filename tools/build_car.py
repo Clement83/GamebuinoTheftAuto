@@ -19,9 +19,47 @@ SRC = "gta/car_data.cpp"
 
 L, W = 6.0, 2.0          # demi-longueur / demi-largeur (voiture etroite et courte)
 
+# --- Fumee de voiture endommagee : petit sprite anime pre-rendu, blitte ancre
+#     au capot (cf. drawCarSmoke). 2 paliers (leger / dense) x SMOKE_FRAMES
+#     frames qui bouclent. Une bouffee qui enfle puis monte et se dissipe.
+SMOKE_BOX = 6
+SMOKE_FRAMES = 4
+SMOKE_TRANSP = 0xF81F     # magenta = transparent (idem voiture)
+SMOKE_HDR = "gta/smoke.h"
+SMOKE_SRC = "gta/smoke_data.cpp"
+# par frame : (centre y dans la boite, rayon). La bouffee remonte (y decroit) et
+# enfle puis maigrit -> boucle de panache vivante mais nette a 6 px.
+_SMOKE_SHAPE = [(4.2, 1.5), (3.2, 2.0), (2.1, 2.0), (1.3, 1.4)]
+_SMOKE_CX = SMOKE_BOX / 2.0 - 0.5    # centre x = 2.5
+
 
 def _rgb565(r, g, b):
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+
+
+def smoke_pixel(sx, sy, frame, tier):
+    """Couleur RGB565 d'un pixel de fumee (ou None = transparent).
+
+    tier 0 = leger (gris clair) ; tier 1 = dense (gris fonce + coeur orange sur
+    les frames basses, moteur qui chauffe) et un poil plus gros."""
+    cy, r = _SMOKE_SHAPE[frame]
+    if tier == 1:
+        r += 0.5                                   # panache plus gros
+    dx, dy = sx - _SMOKE_CX, sy - cy
+    d = math.hypot(dx, dy)
+    if d > r + 0.4:
+        return None
+    edge = d > r - 0.7
+    if tier == 0:
+        return _rgb565(196, 196, 204) if edge else _rgb565(150, 150, 158)
+    if frame <= 1 and d < 1.1:                      # base de flamme (dense)
+        return _rgb565(255, 150, 30)
+    return _rgb565(112, 112, 120) if edge else _rgb565(58, 58, 66)
+
+
+def render_smoke(frame, tier):
+    return [smoke_pixel(sx, sy, frame, tier) for sy in range(SMOKE_BOX)
+            for sx in range(SMOKE_BOX)]
 
 
 def car_pixel(x, y):
@@ -90,6 +128,69 @@ def build():
     print("OK: %d frames %dx%d -> %s, %s (%d o flash)"
           % (CAR_FRAMES, CAR_BOX, CAR_BOX, HDR, SRC,
              CAR_FRAMES * CAR_BOX * CAR_BOX * 2))
+
+    build_smoke()
+
+
+def build_smoke():
+    """Genere les sprites de fumee (gta/smoke.{h,cpp})."""
+    tiers = [[render_smoke(fr, t) for fr in range(SMOKE_FRAMES)] for t in range(2)]
+
+    with open(SMOKE_HDR, "w") as f:
+        f.write("// genere par tools/build_car.py -- NE PAS editer\n")
+        f.write("#pragma once\n#include <stdint.h>\n\n")
+        f.write("#define SMOKE_BOX %d\n" % SMOKE_BOX)
+        f.write("#define SMOKE_FRAMES %d\n" % SMOKE_FRAMES)
+        f.write("#define SMOKE_TRANSPARENT 0x%04X\n\n" % SMOKE_TRANSP)
+        f.write("// [tier 0=leger,1=dense][frame][SMOKE_BOX*SMOKE_BOX]\n")
+        f.write("extern const uint16_t smokeFrames[2][SMOKE_FRAMES][SMOKE_BOX*SMOKE_BOX];\n")
+
+    with open(SMOKE_SRC, "w") as f:
+        f.write("// genere par tools/build_car.py -- NE PAS editer\n")
+        f.write('#include "smoke.h"\n\n')
+        f.write("const uint16_t smokeFrames[2][SMOKE_FRAMES][SMOKE_BOX*SMOKE_BOX] = {\n")
+        for t in range(2):
+            f.write("  {\n")
+            for fr in tiers[t]:
+                vals = (SMOKE_TRANSP if v is None else v for v in fr)
+                f.write("    {" + ",".join("0x%04X" % v for v in vals) + "},\n")
+            f.write("  },\n")
+        f.write("};\n")
+
+    _preview_smoke(tiers)
+    print("OK: fumee 2x%d frames %dx%d -> %s, %s (%d o flash)"
+          % (SMOKE_FRAMES, SMOKE_BOX, SMOKE_BOX, SMOKE_HDR, SMOKE_SRC,
+             2 * SMOKE_FRAMES * SMOKE_BOX * SMOKE_BOX * 2))
+
+
+def _preview_smoke(tiers, scale=12):
+    """Ecrit previews/car_smoke.png : 2 lignes (paliers) x SMOKE_FRAMES, agrandi."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return
+    pad = 1
+    cell = SMOKE_BOX + pad
+    im = Image.new("RGB", (cell * SMOKE_FRAMES * scale, cell * 2 * scale), (40, 40, 48))
+    px = im.load()
+    for t in range(2):
+        for fr in range(SMOKE_FRAMES):
+            data = tiers[t][fr]
+            for sy in range(SMOKE_BOX):
+                for sx in range(SMOKE_BOX):
+                    v = data[sy * SMOKE_BOX + sx]
+                    if v is None:
+                        continue
+                    r = ((v >> 11) & 0x1F) << 3
+                    g = ((v >> 5) & 0x3F) << 2
+                    b = (v & 0x1F) << 3
+                    bx = (fr * cell + sx) * scale
+                    by = (t * cell + sy) * scale
+                    for yy in range(scale):
+                        for xx in range(scale):
+                            px[bx + xx, by + yy] = (r, g, b)
+    os.makedirs("previews", exist_ok=True)
+    im.save("previews/car_smoke.png")
 
 
 if __name__ == "__main__":
