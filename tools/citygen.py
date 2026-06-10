@@ -512,6 +512,12 @@ def generate_into(city, seed, tile_index, solid_index,
     city.pois = pois.collect_pois(city.grid, theme, assign, placed_stamps, sea,
                                   tile_index, solid_index, w, h)
 
+    # 8e. services en bord de route (Pay'n'Spray / AMU Nation) : coordonnees
+    # exportees (sprites procuduraux cote jeu, grille inchangee). Places en
+    # dernier pour profiter de la grille complete (routes + trottoirs + blocs).
+    city.sprays, city.ammus = pois.place_services(city.grid, tile_index,
+                                                  seed, w, h)
+
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
     return city.spawn

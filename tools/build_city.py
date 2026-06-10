@@ -48,6 +48,19 @@ def emit_headers(city, out_h, out_cpp):
         f.write("extern const uint8_t cityMap[CITY_H*CITY_W];\n")
         if pois:
             f.write("extern const CityPoi cityPois[CITY_NUM_POIS];\n")
+        # Services en bord de route : Pay'n'Spray (voiture) et AMU Nation (a
+        # pied). Coordonnees en TUILES ; le jeu dessine un sprite procudural et
+        # detecte la proximite. Positions deja valides -> aucun snap runtime.
+        sprays = getattr(city, "sprays", []) or []
+        ammus = getattr(city, "ammus", []) or []
+        f.write("\n#define CITY_NUM_SPRAYS %d\n" % len(sprays))
+        f.write("#define CITY_NUM_AMMUS %d\n\n" % len(ammus))
+        f.write("// Service en bord de route : position en TUILES.\n")
+        f.write("struct CityService {\n  uint8_t tx, ty;\n};\n")
+        if sprays:
+            f.write("extern const CityService citySprays[CITY_NUM_SPRAYS];\n")
+        if ammus:
+            f.write("extern const CityService cityAmmus[CITY_NUM_AMMUS];\n")
     with open(out_cpp, "w") as f:
         f.write("// genere par tools/build_city.py -- NE PAS editer\n")
         f.write('#include "citymap.h"\n\n')
@@ -63,6 +76,18 @@ def emit_headers(city, out_h, out_cpp):
                         % (p["name"], p["x0"], p["y0"], p["x1"], p["y1"],
                            p["tx"] * 8 + 4, p["ty"] * 8 + 4))
             f.write("};\n")
+        sprays = getattr(city, "sprays", []) or []
+        ammus = getattr(city, "ammus", []) or []
+        if sprays:
+            f.write("\nconst CityService citySprays[CITY_NUM_SPRAYS] = {\n")
+            for tx, ty in sprays:
+                f.write("  { %d, %d },\n" % (tx, ty))
+            f.write("};\n")
+        if ammus:
+            f.write("\nconst CityService cityAmmus[CITY_NUM_AMMUS] = {\n")
+            for tx, ty in ammus:
+                f.write("  { %d, %d },\n" % (tx, ty))
+            f.write("};\n")
 
 
 def render_png(city, names, tiles8_dir, out_png):
@@ -75,9 +100,16 @@ def render_png(city, names, tiles8_dir, out_png):
     for y in range(city.h):
         for x in range(city.w):
             canvas.paste(cache[names[city.get(x, y)]], (x * 8, y * 8))
+    d = ImageDraw.Draw(canvas)
+    # services en bord de route : Pay'n'Spray (jaune) / AMU Nation (rouge)
+    for tx, ty in getattr(city, "sprays", []) or []:
+        x0, y0 = tx * 8, ty * 8
+        d.rectangle((x0, y0, x0 + 7, y0 + 7), outline=(255, 255, 0))
+    for tx, ty in getattr(city, "ammus", []) or []:
+        x0, y0 = tx * 8, ty * 8
+        d.rectangle((x0, y0, x0 + 7, y0 + 7), outline=(255, 0, 0))
     # marqueur de spawn : croix magenta sur la tuile de depart
     sx, sy, _ = city.spawn
-    d = ImageDraw.Draw(canvas)
     cx, cy = sx * 8 + 4, sy * 8 + 4
     d.line((cx - 3, cy, cx + 3, cy), fill=(255, 0, 255))
     d.line((cx, cy - 3, cx, cy + 3), fill=(255, 0, 255))

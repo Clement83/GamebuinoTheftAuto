@@ -275,6 +275,83 @@ def place_docks(grid, sea, district_id, port_d, tile_index, w, h,
     return n
 
 
+# --- services en bord de route : Pay'n'Spray & AMU Nation --------------------
+# Marqueurs poses par le generateur (et plus aleatoirement par le jeu). Rendus
+# par des sprites procuduraux cote jeu -> aucune tuile dediee, la grille n'est
+# PAS modifiee : on n'exporte que des coordonnees (tuiles). Regle de placement
+# commune : sur une cellule de bati bordant directement une route DU COTE SANS
+# TROTTOIR. add_pavement ne pose le trottoir qu'au nord des rues H et a l'ouest
+# des rues V ; le cote oppose (sud d'une rue H, est d'une rue V) borde donc la
+# chaussee sans trottoir -- c'est la qu'on accroche les garages/armureries.
+
+SPRAY_COUNT = 6        # Pay'n'Spray (acces en voiture)
+AMMU_COUNT = 8         # AMU Nation (acces a pied), disseminees sur la carte
+
+
+def _road_edge_blocks(grid, tile_index, w, h):
+    """Cellules building_a/b bordant une route du cote SANS trottoir -> [(x,y)].
+
+    Cote sud d'une rue horizontale ou cote est d'une rue verticale (cf.
+    add_pavement, qui ne trottoirise que le nord/l'ouest). La cellule reste
+    solide ; le sprite du service est dessine par-dessus cote jeu, et le
+    vehicule/joueur la declenche depuis la chaussee adjacente."""
+    if "building_a" not in tile_index or "building_b" not in tile_index:
+        return []
+    blocks = {tile_index["building_a"], tile_index["building_b"]}
+    rh, rv, rx = (tile_index["road_h"], tile_index["road_v"],
+                  tile_index["road_cross"])
+    out = []
+    for y in range(h):
+        for x in range(w):
+            if grid[y * w + x] not in blocks:
+                continue
+            north = grid[(y - 1) * w + x] if y > 0 else None
+            west = grid[y * w + (x - 1)] if x > 0 else None
+            if north in (rh, rx) or west in (rv, rx):   # route au N (rue H) ou a l'O (rue V)
+                out.append((x, y))
+    return out
+
+
+def _spread_pick(cands, seed, count, gap, occupied):
+    """Jusqu'a `count` cellules de `cands` bien dispersees (>= `gap` entre elles
+    et hors `occupied`), tirage deterministe. Repli : complete sans contrainte
+    d'espacement si l'espacement ne suffit pas. Met a jour `occupied`."""
+    rng = random.Random(seed)
+    pool = [c for c in cands if c not in occupied]
+    rng.shuffle(pool)
+    g2 = gap * gap
+    picks = []
+    for (x, y) in pool:
+        if (x, y) in occupied:
+            continue
+        if all((x - px) ** 2 + (y - py) ** 2 >= g2 for px, py in picks):
+            picks.append((x, y))
+            occupied.add((x, y))
+        if len(picks) >= count:
+            return picks
+    for (x, y) in pool:                  # repli : remplir le quota, gap relache
+        if (x, y) in occupied:
+            continue
+        picks.append((x, y))
+        occupied.add((x, y))
+        if len(picks) >= count:
+            break
+    return picks
+
+
+def place_services(grid, tile_index, seed, w, h, occupied=None):
+    """Positions des Pay'n'Spray et AMU Nation -> (sprays, ammus) en TUILES.
+
+    Bord de route sans trottoir, dispersees, deterministes. Ne modifie pas la
+    grille. Les deux services partagent `occupied` -> jamais sur la meme case.
+    Les sprays (voiture) sont plus espaces que les armureries (a pied)."""
+    occupied = occupied if occupied is not None else set()
+    cands = _road_edge_blocks(grid, tile_index, w, h)
+    sprays = _spread_pick(cands, seed + 40, SPRAY_COUNT, 18, occupied)
+    ammus = _spread_pick(cands, seed + 41, AMMU_COUNT, 12, occupied)
+    return sprays, ammus
+
+
 # --- collecte des POI pour l'export jeu --------------------------------------
 
 def _nearest_walkable(grid, cells, cx, cy, solid_index, prefer=None, w=0):

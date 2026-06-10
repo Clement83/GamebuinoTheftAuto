@@ -24,7 +24,7 @@ déclenche l'effet.
 | Variable `playerMoney` (int32) | ✅ Fait | Solde du joueur, init 0. |
 | HUD billet + montant | ✅ Fait | `"$<montant>"` en vert sous les cœurs (`drawTopHud`). |
 | Gain : pietons abattus | ✅ Fait | À la mort d'un piéton (poing/arme/écrasement), 40 % de chance de lâcher un billet (5–50 $) et 12 % une arme de poing (pistolet + munitions). Butin au sol ramassé à pied (`loots[]`, `dropLoot`, `tryPickupLoot`). |
-| Gain : missions | ⏳ À faire | Récompense en $ à la complétion d'une mission (champ `reward` sur `MissionDef`). |
+| Gain : missions | ✅ Fait | Récompense en $ à la complétion (champ `reward` sur `MissionDef`, crédité dans `missionProgress` ; narration « Mission ! +$nnn » + cha-ching). Primes 120–500 $ selon la mission. |
 | Gain : ventes (casse, etc.) | ⏳ À faire | cf. POI ci-dessous. |
 | Dépense : achats/services | 🔜 En cours de spec | cf. POI interactifs. |
 
@@ -157,6 +157,6 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 1. ~~**Hôpital interactif**~~ ✅ Fait.
 2. ~~**AMU Nation**~~ ✅ Fait (V1 procédurale + UI d'achat modale).
 3. ~~**La Casse**~~ ✅ Fait (grue/broyeur, prime selon `carHp`).
-4. **Récompenses de mission** en $ (boucle économique complète).
+4. ~~**Récompenses de mission**~~ ✅ Fait (primes en $, boucle économique complète).
 5. **Pay'n'Spray** : remplacer les positions provisoires par les bons spots, et
    éventuellement passer à un vrai stamp/tuiles dédiés (cf. POI #3).

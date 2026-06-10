@@ -391,22 +391,23 @@ static const Objective OBJS_LOST[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Pompiers",
     "Livreur perdu : la planque est pres des Pompiers.", "Trouve ! Enfin." },
 };
+// Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
-  { "Joe",              OBJS_JOE,      1 },
-  { "Mauvaise affaire", OBJS_DEAL,     4 },
-  { "Bagarre de rue",   OBJS_FIGHT,    1 },
-  { "Vengeance",        OBJS_VENGEANCE,1 },
-  { "Nettoyage",        OBJS_CLEAN,    2 },
-  { "Temoin genant",    OBJS_WITNESS,  1 },
-  { "Taxi clandestin",  OBJS_TAXI,     2 },
-  { "Course folle",     OBJS_RACE,     4 },
-  { "Livraison",        OBJS_DELIVERY, 2 },
-  { "Cavale",           OBJS_RUN,      1 },
-  { "Recouvrement",     OBJS_DEBT,     2 },
-  { "Racket",           OBJS_RACKET,   3 },
-  { "Vol de caisse",    OBJS_STEAL,    2 },
-  { "Le chauffard",     OBJS_ROADHOG,  1 },
-  { "Le livreur perdu", OBJS_LOST,     1 },
+  { "Joe",              OBJS_JOE,      1, 150 },
+  { "Mauvaise affaire", OBJS_DEAL,     4, 500 },
+  { "Bagarre de rue",   OBJS_FIGHT,    1, 120 },
+  { "Vengeance",        OBJS_VENGEANCE,1, 200 },
+  { "Nettoyage",        OBJS_CLEAN,    2, 300 },
+  { "Temoin genant",    OBJS_WITNESS,  1, 250 },
+  { "Taxi clandestin",  OBJS_TAXI,     2, 200 },
+  { "Course folle",     OBJS_RACE,     4, 400 },
+  { "Livraison",        OBJS_DELIVERY, 2, 250 },
+  { "Cavale",           OBJS_RUN,      1, 180 },
+  { "Recouvrement",     OBJS_DEBT,     2, 300 },
+  { "Racket",           OBJS_RACKET,   3, 350 },
+  { "Vol de caisse",    OBJS_STEAL,    2, 350 },
+  { "Le chauffard",     OBJS_ROADHOG,  1, 220 },
+  { "Le livreur perdu", OBJS_LOST,     1, 150 },
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -1364,6 +1365,7 @@ static void buildMissionRuntime(uint8_t m) {
   }
   curDef.title = src.title;
   curDef.count = n;
+  curDef.reward = src.reward;
 }
 
 // Active l'objectif courant : narration + spawn des entites necessaires.
@@ -1445,7 +1447,14 @@ static void missionProgress() {
     targetDownX = k.x; targetDownY = k.y; targetDownTimer = PED_DOWN_FRAMES;
   }
   if (missionRun.active) enterObjective();
-  else gb.sound.playOK();                          // mission terminee
+  else {                                           // mission terminee : prime en $
+    if (def.reward > 0) {
+      playerMoney += def.reward;
+      char msg[20]; snprintf(msg, sizeof(msg), "Mission ! +$%d", (int)def.reward);
+      narrate(msg);
+    }
+    gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
+  }
 }
 
 // Deplace la cible chaque frame : tueur -> poursuite ; Joe -> vue/fuite/flanerie.
