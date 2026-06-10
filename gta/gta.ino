@@ -304,10 +304,17 @@ struct AiPed {
 
 // Epave : carcasse laissee par une voiture explosee. Obstacle statique (trafic
 // + voiture joueur), fume (palier leger), petit saut a la naissance puis
-// immobile. Recyclee quand on s'eloigne. Non conduisible.
+// immobile. Recyclee quand on s'eloigne (pas de timer). Non conduisible.
 struct Wreck { float x, y, vx, vy; uint8_t frame; uint8_t hop; bool active; };
 static const int NUM_WRECKS = 2;
 static Wreck wrecks[NUM_WRECKS];
+
+// Panache de fumee d'explosion (roquette/grenade) : purement visuel, dure ~5 s
+// au point de detonation, qu'il y ait eu un vehicule ou non.
+struct Smoke { float x, y; uint16_t life; bool active; };
+static const int      NUM_SMOKE         = 3;
+static const uint16_t SMOKE_PUFF_FRAMES = 125;   // ~5 s a ~25 fps
+static Smoke smokes[NUM_SMOKE];
 
 static AiCar aiCars[NUM_AI_CARS];
 static AiPed aiPeds[NUM_AI_PEDS];
@@ -602,7 +609,7 @@ static void startMission(uint8_t m);
 static void narrate(const char *s);
 static int  findPoi(const char *name);
 static void hurtPlayer(int dmg);
-static void explodeCarAt(int wx, int wy, uint8_t frameIdx, float hopx, float hopy);
+static void explodeCarAt(int wx, int wy);
 static void startPanic(AiPed &p, int srcx, int srcy);
 
 // estimation RAM libre (debug serie)
@@ -749,13 +756,14 @@ void setup() {
   carHp = CAR_MAX_HP;
   carFuse = 0; carRunaway = false; carImpactX = 0.0f; carImpactY = 0.0f;
   for (int i = 0; i < NUM_WRECKS; i++) wrecks[i].active = false;
+  for (int i = 0; i < NUM_SMOKE; i++) smokes[i].active = false;
   boomTimer = 0;
   overlayMsg = nullptr; overlayTimer = 0;
   seqKind = SEQ_NONE; seqPhase = 0; seqTimer = 0; seqPoi = nullptr;
   hospInside = false; crushReward = 0;
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
-  playerMoney = 0;
+  playerMoney = 10000;                         // pecule de depart (confort de test)
   for (int i = 0; i < NUM_LOOT; i++) loots[i].active = false;
   for (int i = 0; i < NUM_BULLETS; i++) bullets[i].active = false;
   for (int i = 0; i < NUM_PROJ; i++) projs[i].active = false;
@@ -845,6 +853,7 @@ static void blitSmoke(int scx, int scy, int tier, int frame) {
   }
 }
 
+
 // Blit "epave brulee" : la silhouette d'une frame voiture recoloriee charbon
 // (deux tons : corps fonce, vitres/feux clairs). Reutilise carFrames -> zero
 // octet de flash supplementaire.
@@ -868,7 +877,7 @@ static void blitCarBurnt(int camX, int camY, int worldCx, int worldCy, int frame
 }
 
 // --- Epaves : naissance (petit saut), recyclage au loin, rendu (carcasse +
-//     fumee residuelle). spawnWreck est appele par explodeCarAt. ---
+//     fumee residuelle). spawnWreck est appele a la destruction d'une voiture. ---
 static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float hopy) {
   float n = sqrtf(hopx * hopx + hopy * hopy);
   float ux = 0.0f, uy = 0.0f;
@@ -893,7 +902,7 @@ static void updateWrecks(int fcx, int fcy) {
       w.vx *= 0.7f; w.vy *= 0.7f; w.hop--;
     }
     int ddx = (int)w.x - fcx, ddy = (int)w.y - fcy;
-    if (ddx * ddx + ddy * ddy > rec2) w.active = false;   // trop loin -> disparait
+    if (ddx * ddx + ddy * ddy > rec2) w.active = false;   // trop loin -> disparait (recyclage)
   }
 }
 
@@ -904,6 +913,33 @@ static void drawWrecks(int camX, int camY) {
     blitCarBurnt(camX, camY, (int)w.x, (int)w.y, w.frame);
     int frame = (missionAnim / 6 + i) % SMOKE_FRAMES;     // fumee residuelle (legere)
     blitSmoke((int)w.x - camX, (int)w.y - camY, 0, frame);
+  }
+}
+
+// --- Fumee d'explosion (roquette/grenade) : nuage dense ~5 s au point de tir. ---
+static void spawnSmoke(float wx, float wy) {
+  int slot = -1;
+  for (int i = 0; i < NUM_SMOKE; i++) if (!smokes[i].active) { slot = i; break; }
+  if (slot < 0) slot = 0;                       // pool plein : recycle le slot 0
+  Smoke &s = smokes[slot];
+  s.x = wx; s.y = wy; s.life = SMOKE_PUFF_FRAMES; s.active = true;
+}
+
+static void updateSmoke() {
+  for (int i = 0; i < NUM_SMOKE; i++)
+    if (smokes[i].active && --smokes[i].life == 0) smokes[i].active = false;
+}
+
+static void drawSmoke(int camX, int camY) {
+  for (int i = 0; i < NUM_SMOKE; i++) {
+    Smoke &s = smokes[i];
+    if (!s.active) continue;
+    int tier = (s.life < SMOKE_PUFF_FRAMES / 3) ? 0 : 1;   // s'amincit en fin de vie
+    int sx = (int)s.x - camX, sy = (int)s.y - camY;
+    int base = missionAnim / 3;
+    blitSmoke(sx,     sy,     tier, (base + i) % SMOKE_FRAMES);
+    blitSmoke(sx - 2, sy - 3, tier, (base + 1) % SMOKE_FRAMES);
+    blitSmoke(sx + 2, sy - 2, tier, (base + 2) % SMOKE_FRAMES);
   }
 }
 
@@ -1200,9 +1236,16 @@ static void hurtPlayer(int dmg) {
   if (playerHearts <= 0) { playerHearts = 0; wastedPlayer(); }
 }
 
-// Declenche une explosion de voiture en (wx,wy) : effet visuel + son. Si le
-// joueur conduit cette voiture, il meurt.
-static void explodeCarAt(int wx, int wy, uint8_t frameIdx, float hopx, float hopy) {
+// Detruire une voiture (autre que la sienne) = crime majeur : compte comme 3
+// pietons tues pour la jauge d'etoiles.
+static void onCarWrecked() {
+  for (int k = 0; k < 3; k++) wantedOnKill(wanted);
+}
+
+// Declenche une explosion en (wx,wy) : effet visuel + son + degats de zone (PNJ,
+// joueur, vehicules avec chaine). NE pose PAS d'epave a son centre : seules les
+// vraies voitures detruites (ici dans la chaine, ou par l'appelant) en laissent une.
+static void explodeCarAt(int wx, int wy) {
   boomX = wx; boomY = wy; boomTimer = BOOM_FRAMES;
   gb.sound.tone(70, 200);
   // Degats de zone : PNJ debout tues dans le rayon letal ; affoles un peu au-dela.
@@ -1231,7 +1274,9 @@ static void explodeCarAt(int wx, int wy, uint8_t frameIdx, float hopx, float hop
     c.hp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
     if (c.hp <= 0) {
       c.active = false;
-      explodeCarAt((int)c.x, (int)c.y, AI_CAR_FRAME[c.dir], ddx, ddy);
+      spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], ddx, ddy);   // carcasse de CETTE voiture
+      onCarWrecked();                                        // +3 (etoiles)
+      explodeCarAt((int)c.x, (int)c.y);                      // chaine
     }
   }
   // Voiture du joueur dans le rayon (sans etre le centre source) : elle encaisse
@@ -1242,7 +1287,6 @@ static void explodeCarAt(int wx, int wy, uint8_t frameIdx, float hopx, float hop
     if (dist > 0.5f && dist < BOOM_VEHICLE_RADIUS)
       carHp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
   }
-  spawnWreck((float)wx, (float)wy, frameIdx, hopx, hopy);   // carcasse fumante
 }
 
 // Tir d'arme a feu : engendre un ou plusieurs pixels-projectiles partant du
@@ -1322,7 +1366,7 @@ static void updateProjectiles() {
             fabsf(aiPeds[q].x - nx) < 4.0f && fabsf(aiPeds[q].y - ny) < 4.0f) hit = true;
       p.x = nx; p.y = ny;
       if (p.flight == 0 || --p.flight == 0) hit = true;   // portee epuisee -> explose
-      if (hit) { explodeCarAt((int)p.x, (int)p.y, 0, p.vx, p.vy); p.active = false; }
+      if (hit) { spawnSmoke(p.x, p.y); explodeCarAt((int)p.x, (int)p.y); p.active = false; }
     } else {                                    // GRENADE : cloche puis meche
       if (p.flight > 0) {
         float nx = p.x + p.vx, ny = p.y + p.vy;
@@ -1343,7 +1387,7 @@ static void updateProjectiles() {
         if (dx * dx + dy * dy <= (float)(GRENADE_FEAR_RADIUS * GRENADE_FEAR_RADIUS))
           startPanic(pd, (int)p.x, (int)p.y);
       }
-      if (p.fuse == 0 || --p.fuse == 0) { explodeCarAt((int)p.x, (int)p.y, 0, 0.0f, 0.0f); p.active = false; }
+      if (p.fuse == 0 || --p.fuse == 0) { spawnSmoke(p.x, p.y); explodeCarAt((int)p.x, (int)p.y); p.active = false; }
     }
   }
 }
@@ -1421,8 +1465,10 @@ static void tryAttack() {
       aiCars[i].hp -= dmg;
       if (aiCars[i].hp <= 0) {
         float hx = aiCars[i].x - pcx, hy = aiCars[i].y - pcy;   // saut a l'oppose du tireur
-        explodeCarAt((int)aiCars[i].x, (int)aiCars[i].y, AI_CAR_FRAME[aiCars[i].dir], hx, hy);
+        spawnWreck(aiCars[i].x, aiCars[i].y, AI_CAR_FRAME[aiCars[i].dir], hx, hy);
+        onCarWrecked();                                         // +3 (etoiles)
         aiCars[i].active = false;
+        explodeCarAt((int)aiCars[i].x, (int)aiCars[i].y);
       }
     }
   }
@@ -2307,7 +2353,8 @@ static void updateCarFuse() {
                   : (carFuse > CAR_FUSE_FRAMES / 4 ? 9 : 4);  // bips accelerant
   if ((carFuse % period) == 0) gb.sound.tone(1400, 24);
   if (carFuse > 0) return;
-  explodeCarAt((int)car.x, (int)car.y, (uint8_t)carFrameIdx(), carImpactX, carImpactY);
+  explodeCarAt((int)car.x, (int)car.y);
+  spawnWreck(car.x, car.y, (uint8_t)carFrameIdx(), carImpactX, carImpactY);  // ma caisse: epave, pas d'etoiles
   carGone = true; carHp = CAR_MAX_HP; carRunaway = false; carFuse = 0;
   if (driving) startEndSeq(SEQ_WASTED, "MORT", "Hopital", true);  // dedans = mort
 }
@@ -2793,6 +2840,7 @@ void loop() {
   updateRunawayCar();                          // caisse sans conducteur sur sa lancee
   updateCarFuse();                             // mèche -> explosion (mort si dedans)
   updateWrecks(focusX, focusY);                // epaves : petit saut puis despawn au loin
+  updateSmoke();                               // panaches de fumee d'explosion (~5 s)
   updateSequence();                            // avance la cinematique mort/arret/spray
 
   // Pay'n'Spray : entrer en voiture dans un garage repeint la caisse et efface
@@ -2906,6 +2954,7 @@ void loop() {
   if (!driving && punchTimer > 0) { blitAttackFx(camX, camY); punchTimer--; }
   drawBullets(camX, camY);                     // pixels de tir par-dessus la scene
   drawProjectiles(camX, camY);                 // roquettes/grenades en vol
+  drawSmoke(camX, camY);                        // panaches de fumee d'explosion
   drawCarSmoke(camX, camY);                    // fumee si la caisse est amochee
   drawBoom(camX, camY);                        // explosion de voiture
 
