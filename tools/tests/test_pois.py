@@ -315,15 +315,17 @@ def test_construction_ground_carrossable():
     assert TI["cons_ground"] not in SI
 
 
-def test_construction_entrance_borders_a_road():
+def test_construction_mostly_inside_district():
+    # le grand chantier (9x7) doit etre tamponne MAJORITAIREMENT dans le
+    # quartier construction (il peut deborder/ecraser un peu de route au bord).
     c = _gen()
-    grid, w = c.grid, c.w
-    gap = None
-    for y in range(c.h - 1):
-        for x in range(w):
-            if grid[y * w + x] == TI["cons_ground"] and grid[(y + 1) * w + x] in ROADS:
-                gap = (x, y)
-    assert gap is not None, "aucune entree de chantier bordant une route"
+    cd = [d for d, t in c.theme_assign.items() if t == THEME_CONSTRUCTION][0]
+    kx, ky = c.chantier["crane"]
+    ox, oy = kx - 4, ky - 3                 # origine du blueprint (grue au centre)
+    cells = [(oy + ry) * c.w + (ox + rx) for ry in range(7) for rx in range(9)]
+    inside = sum(1 for cc in cells
+                 if 0 <= cc < c.w * c.h and c.district_id[cc] == cd)
+    assert inside >= 32, "chantier majoritairement hors quartier (%d/63)" % inside
 
 
 def test_construction_deterministic():

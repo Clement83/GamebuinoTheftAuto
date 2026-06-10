@@ -594,14 +594,17 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
 #
 # Legende : G=palissade  .=terre  F=ossature  K=base de grue
 #           (l'unique '.' de la derniere ligne = entree, route exigee au sud).
-# 5x5 : compact, pour TENIR a l'interieur du quartier construction (ses blocs
-# sont petits -- un 9x7 ne rentre pas sans chevaucher une route).
+# 9x7 : grand chantier. Les blocs du quartier construction sont petits, donc
+# on tolere de RECOUVRIR quelques tuiles de route (le placement minimise ce
+# nombre) pour garder une grande enceinte ENTIEREMENT dans le quartier.
 CONS_BLUEPRINT = (
-    "GGGGG",
-    "GF.FG",
-    "G.K.G",
-    "G...G",
-    "GG.GG",
+    "GGGGGGGGG",
+    "G.F...F.G",
+    "G.......G",
+    "GF..K..FG",
+    "G.......G",
+    "G.F...F.G",
+    "GGGG.GGGG",
 )
 CONS_TILE_OF = {"G": "cons_fence", ".": "cons_ground",
                 "F": "cons_frame", "K": "cons_crane"}
@@ -613,13 +616,13 @@ def construction_tiles_available(tile_index):
 
 
 def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
-    """Tamponne l'enceinte du Chantier dans le district construction.
+    """Tamponne le GRAND chantier (9x7) DANS le quartier construction.
 
-    Strictement calquee sur `place_junkyard` : cherche une fenetre de la taille
-    du blueprint, libre de route/eau, dont l'entree (bas-centre) est bordee par
-    une route au sud ; priorite aux fenetres dans le district construction puis
-    proches de son centroide (deterministe). Renvoie {crane:(tx,ty),
-    entrance:(tx,ty)} en TUILES, ou None (tuiles/theme/fenetre absents)."""
+    Les blocs du quartier sont petits : aucune fenetre 9x7 sans route n'y tient.
+    On choisit donc la fenetre qui (1) recouvre le PLUS de cellules du quartier,
+    (2) recouvre le MOINS de route possible (on tolere d'en ecraser quelques
+    tuiles), (3) est la plus centrale. On n'ecrase jamais l'eau ni un autre POI
+    (Casse, stamps). Deterministe. Renvoie {crane,entrance} en TUILES ou None."""
     if not construction_tiles_available(tile_index):
         return None
     cons = [d for d, t in assign.items() if t == THEME_CONSTRUCTION]
@@ -629,21 +632,20 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
     bh, bw = len(CONS_BLUEPRINT), len(CONS_BLUEPRINT[0])
     roads = {tile_index[n] for n in ("road_h", "road_v", "road_cross")
              if n in tile_index}
-    if not roads:
-        return None
-    water = tile_index.get("water")
-    # Tuiles a NE PAS recouvrir : routes/eau + autres POI deja tamponnes
-    # (l'enceinte de La Casse, les stamps police/hopital/pompiers, les quais).
-    # Le Chantier est place APRES eux (cf. citygen 8f->8g) : on les evite.
-    protect = set(roads)
-    if water is not None:
-        protect.add(water)
+    # Tuiles INTERDITES (jamais ecrasees) : eau + tous les autres POI (enceinte
+    # de La Casse, stamps services + reperes de trame, quais). Les routes, elles,
+    # sont TOLEREES (recouvertes) mais minimisees -- cf. cle de tri.
+    hard = set()
+    if "water" in tile_index:
+        hard.add(tile_index["water"])
     for n in ("junk_ground", "junk_fence", "junk_wreck", "junk_crane",
-              "dock", "sand", "police_door", "police_facade", "police_sign",
-              "hosp_door", "hosp_facade", "hosp_sign",
-              "fire_door", "fire_facade", "fire_sign"):
+              "dock", "sand"):
         if n in tile_index:
-            protect.add(tile_index[n])
+            hard.add(tile_index[n])
+    for sdef in STAMP_DEFS.values():
+        for t in sdef["tiles"].values():
+            if t in tile_index:
+                hard.add(tile_index[t])
     erow = bh - 1
     ecol = CONS_BLUEPRINT[erow].index(".")          # entree (gap du bas)
 
@@ -658,26 +660,20 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
         for x in range(margin, w - margin - bw):
             block = [(y + ry) * w + (x + rx)
                      for ry in range(bh) for rx in range(bw)]
-            if any(grid[c] in protect for c in block):
+            if any(grid[c] in hard for c in block):
                 continue
-            ey, ex = y + erow, x + ecol             # case d'entree
-            if ey + 1 >= h or grid[(ey + 1) * w + ex] not in roads:
-                continue                            # route exigee juste au sud
+            overlap = sum(1 for c in block if district_id[c] == cd)
+            if overlap == 0:                        # doit toucher le quartier
+                continue
+            roadn = sum(1 for c in block if grid[c] in roads)
             ccx, ccy = x + bw // 2, y + bh // 2
-            # niveau d'appartenance au quartier construction : 0 = enceinte
-            # ENTIEREMENT dans le quartier (vise), 1 = centre dedans, 2 = hors.
-            if all(district_id[c] == cd for c in block):
-                tier = 0
-            elif district_id[ccy * w + ccx] == cd:
-                tier = 1
-            else:
-                tier = 2
-            d = (ccx - cx) ** 2 + (ccy - cy) ** 2   # proche du centroide -> centre
-            cands.append((tier, d, y, x, block))
+            d = (ccx - cx) ** 2 + (ccy - cy) ** 2
+            # max recouvrement quartier, puis min route ecrasee, puis central.
+            cands.append((-overlap, roadn, d, y, x, block))
     if not cands:
         return None
-    cands.sort()                                    # quartier d'abord, puis centroide
-    _, _, y, x, block = cands[0]
+    cands.sort()
+    _, _, _, y, x, block = cands[0]
     for ci, c in enumerate(block):
         ry, rx = divmod(ci, bw)
         grid[c] = tile_index[CONS_TILE_OF[CONS_BLUEPRINT[ry][rx]]]
