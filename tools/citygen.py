@@ -524,6 +524,11 @@ def generate_into(city, seed, tile_index, solid_index,
     city.sprays, city.ammus = pois.place_services(city.grid, tile_index,
                                                   seed, w, h)
 
+    # 8f. point de depose / grue de La Casse : tuile route precise du district
+    # junkyard (deterministe, accessible en voiture), exportee comme les services.
+    city.casse = pois.place_casse(city.grid, district_id, assign,
+                                  tile_index, solid_index, w, h)
+
     # 9. spawn
     city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
     return city.spawn

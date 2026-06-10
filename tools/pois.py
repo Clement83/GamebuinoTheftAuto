@@ -391,6 +391,45 @@ def _spread_pick(cands, seed, count, gap, occupied):
     return picks
 
 
+def place_casse(grid, district_id, assign, tile_index, solid_index, w, h):
+    """Point de depose / grue de La Casse -> (tx, ty) en TUILES, ou None.
+
+    Une tuile ROUTE (carrossable -> accessible en voiture) du district junkyard,
+    la plus proche du centroide des cellules du quartier (a defaut, une route
+    bordant le district). Deterministe (depart : plus proche du centroide, puis
+    indice). None si le theme junkyard n'est pas place (tuiles ou district
+    absents) -> la feature est simplement absente cote jeu."""
+    junk = [d for d, t in assign.items() if t == THEME_JUNKYARD]
+    if not junk:
+        return None
+    jd = junk[0]
+    roads = {tile_index[n] for n in ("road_h", "road_v", "road_cross")
+             if n in tile_index}
+    if not roads:
+        return None
+    cells = [i for i in range(w * h) if district_id[i] == jd]
+    if not cells:
+        return None
+    cx = sum(i % w for i in cells) // len(cells)
+    cy = sum(i // w for i in cells) // len(cells)
+    # candidates : routes DANS le district ; a defaut routes bordant le district.
+    cands = [i for i in cells if grid[i] in roads]
+    if not cands:
+        jset = set(cells)
+        for i in range(w * h):
+            if grid[i] not in roads:
+                continue
+            x, y = i % w, i // w
+            if any(0 <= x + dx < w and 0 <= y + dy < h
+                   and (y + dy) * w + (x + dx) in jset
+                   for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                cands.append(i)
+    if not cands:
+        return None
+    best = min(cands, key=lambda i: ((i % w - cx) ** 2 + (i // w - cy) ** 2, i))
+    return (best % w, best // w)
+
+
 def place_services(grid, tile_index, seed, w, h, occupied=None):
     """Positions des Pay'n'Spray et AMU Nation -> (sprays, ammus) en TUILES.
 

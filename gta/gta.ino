@@ -484,12 +484,16 @@ static const int32_t AMMO_PRICE[WEAPON_COUNT]   = { 0,  40, 100,  80, 250, 120 }
 static bool    shopOpen = false;
 static uint8_t shopSel  = WEAPON_PISTOL;   // arme surlignee (WEAPON_PISTOL..COUNT-1)
 
-// La Casse (broyeur) : amener sa caisse sur la zone marquee la broie contre une
-// prime (selon les PV). carGone = la voiture du joueur n'existe plus (broyee) :
-// plus dessinee, plus re-montable tant qu'on n'en vole pas une autre.
-static const int CASSE_REACH = 14;         // px : rayon de la zone de depose
-static bool      casseInside = false;      // sur la zone a la frame -1 (detection d'entree)
-static bool      carGone     = false;      // voiture du joueur broyee / inexistante
+// La Casse (broyeur) : GARER sa caisse sur la zone (point fixe genere
+// cityCasse), DESCENDRE, et rester a portee -> la grue s'amorce puis broie
+// l'epave contre une prime (selon les PV). Si on est au volant la grue ne se
+// met pas en route ; remonter ou s'eloigner pendant l'amorcage l'annule.
+// carGone = la voiture du joueur n'existe plus (broyee) : plus dessinee, plus
+// re-montable tant qu'on n'en vole pas une autre.
+static const int CASSE_REACH    = 14;      // px : rayon zone (centre voiture / joueur)
+static const int CASSE_ARM      = 30;      // frames d'amorcage (~1 s a 30 fps)
+static int       casseArm       = 0;       // compteur d'amorcage en cours (0 = inactif)
+static bool      carGone        = false;   // voiture du joueur broyee / inexistante
 
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
@@ -667,7 +671,7 @@ void setup() {
     ammuPy[i] = cityAmmus[i].ty * TILE_H + TILE_H / 2;
   }
   shopOpen = false; shopSel = WEAPON_PISTOL;
-  casseInside = false; carGone = false;
+  casseArm = 0; carGone = false;
 
   // Armes : seul le poing au depart ; pickups poses sur une case libre proche
   // du decalage voulu (la carte change a chaque regeneration).
@@ -1635,12 +1639,13 @@ static void drawAmmuShops(int camX, int camY) {
     drawAmmuShop(camX, camY, ammuPx[i], ammuPy[i]);
 }
 
-// Zone de depose de La Casse : carre raye jaune/noir (hazard) sur le point-cible
-// du POI. Repere ou amener sa caisse pour la broyer.
+// Zone de depose de La Casse : carre raye jaune/noir (hazard) sur le point fixe
+// genere (cityCasse). Repere ou GARER sa caisse pour la faire broyer a pied.
 static void drawCasseZone(int camX, int camY) {
-  int ci = findPoi("La Casse");
-  if (ci < 0) return;
-  int sx = cityPois[ci].tx - camX, sy = cityPois[ci].ty - camY;
+#if !CITY_HAS_CASSE
+  (void)camX; (void)camY; return;
+#else
+  int sx = CITY_CASSE_TX - camX, sy = CITY_CASSE_TY - camY;
   for (int dy = -6; dy <= 6; dy++)
     for (int dx = -6; dx <= 6; dx++) {
       bool edge = (dx <= -5 || dx >= 5 || dy <= -5 || dy >= 5);
@@ -1649,6 +1654,7 @@ static void drawCasseZone(int camX, int camY) {
       if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
       fb[y * SCREEN_W + x] = (((dx + dy) >> 1) & 1) ? 0xFFE0 : 0x0000;  // raye jaune/noir
     }
+#endif
 }
 
 // Entree dans un Pay'n'Spray : demarre la cinematique (la caisse rentre, on
@@ -1659,8 +1665,8 @@ static void startSpraySeq() {
   car.vx = 0.0f; car.vy = 0.0f;                // on coupe l'elan en entrant
 }
 
-// Entree sur la zone de La Casse en voiture : demarre le broyage. Prime selon
-// les PV restants (epave plus chere si la caisse est saine). On fige la caisse.
+// Fin d'amorcage de la grue : demarre le broyage. Prime selon les PV restants
+// (epave plus chere si la caisse est saine). On fige la caisse.
 static void startCrushSeq() {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_CRUSH; seqPhase = PH_CRANE; seqTimer = SEQ_CRANE_FRAMES;
@@ -2007,16 +2013,12 @@ static void updateSequence() {
     case PH_CRANE:                               // caisse saisie : on la broie
       seqPhase = PH_CRUSH; seqTimer = SEQ_CRUSH_FRAMES;
       gb.sound.tone(60, 200); break;             // gros craquement
-    case PH_CRUSH: {                             // broyee : prime + ejection du joueur
+    case PH_CRUSH:                               // broyee : prime (joueur deja a pied)
       playerMoney += crushReward;
-      carGone = true; driving = false;
-      int ox, oy;                                // poser le perso a cote de l'epave
-      if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { playerX = ox; playerY = oy; }
-      playerFrame = 0; animTimer = 0; playerDir = DIR_SOUTH;
+      carGone = true;
       narrate("Epave vendue !");
       gb.sound.tone(988, 60); gb.sound.playOK();  // cha-ching
       seqPhase = PH_EJECT; seqTimer = SEQ_EJECT_FRAMES; break;
-    }
     case PH_EJECT:                               // prime affichee : on rend la main
       seqKind = SEQ_NONE; seqPhase = 0; break;
   }
@@ -2315,18 +2317,28 @@ void loop() {
   if (onSpray && !sprayInside && seqKind == SEQ_NONE) startSpraySeq();  // on entre : cinematique
   sprayInside = onSpray;
 
-  // La Casse : amener sa caisse (pas une caisse de mission) sur la zone marquee
-  // la broie contre une prime. Detection d'entree (une fois par passage).
-  bool onCasse = false;
-  if (driving && !carIsMission && seqKind == SEQ_NONE) {
-    int ci = findPoi("La Casse");
-    if (ci >= 0) {
-      long dcx = (int)car.x - cityPois[ci].tx, dcy = (int)car.y - cityPois[ci].ty;
-      onCasse = (dcx * dcx + dcy * dcy <= (long)CASSE_REACH * CASSE_REACH);
-    }
+  // La Casse : GARER sa caisse (pas la voiture de mission) sur la zone fixe,
+  // DESCENDRE et rester a portee -> la grue s'amorce (~1 s) puis broie l'epave
+  // contre une prime. Au volant la grue ne demarre pas ; remonter ou s'eloigner
+  // pendant l'amorcage l'annule (la grue s'arrete).
+#if CITY_HAS_CASSE
+  bool casseReady = false;
+  if (seqKind == SEQ_NONE && !carGone && !carIsMission && !driving) {
+    long dcx = (int)car.x - CITY_CASSE_TX, dcy = (int)car.y - CITY_CASSE_TY;
+    bool carOnZone = (dcx * dcx + dcy * dcy <= (long)CASSE_REACH * CASSE_REACH);
+    long dpx = playerX + PLAYER_W / 2 - CITY_CASSE_TX;
+    long dpy = playerY + PLAYER_H / 2 - CITY_CASSE_TY;
+    long pr = (long)CASSE_REACH + PLAYER_W;       // joueur "assez pres" de la zone
+    bool playerNear = (dpx * dpx + dpy * dpy <= pr * pr);
+    casseReady = carOnZone && playerNear;
   }
-  if (onCasse && !casseInside) startCrushSeq();
-  casseInside = onCasse;
+  if (casseReady) {
+    if (casseArm == 0) gb.sound.tone(120, 80);    // la grue s'amorce (reveil)
+    if (++casseArm >= CASSE_ARM) { casseArm = 0; startCrushSeq(); }
+  } else {
+    casseArm = 0;                                 // hors conditions -> grue arretee
+  }
+#endif
 
   // Hopital : entrer A PIED en etant blesse -> soin paye (anim croix verte). Une
   // fois par entree dans la bbox ; narre si trop fauche pour payer.

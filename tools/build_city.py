@@ -61,6 +61,13 @@ def emit_headers(city, out_h, out_cpp):
             f.write("extern const CityService citySprays[CITY_NUM_SPRAYS];\n")
         if ammus:
             f.write("extern const CityService cityAmmus[CITY_NUM_AMMUS];\n")
+        # La Casse : point precis (grue/broyeur) du district junkyard, en PX
+        # monde. CITY_HAS_CASSE=0 si le theme n'est pas place -> feature absente.
+        casse = getattr(city, "casse", None)
+        f.write("\n#define CITY_HAS_CASSE %d\n" % (1 if casse else 0))
+        if casse:
+            f.write("#define CITY_CASSE_TX %d\n" % (casse[0] * 8 + 4))
+            f.write("#define CITY_CASSE_TY %d\n" % (casse[1] * 8 + 4))
     with open(out_cpp, "w") as f:
         f.write("// genere par tools/build_city.py -- NE PAS editer\n")
         f.write('#include "citymap.h"\n\n')
@@ -108,6 +115,12 @@ def render_png(city, names, tiles8_dir, out_png):
     for tx, ty in getattr(city, "ammus", []) or []:
         x0, y0 = tx * 8, ty * 8
         d.rectangle((x0, y0, x0 + 7, y0 + 7), outline=(255, 0, 0))
+    # La Casse : zone de depose / grue (carre orange epais)
+    casse = getattr(city, "casse", None)
+    if casse:
+        x0, y0 = casse[0] * 8, casse[1] * 8
+        d.rectangle((x0 - 1, y0 - 1, x0 + 8, y0 + 8), outline=(255, 140, 0))
+        d.rectangle((x0, y0, x0 + 7, y0 + 7), outline=(255, 140, 0))
     # libelles de quartiers (style GTA) : nom centre sur le centroide du
     # district, en blanc cerne de noir pour rester lisible sur tout fond.
     font = ImageFont.load_default()

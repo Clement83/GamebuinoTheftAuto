@@ -29,6 +29,7 @@ class CompiledCity:
         self.sprays = []   # [(tx,ty)] Pay'n'Spray -- rempli par citygen
         self.ammus = []    # [(tx,ty)] AMU Nation -- rempli par citygen
         self.districts = []  # [(nom,cx,cy)] libelles de quartiers -- rempli par citygen
+        self.casse = None  # (tx,ty) zone de depose/grue de La Casse -- rempli par citygen
 
     def _i(self, x, y):
         return y * self.w + x

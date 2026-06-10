@@ -200,3 +200,40 @@ def test_place_services_empty_without_blocks():
     grid = [ti["road_h"]] * (8 * 8)
     sprays, ammus = pois.place_services(grid, ti, 7, 8, 8)
     assert sprays == [] and ammus == []
+
+
+# ----- place_casse (zone de depose / grue de La Casse) ----------------------
+
+ROADS = {TI["road_h"], TI["road_v"], TI["road_cross"]}
+
+
+def test_place_casse_is_drivable_road_point():
+    c = _gen()
+    assert c.casse is not None, "le theme junkyard est place -> un point Casse attendu"
+    tx, ty = c.casse
+    assert c.grid[ty * c.w + tx] in ROADS, "la zone Casse doit etre une tuile route (carrossable)"
+    assert c.get(tx, ty) not in SI, "tuile route -> non solide -> accessible en voiture"
+
+
+def test_place_casse_deterministic():
+    a, b = _gen(seed=11), _gen(seed=11)
+    assert a.casse == b.casse
+
+
+def test_place_casse_in_junkyard_district():
+    # un point Casse doit etre proche du district junkyard : facade junk a portee
+    c = _gen()
+    tx, ty = c.casse
+    junk = {TI["junk_facade_a"], TI["junk_facade_b"], TI["junk_sign"]}
+    near = any(c.get(tx + dx, ty + dy) in junk
+               for dy in range(-16, 17) for dx in range(-16, 17)
+               if 0 <= tx + dx < c.w and 0 <= ty + dy < c.h)
+    assert near, "la zone Casse doit etre au sein/bord du district junkyard"
+
+
+def test_place_casse_none_without_junkyard_theme():
+    ti = {n: i for i, n in enumerate(("grass", "road_h", "road_v", "road_cross",
+                                      "pavement", "water"))}
+    grid = [ti["road_h"]] * (8 * 8)
+    did = [0] * (8 * 8)
+    assert pois.place_casse(grid, did, {}, ti, {ti["water"]}, 8, 8) is None
