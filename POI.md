@@ -60,7 +60,14 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
   - Côté jeu : état `SHOP_OPEN`, menu modal (liste `WEAPONS[]`, prix, munitions,
     solde). A/B pour naviguer, A acheter, MENU fermer. Geler le monde pendant.
   - Table de prix : `WEAPON_PRICE[WEAPON_COUNT]` + `AMMO_PRICE[WEAPON_COUNT]`.
-- **État** : ⏳ À faire (UI modale + stamp + tuiles).
+- **État** : ✅ Fait (V1 procédurale, sans nouvelles tuiles, comme Pay'n'Spray).
+  Armureries éparpillées (`AMMUS[]` dans `gta.ino`), snappées sur le **trottoir**
+  le plus proche (`findSidewalkSpot`) donc accessibles à pied ; devanture
+  pixel-art (`drawAmmuShop`, auvent rouge + enseigne jaune). S'approcher et
+  presser **A** ouvre l'**UI modale** (monde gelé) : liste des armes (icône 6×6 +
+  nom + prix), HAUT/BAS choisit, **A** achète, **B/MENU** ferme. 1er achat = prix
+  d'arme + 1 lot de munitions, ensuite = rechargement (`WEAPON_PRICE[]` /
+  `AMMO_PRICE[]`). Son « cha-ching » à l'achat, son grave si trop fauché.
 
 ### 2. Hôpital — soin 🏥 *(POI déjà présent)*
 - **Service** : entrer (à pied) → la vie remonte (gratuit ou payant, p.ex. 50 $).
@@ -142,7 +149,7 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 ## Prochaines étapes recommandées (ordre)
 
 1. ~~**Hôpital interactif**~~ ✅ Fait.
-2. **AMU Nation** : tuiles + stamp + UI d'achat (le plus gros morceau « interface »).
+2. ~~**AMU Nation**~~ ✅ Fait (V1 procédurale + UI d'achat modale).
 3. **La Casse** : grue/broyeur (revente, selon `carHp`).
 4. **Récompenses de mission** en $ (boucle économique complète).
 5. **Pay'n'Spray** : remplacer les positions provisoires par les bons spots, et

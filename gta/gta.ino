@@ -471,6 +471,28 @@ static const int   SPRAY_REACH = 10;    // px : rayon de declenchement (centre v
 static const int32_t SPRAY_COST = 50;   // $ preleve si on en a (sinon gratuit)
 static bool sprayInside = false;         // dans la zone a la frame precedente (detection d'entree)
 
+// --- AMU Nation : armureries accessibles A PIED. Comme les Pay'n'Spray, la
+//     position voulue est en TUILES et snappee sur le TROTTOIR le plus proche
+//     dans setup() (findSidewalkSpot). S'en approcher et presser A ouvre le
+//     magasin (UI modale). Positions provisoires (a ajuster). ---
+struct AmmuDef { uint8_t tx, ty; };
+static const AmmuDef AMMUS[] = {
+  { PLAYER_START_X + 3, PLAYER_START_Y },   // une armurerie pres du spawn (repere)
+  { 36, 36 }, { 60, 60 },
+};
+static const int NUM_AMMUS = sizeof(AMMUS) / sizeof(AMMUS[0]);
+static int16_t ammuPx[NUM_AMMUS], ammuPy[NUM_AMMUS];   // px monde (snappes)
+static const int AMMU_REACH = 12;        // px : portee d'ouverture (centre joueur)
+
+// Tarifs : prix d'achat de l'arme (1re fois) et prix d'un rechargement (1 lot de
+// munitions = WEAPONS[w].ammoPickup). Index par WeaponId ; FIST a 0 (jamais vendu).
+static const int32_t WEAPON_PRICE[WEAPON_COUNT] = { 0, 100, 250, 200, 600, 300 };
+static const int32_t AMMO_PRICE[WEAPON_COUNT]   = { 0,  40, 100,  80, 250, 120 };
+
+// Etat du magasin (UI modale, monde gele pendant l'achat).
+static bool    shopOpen = false;
+static uint8_t shopSel  = WEAPON_PISTOL;   // arme surlignee (WEAPON_PISTOL..COUNT-1)
+
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
@@ -665,6 +687,18 @@ void setup() {
     sprayPx[i] = wx; sprayPy[i] = wy;
   }
   sprayInside = false;
+
+  // AMU Nation : posee sur le TROTTOIR le plus proche (acces a pied), comme les
+  // cabines. Repli case libre sinon.
+  for (int i = 0; i < NUM_AMMUS; i++) {
+    int wx = AMMUS[i].tx * TILE_W + TILE_W / 2;
+    int wy = AMMUS[i].ty * TILE_H + TILE_H / 2;
+    int ox, oy;
+    if (findSidewalkSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
+    else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
+    ammuPx[i] = wx; ammuPy[i] = wy;
+  }
+  shopOpen = false; shopSel = WEAPON_PISTOL;
 
   // Armes : seul le poing au depart ; pickups poses sur une case libre proche
   // du decalage voulu (la carte change a chaque regeneration).
@@ -1592,6 +1626,35 @@ static void drawSprayShops(int camX, int camY) {
     drawSprayShop(camX, camY, sprayPx[i], sprayPy[i]);
 }
 
+// Devanture AMU Nation 8x8 : facade gris-vert, auvent rouge, enseigne jaune
+// (croix "+ d'armes"), porte sombre. Repere d'armurerie (sur trottoir).
+static void drawAmmuShop(int camX, int camY, int px, int py) {
+  static const uint8_t MAP[64] = {
+    2,2,2,2,2,2,2,2,   // auvent rouge
+    1,3,1,3,1,3,1,3,   // enseigne jaune rayee
+    4,4,4,4,4,4,4,4,
+    4,3,4,4,4,4,3,4,   // points jaunes (vitrine)
+    4,4,4,5,5,4,4,4,
+    4,4,4,5,5,4,4,4,
+    4,4,4,5,5,4,4,4,
+    4,4,4,5,5,4,4,4,
+  };
+  const uint16_t pal[6] = { 0xF81F, 0xFFE0, 0xC800, 0xFFE0, 0x7BCC, 0x18E3 };
+  int sx = px - camX - 4, sy = py - camY - 4;
+  for (int dy = 0; dy < 8; dy++)
+    for (int dx = 0; dx < 8; dx++) {
+      uint16_t c = pal[MAP[dy * 8 + dx]];
+      int x = sx + dx, y = sy + dy;
+      if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+      fb[y * SCREEN_W + x] = c;
+    }
+}
+
+static void drawAmmuShops(int camX, int camY) {
+  for (int i = 0; i < NUM_AMMUS; i++)
+    drawAmmuShop(camX, camY, ammuPx[i], ammuPy[i]);
+}
+
 // Entree dans un Pay'n'Spray : demarre la cinematique (la caisse rentre, on
 // entend la bombe, elle ressort repeinte). Le joueur attend, fige.
 static void startSpraySeq() {
@@ -1969,8 +2032,59 @@ static void drawSequence(int camX, int camY) {
   // PH_EXPLODE : rien a ajouter, drawBoom fait le spectacle.
 }
 
+// Achat de l'arme surlignee : 1re fois = prix d'arme (+ 1 lot de munitions),
+// ensuite = prix de rechargement. Refuse (son grave) si solde insuffisant.
+static void shopBuy() {
+  uint8_t w = shopSel;
+  bool owned = weaponOwned[w];
+  int32_t cost = owned ? AMMO_PRICE[w] : WEAPON_PRICE[w];
+  if (playerMoney < cost) { gb.sound.tone(120, 120); return; }   // trop cher
+  playerMoney -= cost;
+  weaponOwned[w] = true;
+  weaponAmmo[w] += WEAPONS[w].ammoPickup;
+  curWeapon = w; weaponToast = WEAPON_TOAST_FRAMES;              // equipee a l'achat
+  gb.sound.tone(880, 40); gb.sound.playOK();                     // cha-ching
+}
+
+// Navigation du magasin (UI modale) : HAUT/BAS choisit, A achete, B/MENU ferme.
+static void updateShop() {
+  if (gb.buttons.pressed(BUTTON_UP)   && shopSel > WEAPON_PISTOL)    { shopSel--; gb.sound.playTick(); }
+  if (gb.buttons.pressed(BUTTON_DOWN) && shopSel < WEAPON_COUNT - 1) { shopSel++; gb.sound.playTick(); }
+  if (gb.buttons.pressed(BUTTON_A)) shopBuy();
+  if (gb.buttons.pressed(BUTTON_B) || gb.buttons.pressed(BUTTON_MENU)) {
+    shopOpen = false; gb.sound.playCancel();
+  }
+}
+
+// Rendu plein ecran du magasin : titre, liste d'armes (icone + nom + prix), solde.
+static void drawShop() {
+  fb = gb.display._buffer;
+  for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0008;   // fond bleu nuit
+  printShadow((SCREEN_W - 10 * 4) / 2, 1, "AMU NATION");
+  for (uint8_t w = WEAPON_PISTOL; w < WEAPON_COUNT; w++) {
+    int r = w - WEAPON_PISTOL, y = 11 + r * 9;
+    if (w == shopSel)                              // surlignage de la ligne choisie
+      for (int yy = y - 1; yy < y + 7 && yy < SCREEN_H; yy++)
+        for (int xx = 0; xx < SCREEN_W; xx++) fb[yy * SCREEN_W + xx] = 0x2945;
+    blitWeaponHudIcon(2, y, w);                    // icone 6x6
+    printShadow(10, y, WEAPONS[w].name);
+    char st[8];
+    if (weaponOwned[w]) snprintf(st, sizeof(st), "+%ld", (long)AMMO_PRICE[w]);
+    else                snprintf(st, sizeof(st), "%ld",  (long)WEAPON_PRICE[w]);
+    printShadow(SCREEN_W - (int)strlen(st) * 4 - 1, y, st);
+  }
+  char money[12];                                  // solde en bas, en vert
+  snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
+  gb.display.setColor(BLACK); gb.display.setCursor(2, SCREEN_H - 6); gb.display.print(money);
+  gb.display.setColor((Color)0x07E0); gb.display.setCursor(1, SCREEN_H - 7); gb.display.print(money);
+}
+
 void loop() {
   while (!gb.update());
+
+  // Magasin ouvert (AMU Nation) : UI modale, monde gele. On traite la nav et on
+  // dessine le menu, puis on sort de la frame.
+  if (shopOpen) { updateShop(); drawShop(); return; }
 
   // Cinematique en cours (mort / arrestation / repeinture) : le joueur est fige,
   // aucun input ne passe. Le monde (IA, police, fumee...) tourne quand meme,
@@ -2006,7 +2120,16 @@ void loop() {
     if (gb.buttons.pressed(BUTTON_A)) {
       int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
       bool answered = false;
-      if (!missionRun.active) {
+      // Armurerie a portee ? Ouvre le magasin (prioritaire sur le coup de poing).
+      for (int i = 0; i < NUM_AMMUS; i++) {
+        long dA = (long)(pcx - ammuPx[i]) * (pcx - ammuPx[i])
+                + (long)(pcy - ammuPy[i]) * (pcy - ammuPy[i]);
+        if (dA <= (long)AMMU_REACH * AMMU_REACH) {
+          shopOpen = true; shopSel = WEAPON_PISTOL; gb.sound.playOK();
+          answered = true; break;
+        }
+      }
+      if (!answered && !missionRun.active) {
         for (int i = 0; i < NUM_PHONES; i++) {
           long dP = (long)(pcx - phonePx[i]) * (pcx - phonePx[i])
                   + (long)(pcy - phonePy[i]) * (pcy - phonePy[i]);
@@ -2185,6 +2308,7 @@ void loop() {
 
   // Trafic IA (sous le joueur), entites de mission, puis voiture joueur, perso.
   drawSprayShops(camX, camY);                  // garages (marquage au sol, sur route)
+  drawAmmuShops(camX, camY);                    // armureries (devanture, sur trottoir)
   aiDraw(camX, camY);
   drawWeaponPickups(camX, camY);
   drawLoot(camX, camY);
