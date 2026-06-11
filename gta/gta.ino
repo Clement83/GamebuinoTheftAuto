@@ -1995,7 +1995,8 @@ static void wreckAiCar(AiCar &c, float hopx, float hopy, bool credit) {
 //  - voiture (joueur ou IA)  : encaisse carDmg ; conducteur descend en panique ;
 //                              detruite a 0 PV (etoiles seulement si tir joueur) ;
 //  - balle joueur + pieton   : 1 touche = mort ;
-//  - balle flic  + joueur    : 1 cœur.
+//  - balle flic  + joueur a pied : 1 cœur ;
+//  - balle flic  + joueur en caisse : carDmg sur la tole (pas le joueur).
 static void updateBullets() {
   int pcx = driving ? (int)car.x : playerX + PLAYER_W / 2;
   int pcy = driving ? (int)car.y : playerY + PLAYER_H / 2;
@@ -2010,7 +2011,9 @@ static void updateBullets() {
     // 2) Cible vivante : joueur (balle flic) ou pieton (balle joueur).
     if (b.hostile) {
       if (fabsf(b.x - pcx) < hitR && fabsf(b.y - pcy) < hitR) {
-        hurtPlayer(1, false); b.active = false; continue;   // balle : fatal -> mort (pas arrestation)
+        if (driving) carHp -= b.carDmg;     // en caisse : la tole encaisse (0 PV -> meche via updateCarFuse)
+        else hurtPlayer(1, false);          // a pied : balle fatale -> mort (pas arrestation)
+        b.active = false; continue;
       }
     } else {
       bool consumed = false;
