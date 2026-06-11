@@ -162,9 +162,14 @@ static const uint16_t GRENADE_FUSE       = 75;    // ~3 s a ~25 fps avant explos
 static const int      GRENADE_FEAR_RADIUS = 30;   // px : les PNJ voyant la grenade paniquent
 static Projectile projs[NUM_PROJ];
 
-// --- vie du joueur : cœurs perdus sous les balles ennemies / explosions ;
-//     restauree a la mort (hopital) ou a l'arrestation (commissariat). ---
-static const int PLAYER_HEARTS_MAX = 3;
+// --- vie + gilet pare-balles du joueur : UN SEUL compteur de 0 a 6. 1..3 = vie
+//     (cœurs rouges), 4..6 = gilet (cœurs bleus, encaisses en premier puisque ce
+//     sont les points du dessus). Le gilet (+3) s'achete a AMU Nation ou se met
+//     en montant dans une voiture de police. La mort/arrestation le perd ; le
+//     soin a l'hopital ne rend QUE la vie (il ne se declenche qu'a hp < 3, donc
+//     ne touche jamais le gilet). ---
+static const int PLAYER_HEARTS_MAX = 3;          // vie pleine (sans gilet)
+static const int PLAYER_HP_MAX     = 6;          // vie pleine + gilet plein
 static int       playerHearts = PLAYER_HEARTS_MAX;
 static const uint8_t PLAYER_HURT_COOLDOWN = 25;  // ~1 s d'invuln. apres un coup
 static uint8_t   playerHurtTimer = 0;
@@ -657,10 +662,13 @@ static const int AMMU_REACH = 12;        // px : portee d'ouverture (centre joue
 // munitions = WEAPONS[w].ammoPickup). Index par WeaponId ; FIST a 0 (jamais vendu).
 static const int32_t WEAPON_PRICE[WEAPON_COUNT] = { 0, 100, 250, 200, 600, 300 };
 static const int32_t AMMO_PRICE[WEAPON_COUNT]   = { 0,  40, 100,  80, 250, 120 };
+static const int32_t ARMOR_PRICE = 200;    // gilet pare-balles (+3 PV)
 
-// Etat du magasin (UI modale, monde gele pendant l'achat).
+// Etat du magasin (UI modale, monde gele pendant l'achat). Lignes : les armes
+// (WEAPON_PISTOL..COUNT-1) puis une ligne GILET (index SHOP_ARMOR = WEAPON_COUNT).
+static const uint8_t SHOP_ARMOR = WEAPON_COUNT;
 static bool    shopOpen = false;
-static uint8_t shopSel  = WEAPON_PISTOL;   // arme surlignee (WEAPON_PISTOL..COUNT-1)
+static uint8_t shopSel  = WEAPON_PISTOL;   // ligne surlignee (WEAPON_PISTOL..SHOP_ARMOR)
 
 // La Casse (broyeur) : GARER sa caisse sur la zone (point fixe genere
 // cityCasse), DESCENDRE, et rester a portee -> la grue s'amorce puis broie
@@ -1541,6 +1549,16 @@ static void startHealSeq() {
   int32_t pay = playerMoney < HEAL_COST ? playerMoney : HEAL_COST;
   playerMoney -= pay;
   narrate("Soigne. -$40");
+}
+
+// Enfile le gilet pare-balles : +3 PV (les points du dessus, bleus), plafonne a
+// 6. Generique : achat a AMU Nation ou montee dans une voiture de police.
+static void giveBodyArmor() {
+  if (playerHearts >= PLAYER_HP_MAX) return;     // gilet deja plein
+  playerHearts += PLAYER_HEARTS_MAX;             // +3
+  if (playerHearts > PLAYER_HP_MAX) playerHearts = PLAYER_HP_MAX;
+  narrate("Gilet pare-balles");
+  gb.sound.tone(660, 50); gb.sound.tone(880, 60);
 }
 
 // Mort du joueur a pied (plus de cœurs) : reapparition devant l'hopital.
@@ -3105,14 +3123,20 @@ static const char *const ICON_STAR[5]  = { "  x  ", " xxx ", "xxxxx", " xxx ", "
 static const int HUD_HEARTS_MAX = PLAYER_HEARTS_MAX;   // vie : 3 cœurs
 static const int HUD_STARS_MAX  = WANTED_MAX;          // recherche police : 5 etoiles
 static const uint16_t HEART_FULL = 0xF800, HEART_EMPTY = 0x4208;  // rouge / gris sombre
+static const uint16_t HEART_ARMOR = 0x04FF;                       // bleu : cœur protege par le gilet
 static const uint16_t STAR_FULL  = 0xFFE0, STAR_EMPTY  = 0x4208;  // jaune / gris sombre
 
 // Barre de stats du haut (GTA2-like) sur fond transparent : cœurs a gauche,
 // etoiles a droite, arme + munitions au centre (a pied), toast central au
 // changement d'arme. Dessinee au ras du haut (y=0).
 static void drawTopHud() {
-  for (int i = 0; i < HUD_HEARTS_MAX; i++)      // cœurs (haut-gauche)
-    blitIcon5(1 + i * 6, 1, ICON_HEART, i < playerHearts ? HEART_FULL : HEART_EMPTY);
+  // Cœurs (haut-gauche) : compteur unique 0..6. blue = gilet (points 4..6, a
+  // gauche), red = vie (points 1..3), puis emplacements vides.
+  int blue = playerHearts > PLAYER_HEARTS_MAX ? playerHearts - PLAYER_HEARTS_MAX : 0;
+  int filled = playerHearts < PLAYER_HEARTS_MAX ? playerHearts : PLAYER_HEARTS_MAX;
+  for (int i = 0; i < HUD_HEARTS_MAX; i++)
+    blitIcon5(1 + i * 6, 1, ICON_HEART,
+              i < blue ? HEART_ARMOR : (i < filled ? HEART_FULL : HEART_EMPTY));
   const int starsX = (SCREEN_W - HUD_STARS_MAX * 6) / 2;
   // L'etoile du dessus clignote dans ses 10 dernieres secondes (fin de vie).
   bool starOff = wantedBlinking(wanted) && ((missionAnim >> 2) & 1);
@@ -3455,6 +3479,13 @@ static void drawSequence(int camX, int camY) {
 // Achat de l'arme surlignee : 1re fois = prix d'arme (+ 1 lot de munitions),
 // ensuite = prix de rechargement. Refuse (son grave) si solde insuffisant.
 static void shopBuy() {
+  if (shopSel == SHOP_ARMOR) {                  // ligne gilet pare-balles
+    if (playerHearts >= PLAYER_HP_MAX) { gb.sound.tone(120, 120); return; }  // deja plein
+    if (playerMoney < ARMOR_PRICE)     { gb.sound.tone(120, 120); return; }  // trop cher
+    playerMoney -= ARMOR_PRICE;
+    giveBodyArmor();
+    return;
+  }
   uint8_t w = shopSel;
   bool owned = weaponOwned[w];
   int32_t cost = owned ? AMMO_PRICE[w] : WEAPON_PRICE[w];
@@ -3469,7 +3500,7 @@ static void shopBuy() {
 // Navigation du magasin (UI modale) : HAUT/BAS choisit, A achete, B/MENU ferme.
 static void updateShop() {
   if (gb.buttons.pressed(BUTTON_UP)   && shopSel > WEAPON_PISTOL)    { shopSel--; gb.sound.playTick(); }
-  if (gb.buttons.pressed(BUTTON_DOWN) && shopSel < WEAPON_COUNT - 1) { shopSel++; gb.sound.playTick(); }
+  if (gb.buttons.pressed(BUTTON_DOWN) && shopSel < SHOP_ARMOR)       { shopSel++; gb.sound.playTick(); }
   if (gb.buttons.pressed(BUTTON_A)) shopBuy();
   if (gb.buttons.pressed(BUTTON_B) || gb.buttons.pressed(BUTTON_MENU)) {
     shopOpen = false; gb.sound.playCancel();
@@ -3480,7 +3511,10 @@ static void updateShop() {
 static void drawShop() {
   fb = gb.display._buffer;
   for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0008;   // fond bleu nuit
-  printShadow((SCREEN_W - 10 * 4) / 2, 1, "AMU NATION");
+  printShadow(1, 1, "AMU NATION");
+  char money[12];                                  // solde sur la ligne titre, a droite, en vert
+  snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
+  printShadowCol(SCREEN_W - (int)strlen(money) * 4 - 1, 1, money, 0x07E0);
   for (uint8_t w = WEAPON_PISTOL; w < WEAPON_COUNT; w++) {
     int r = w - WEAPON_PISTOL, y = 11 + r * 9;
     if (w == shopSel)                              // surlignage de la ligne choisie
@@ -3493,10 +3527,19 @@ static void drawShop() {
     else                snprintf(st, sizeof(st), "%ld",  (long)WEAPON_PRICE[w]);
     printShadow(SCREEN_W - (int)strlen(st) * 4 - 1, y, st);
   }
-  char money[12];                                  // solde en bas, en vert
-  snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
-  gb.display.setColor(BLACK); gb.display.setCursor(2, SCREEN_H - 6); gb.display.print(money);
-  gb.display.setColor((Color)0x07E0); gb.display.setCursor(1, SCREEN_H - 7); gb.display.print(money);
+  // Ligne GILET (apres les armes) : icone cœur bleu, prix ou "PLEIN".
+  {
+    int y = 11 + (WEAPON_COUNT - WEAPON_PISTOL) * 9;
+    if (shopSel == SHOP_ARMOR)
+      for (int yy = y - 1; yy < y + 7 && yy < SCREEN_H; yy++)
+        for (int xx = 0; xx < SCREEN_W; xx++) fb[yy * SCREEN_W + xx] = 0x2945;
+    blitIcon5(2, y, ICON_HEART, HEART_ARMOR);
+    printShadow(10, y, "GILET");
+    char st[8];
+    if (playerHearts >= PLAYER_HP_MAX) snprintf(st, sizeof(st), "PLEIN");
+    else                               snprintf(st, sizeof(st), "%ld", (long)ARMOR_PRICE);
+    printShadow(SCREEN_W - (int)strlen(st) * 4 - 1, y, st);
+  }
 }
 
 // LEDs RGB de la console (gb.lights = image 2x4, poussee au matos a chaque
@@ -3653,6 +3696,11 @@ void loop() {
           car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
           carColor = c.color; carIsMission = false;
           carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;   // herite de l'usure de la caisse volee
+          if (c.isPolice) {                  // voiture de police : gilet enfile + pompe a bord
+            giveBodyArmor();
+            weaponOwned[WEAPON_SHOTGUN] = true;
+            weaponAmmo[WEAPON_SHOTGUN] += WEAPONS[WEAPON_SHOTGUN].ammoPickup;
+          }
           c.active = false;                  // la voiture quitte le pool IA
           driving = true; carGone = false;
         } else {
