@@ -429,6 +429,11 @@ static const uint16_t TARGET_COLOR     = 0x07E0; // vert vif (cible)
 static const uint16_t MARKER_COLOR     = 0xFFE0; // jaune (marqueur de destination)
 static const uint16_t MISSION_CAR_COLOR= 0xFD20; // orange (voiture de mission)
 static const uint16_t MARCO_COLOR      = 0x07FF; // cyan (Marco)
+static const uint16_t SARAH_COLOR      = 0xF81F; // magenta (Sarah, journaliste)
+// Couleur de l'allie courant (compagnon EV_MARCO_JOIN) : Marco par defaut, Sarah
+// si l'objectif JOIN porte count==1. Permet de reutiliser la meme mecanique
+// d'escorte pour un allie different sans le peindre en "Marco".
+static uint16_t allyColor = MARCO_COLOR;
 
 // Sonnerie : warble deux tons (dring-dring) puis longue pause, en boucle.
 // frames @ ~25 fps (~40 ms). freq 0 = silence (pause).
@@ -655,6 +660,18 @@ static const Objective OBJS_M12[] = {
     "Rapporte la mallette a la Planque.",
     "Sarah : c'est bien ce que je craignais. Il faut qu'on se voie." },
 };
+// M13 : escorte de Sarah. Le JOIN (objectif 1, count==1) la fait apparaitre en
+// magenta et monter -- meme mecanique que Marco, allie different.
+static const Objective OBJS_M13[] = {
+  { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Bar",
+    "Sarah, la journaliste, t'attend au Bar. Vas-y a pied.", nullptr },
+  { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Bar",
+    "Sarah : Victor a peur, il efface les preuves. Sors-moi d'ici.",
+    "Sarah monte. Direction la planque, et vite.", 1, 0 },
+  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Planque",
+    "Conduis Sarah a la planque. Reste sur tes gardes.",
+    "Sarah est a l'abri. Pour l'instant." },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -688,6 +705,7 @@ static const MissionDef MISSIONS[] = {
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
   { "Rico le Loup",     OBJS_M11,2, 450, true },   // index 25 = M11 (trame, boss)
   { "La mallette",      OBJS_M12,2, 350, true },   // index 26 = M12 (trame)
+  { "Le temoin",        OBJS_M13,3, 400, true },   // index 27 = M13 (trame, escorte)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -695,7 +713,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26, 27 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
@@ -2517,7 +2535,8 @@ static void enterObjective() {
   narrate(o.text);
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
   if (o.event == EV_MARCO_JOIN) {
-    marcoWaiting = true;                          // Marco va apparaitre puis etre pris (TALK ou GOTO)
+    allyColor = (o.count == 1) ? SARAH_COLOR : MARCO_COLOR;  // count==1 -> Sarah
+    marcoWaiting = true;                          // l'allie va apparaitre puis etre pris (TALK ou GOTO)
     // Marco reste D'ABORD dans l'immeuble (il vient de dire "j'arrive" via o.text)
     // puis SORT et marche jusqu'au marqueur apres MARCO_EMERGE_DELAY frames.
     int bx, by;
@@ -2778,7 +2797,8 @@ static void marcoUpdate(int fcx, int fcy) {
   if (!marcoFollow) return;
   if (driving) {                                   // on vient de monter -> Marco embarque
     marcoFollow = false; marcoAboard = true;
-    narrate("Marco : roule, je monte derriere.");
+    narrate(allyColor == SARAH_COLOR ? "Sarah : vite, demarre !"
+                                     : "Marco : roule, je monte derriere.");
     gb.sound.playOK();
     return;
   }
@@ -3041,7 +3061,7 @@ static void drawMarco(int camX, int camY) {
   if (!missionRun.active) return;
   if (marcoWaiting && marcoEmergeDelay > 0) return;   // encore dans l'immeuble (pas encore sorti)
   if (marcoWaiting || marcoFollow)        // sort du batiment / attend / nous suit
-    blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, MARCO_COLOR);
+    blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, allyColor);
 }
 
 // Marqueur de destination clignotant (objectif GOTO / ENTER_CAR).
