@@ -546,6 +546,11 @@ static const MissionDef MISSIONS[] = {
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
+// Sequence des missions de trame : campaignStep -> index dans MISSIONS[].
+// (M1/M2/M3 ajoutees en fin de MISSIONS[] par une tache ulterieure ; M4 = MISSION_DEAL reusine.)
+#define ACT1_LAST 4
+static const uint8_t STORY_SEQ[ACT1_LAST] = { MISSION_DEAL, MISSION_DEAL, MISSION_DEAL, MISSION_DEAL };
+
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
 //     Position voulue en TUILES ; setup() la snappe sur la case libre la plus
 //     proche (la carte change a chaque regeneration). `mission` = index dans
@@ -637,6 +642,8 @@ static bool      carGone        = false;   // voiture du joueur broyee / inexist
 
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
+static uint8_t campaignStep = 0;          // prochaine mission de trame (0..3 = M1..M4 ; 4 = Acte I fini)
+static bool    storyMissionActive = false;// la mission en cours est-elle une mission de trame ?
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
 
 // Copie runtime des objectifs de la mission active : les coords des objectifs
@@ -2257,6 +2264,7 @@ static void buildMissionRuntime(uint8_t m) {
   curDef.title = src.title;
   curDef.count = n;
   curDef.reward = src.reward;
+  curDef.isStory = src.isStory;
 }
 
 // Active l'objectif courant : narration + spawn des entites necessaires.
@@ -2351,6 +2359,11 @@ static void missionProgress() {
       narrate(msg);
     }
     gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
+    if (storyMissionActive) {                      // progression de la trame
+      storyMissionActive = false;
+      if (campaignStep < ACT1_LAST) campaignStep++;
+      if (campaignStep >= ACT1_LAST) narrate("Marco n'est plus. Quelque chose a change.");
+    }
   }
 }
 
@@ -2624,8 +2637,9 @@ static void repaintCar() {
 }
 
 static void drawPhones(int camX, int camY) {
+  bool storyRings = (campaignStep < ACT1_LAST) && !missionRun.active;
   for (int i = 0; i < NUM_STORY_PHONES; i++)
-    drawPhoneBooth(camX, camY, storyPx[i], storyPy[i], PHONE_BODY_STORY, false);
+    drawPhoneBooth(camX, camY, storyPx[i], storyPy[i], PHONE_BODY_STORY, storyRings);
   if (missionRun.active) return;
   for (int i = 0; i < NUM_PHONES; i++)
     drawPhoneBooth(camX, camY, phonePx[i], phonePy[i], PHONE_BODY_MISSION, true);
@@ -3305,13 +3319,18 @@ void loop() {
           }
         }
       }
-      // Cabine rouge de la campagne : pas encore branchee -> Marco fait patienter.
+      // Cabine rouge de la campagne : decroche -> mission de trame courante.
       if (!answered && !missionRun.active) {
         long dS = (long)(pcx - storyPx[0]) * (pcx - storyPx[0])
                 + (long)(pcy - storyPy[0]) * (pcy - storyPy[0]);
         if (dS <= (long)PHONE_REACH * PHONE_REACH) {
-          narrate(MARCO_BUSY_LINES[aiRngNext(aiRng) % NUM_MARCO_BUSY]);
-          gb.sound.playOK();
+          if (campaignStep < ACT1_LAST) {
+            storyMissionActive = true;
+            startMission(STORY_SEQ[campaignStep]);
+          } else {
+            narrate("Le telephone reste muet.");
+            gb.sound.playOK();
+          }
           answered = true;
         }
       }
