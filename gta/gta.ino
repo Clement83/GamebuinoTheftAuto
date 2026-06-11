@@ -693,9 +693,18 @@ static CarState mCar;
 static bool mCarActive = false;           // garee, en attente d'etre prise
 static bool carIsMission = false;         // le joueur conduit la voiture de mission
 
-// Marco (passager scenarise).
-static bool marcoWaiting = false;         // debout au marqueur, attend la prise
-static bool marcoAboard  = false;         // monte dans la voiture
+// Marco (passager scenarise). Trois etats successifs :
+//   marcoWaiting : debout au marqueur, attend qu'on l'aborde (TALK / GOTO).
+//   marcoFollow  : nous suit A PIED (companion) jusqu'a ce qu'on monte en caisse.
+//   marcoAboard  : assis dans la voiture (plus dessine separement).
+static bool marcoWaiting = false;
+static bool marcoFollow  = false;
+static bool marcoAboard  = false;
+static float   marcoX = 0.0f, marcoY = 0.0f;  // position monde quand il suit a pied
+static uint8_t marcoDir = DIR_SOUTH;          // orientation du sprite (suivi)
+static uint8_t marcoFrame = 0, marcoAnimTimer = 0;  // anim de marche
+static const float MARCO_FOLLOW_SPEED = 0.55f;  // px/frame (un poil > joueur a pied)
+static const float MARCO_FOLLOW_GAP   = 10.0f;  // px : distance de confort derriere JW
 
 // Narration : file de messages flash ; bandeau bas auto-time + scroll horizontal.
 static const char *narrQueue[4];
@@ -703,9 +712,9 @@ static uint8_t narrHead = 0, narrCount = 0;
 static uint16_t narrTimer = 0;       // frames restantes du message courant
 static uint16_t narrAge = 0;         // frames ecoulees sur le message courant
 static int narrScroll = 0;           // decalage horizontal (px)
-static const int NARR_HOLD    = 35;  // frames cale a gauche (lecture du debut)
-static const int NARR_SPEED10 = 7;   // px de scroll par 10 frames (plus grand = rapide)
-static const int NARR_ENDPAD  = 35;  // frames cale a la fin
+static const int NARR_HOLD    = 55;  // frames cale a gauche (lecture du debut)
+static const int NARR_SPEED10 = 5;   // px de scroll par 10 frames (plus grand = rapide)
+static const int NARR_ENDPAD  = 50;  // frames cale a la fin
 
 // Declarations anticipees (utilisees avant leur definition).
 static void killTarget(int px, int py);
@@ -882,7 +891,7 @@ void setup() {
   target.active = false;
   targetDownTimer = 0;
   mCarActive = false; carIsMission = false;
-  marcoWaiting = false; marcoAboard = false;
+  marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   killerChase = false;
   campaignStep = 0; storyMissionActive = false; missionFailedTimer = 0;  // trame remise a zero
   narrHead = 0; narrCount = 0; narrTimer = 0;
@@ -1433,7 +1442,7 @@ static void reviveCommon() {
   wantedClear(wanted);
   if (missionRun.active) {                  // une mission en cours echoue
     missionRun.active = false; target.active = false;
-    marcoWaiting = false; marcoAboard = false;
+    marcoWaiting = false; marcoFollow = false; marcoAboard = false;
     mCarActive = false;
     storyMissionActive = false; killerChase = false;
   }
@@ -2296,6 +2305,10 @@ static void enterObjective() {
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
   if (o.event == EV_MARCO_JOIN) {
     marcoWaiting = true;                          // Marco debout, attend la prise (TALK ou GOTO)
+    if (!o.requireCar && !mCarActive) {           // prise A PIED : une caisse l'attend deja sur place
+      mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
+      mCarActive = true;
+    }
   }
   if (o.type == OBJ_ENTER_CAR) {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
@@ -2317,7 +2330,7 @@ static void enterObjective() {
 static void startMission(uint8_t m) {
   missionRun.def = m; missionRun.step = 0; missionRun.active = true;
   buildMissionRuntime(m);                 // resout les coords POI de la mission
-  target.active = false; marcoWaiting = false; marcoAboard = false;
+  target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   mCarActive = false;
   killerChase = false;
   narrate(curDef.title);                  // annonce le nom de la mission
@@ -2329,7 +2342,7 @@ static void startMission(uint8_t m) {
 static void failMission(const char *msg) {
   narrate(msg);
   missionRun.active = false;
-  target.active = false; marcoWaiting = false; marcoAboard = false;
+  target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   mCarActive = false; carIsMission = false;
   killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
   missionFailedTimer = MISSION_FAIL_FRAMES;
@@ -2377,7 +2390,14 @@ static void missionProgress() {
   uint8_t ev = missionAdvance(missionRun, def);   // step++ (active=false si fini)
   if (done.doneText) narrate(done.doneText);      // message "objectif atteint"
   if (ev == EV_MARCO_JOIN) {
-    marcoWaiting = false; marcoAboard = true;
+    marcoWaiting = false;
+    if (driving) {                                // deja au volant (M4) : Marco monte direct
+      marcoAboard = true;
+    } else {                                      // a pied (M1) : Marco nous emboite le pas
+      marcoFollow = true;
+      marcoX = (float)done.x; marcoY = (float)done.y;  // depart la ou il attendait
+      marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
+    }
   } else if (ev == EV_MARCO_DIE) {
     marcoAboard = false; killerChase = true;
     const Objective &k = def.objectives[missionRun.step];  // KILL : coords chantier
@@ -2444,6 +2464,31 @@ static void missionUpdate(int fcx, int fcy) {
         fabsf(car.x - target.x) < TARGET_RUNOVER_DIST &&
         fabsf(car.y - target.y) < TARGET_RUNOVER_DIST)
       killTarget((int)car.x, (int)car.y);
+  }
+}
+
+// Marco companion (a pied) : nous suit en gardant une distance de confort, et
+// embarque automatiquement des qu'on prend une voiture. (fcx,fcy) = repere
+// joueur (centre px). Sans effet hors de l'etat marcoFollow.
+static void marcoUpdate(int fcx, int fcy) {
+  if (!missionRun.active || !marcoFollow) return;
+  if (driving) {                                   // on vient de monter -> Marco embarque
+    marcoFollow = false; marcoAboard = true;
+    narrate("Marco embarque.");
+    gb.sound.playOK();
+    return;
+  }
+  float dx = (float)fcx - marcoX, dy = (float)fcy - marcoY;
+  float d2 = dx * dx + dy * dy;
+  if (d2 > MARCO_FOLLOW_GAP * MARCO_FOLLOW_GAP) {  // trop loin : il avance vers nous
+    float d = sqrtf(d2);
+    float step = (d > 40.0f) ? MARCO_FOLLOW_SPEED * 2.0f : MARCO_FOLLOW_SPEED;  // rattrapage
+    marcoX += dx / d * step; marcoY += dy / d * step;
+    if (fabsf(dx) > fabsf(dy)) marcoDir = (dx > 0) ? DIR_EAST : DIR_WEST;
+    else                       marcoDir = (dy > 0) ? DIR_SOUTH : DIR_NORTH;
+    if (++marcoAnimTimer >= AI_PED_ANIM) { marcoAnimTimer = 0; marcoFrame ^= 1; }
+  } else {
+    marcoFrame = 0;                                // a l'arret : pose neutre
   }
 }
 
@@ -2683,11 +2728,17 @@ static void drawMissionCar(int camX, int camY) {
   blitCar(camX, camY, (int)mCar.x, (int)mCar.y, AI_CAR_FRAME[DIR_EAST], MISSION_CAR_COLOR);
 }
 
-// Marco : pieton cyan debout au marqueur tant qu'il n'est pas pris.
+// Marco : pieton cyan. Debout au marqueur tant qu'on ne l'a pas aborde, puis
+// nous suit a pied (marcoFollow) jusqu'a ce qu'on monte en caisse. Une fois a
+// bord (marcoAboard) il n'est plus dessine separement.
 static void drawMarco(int camX, int camY) {
-  if (!marcoWaiting || !missionRun.active) return;
-  const Objective &o = curObjs[1];        // Marco attend au marqueur de l'objectif 1
-  blitPed(camX, camY, o.x, o.y, DIR_SOUTH, 0, MARCO_COLOR);
+  if (!missionRun.active) return;
+  if (marcoWaiting) {
+    const Objective &o = curObjs[1];      // Marco attend au marqueur de l'objectif 1
+    blitPed(camX, camY, o.x, o.y, DIR_SOUTH, 0, MARCO_COLOR);
+  } else if (marcoFollow) {
+    blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, MARCO_COLOR);
+  }
 }
 
 // Marqueur de destination clignotant (objectif GOTO / ENTER_CAR).
@@ -3476,6 +3527,7 @@ void loop() {
   // Mission : chrono de l'objectif, deplacement de la cible, avancement.
   if (missionRun.active && objElapsed < 0xFFFF) objElapsed++;
   missionUpdate(focusX, focusY);
+  marcoUpdate(focusX, focusY);
   missionProgress();
   if (targetDownTimer > 0) targetDownTimer--;
   missionAnim++;                               // clignotement marqueurs/telephones
