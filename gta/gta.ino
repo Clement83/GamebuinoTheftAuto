@@ -424,15 +424,16 @@ static const Objective OBJS_JOE[] = {
     "Joe se planque aux Quais. Retrouve-le et fais-le taire.",
     "Beau boulot. Joe parlera plus." },
 };
+// M4 (trame) : reutilise la mecanique Marco passager -> mort -> tueur qui fonce.
 static const Objective OBJS_DEAL[] = {
-  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Une caisse t'attend a la Casse. Va la prendre.", nullptr },
-  { OBJ_GOTO,      0, 0, 14, true,  EV_MARCO_JOIN, "Chantier",
-    "Passe prendre Marco au Chantier.", "Marco : roule, a Chinatown !" },
-  { OBJ_GOTO,      0, 0, 16, true,  EV_MARCO_DIE, "Chinatown",
-    "Conduis Marco a Chinatown.", "Un type surgit... Marco s'effondre !" },
-  { OBJ_KILL,      0, 0,  0, false, EV_NONE, "Chinatown",
-    "Tu peux pas laisser passer ca. Bute le tueur.", "Justice est faite." },
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE,       "Le Garage",
+    "Marco : un dernier rendez-vous. Prends la caisse au Garage.", nullptr },
+  { OBJ_GOTO,      0, 0, 14, true,  EV_MARCO_JOIN,  "Le Garage",
+    "Passe prendre Marco.", "Marco : roule, au Chantier." },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_MARCO_DIE,   "Chantier",
+    "Conduis Marco au Chantier.", "Un type surgit... Marco s'effondre !" },
+  { OBJ_KILL,      0, 0,  0, false, EV_NONE,        "Chantier",
+    "Tu peux pas laisser passer ca. Bute le tueur.", "Justice est faite. ...pour l'instant." },
 };
 // --- Combat ---
 static const Objective OBJS_FIGHT[] = {
@@ -547,7 +548,7 @@ static const Objective OBJS_M3[] = {
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
-  { "Mauvaise affaire", OBJS_DEAL,     4, 500 },
+  { "Le dernier trajet", OBJS_DEAL,    4, 250, true },   // index 1 = M4 (trame)
   { "Bagarre de rue",   OBJS_FIGHT,    1, 120 },
   { "Vengeance",        OBJS_VENGEANCE,1, 200 },
   { "Nettoyage",        OBJS_CLEAN,    2, 300 },
@@ -575,7 +576,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // Sequence des missions de trame : campaignStep -> index dans MISSIONS[].
 // (M1/M2/M3 ajoutees en fin de MISSIONS[] par une tache ulterieure ; M4 = MISSION_DEAL reusine.)
 #define ACT1_LAST 4
-static const uint8_t STORY_SEQ[ACT1_LAST] = { 16, 17, 18, MISSION_DEAL };
+static const uint8_t STORY_SEQ[ACT1_LAST] = { 16, 17, 18, 1 };
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
 //     Position voulue en TUILES ; setup() la snappe sur la case libre la plus
