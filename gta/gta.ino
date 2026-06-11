@@ -580,6 +580,16 @@ static const Objective OBJS_M3[] = {
     "Un mauvais payeur se planque a Chinatown. Marco veut un exemple.",
     "Dette reglee. Marco : il s'en souviendra... s'il s'en souvient encore." },
 };
+// --- Trame Acte II : la vengeance manipulee (les Loups) ---
+static const Objective OBJS_M5[] = {
+  { OBJ_GOTO,   0, 0, 12, false, EV_NONE, "Le Bar",
+    "Inconnu : tu veux savoir pour Marco ? Trouve Nico. Il traine au Bar.",
+    nullptr },
+  { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Le Bar",
+    "Nico fait le malin. Secoue-le, sans le tuer : il parlera.",
+    "Nico : les Loups cherchent un type depuis des semaines... c'est eux, surement.",
+    3, 0 },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -605,6 +615,7 @@ static const MissionDef MISSIONS[] = {
   { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
   { "Les assurances",   OBJS_M2, 2, 150, true },   // index 17 = M2 (trame)
   { "Mauvaise dette",   OBJS_M3, 1, 180, true },   // index 18 = M3 (trame)
+  { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -612,7 +623,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
