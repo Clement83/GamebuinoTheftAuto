@@ -6,6 +6,22 @@ trafic IA (voitures + piétons), conduite arcade avec drift, combat à pied,
 armes, et un système de **missions** déclenchées par des **cabines
 téléphoniques**.
 
+## Jouer (sur la console)
+
+Pas besoin de compiler : le dépôt fournit le jeu déjà packagé dans le dossier
+**`GTADEMAKE/`** (le `.bin`, l'icône et l'écran-titre).
+
+1. Branche la carte microSD de la Gamebuino META sur ton PC.
+2. **Copie-colle le dossier `GTADEMAKE` à la racine de la carte SD**, à côté des
+   autres jeux (chaque jeu Gamebuino est un dossier à la racine).
+3. Remets la carte dans la console : GTA Demake apparaît dans le menu des jeux.
+
+> La racine de la SD ressemble alors à `GTADEMAKE/`, `Pns/`, `Tetris/`, … — un
+> dossier par jeu. Ne renomme pas `GTADEMAKE` (le firmware attend ce nom).
+
+La suite de ce README s'adresse au **développement** (build, génération des
+données, tests).
+
 ## Structure du projet
 
 ```

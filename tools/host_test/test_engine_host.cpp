@@ -124,6 +124,27 @@ int main() {
     }
   }
 
+  // carUnstick : une voiture encastree dans le solide se degage en quelques
+  // frames (sinon, coincee au bord d'un mur, on ne pourrait que pivoter).
+  {
+    int stx = -1, sty = -1;                 // tuile solide ayant une voisine libre
+    for (int ty = 1; ty < CITY_H - 1 && stx < 0; ty++)
+      for (int tx = 1; tx < CITY_W - 1; tx++) {
+        if (!isSolidAt(tx, ty)) continue;
+        if (!isSolidAt(tx + 1, ty) || !isSolidAt(tx - 1, ty) ||
+            !isSolidAt(tx, ty + 1) || !isSolidAt(tx, ty - 1)) { stx = tx; sty = ty; break; }
+      }
+    if (stx < 0) { printf("FAIL carUnstick : aucune tuile solide de bord\n"); failures++; }
+    else {
+      CarState c = { (float)(stx * 8 + 4), (float)(sty * 8 + 4), 0.0f, 0.0f, 0.0f };
+      if (!carBoxHitsSolid(c.x, c.y, CAR_HALF)) { printf("FAIL carUnstick setup : pas encastree\n"); failures++; }
+      int n = 0;
+      for (; n < 80 && carBoxHitsSolid(c.x, c.y, CAR_HALF); n++) carUpdate(c, 0.0f, 0.0f, false, false);
+      if (carBoxHitsSolid(c.x, c.y, CAR_HALF)) {
+        printf("FAIL carUnstick : encore encastree apres %d frames (%.1f,%.1f)\n", n, c.x, c.y); failures++; }
+    }
+  }
+
   if (failures == 0) {
     printf("OK : parite engine.h <-> engine.py + physique voiture verifiees\n");
     return 0;

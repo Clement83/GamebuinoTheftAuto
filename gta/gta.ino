@@ -328,6 +328,7 @@ static const uint16_t CAR_FLEE_FRAMES    = 90;   // duree de la fuite d'une voit
 static const float    CAR_FLEE_SPEED     = 1.3f; // px/frame en fuite (> AI_CAR_SPEED)
 static const float    CAR_RUNOVER_SPEED2 = 0.55f;// vitesse^2 mini d'une voiture IA pour ecraser (sinon: solide) -- relevee : une caisse qui ralentit/tourne pousse au lieu d'ecraser
 static const float    CAR_EJECT_PUSH     = 10.0f;// px : projection du joueur renverse par une voiture
+static const uint8_t  CAR_BACKOFF_FRAMES = 22;   // frames de recul d'une caisse IA apres un choc (s'eloigne au lieu de forcer)
 static const int      GUNSHOT_PANIC_RANGE = 36;  // px : PNJ qui entendent un tir
 static const int      KILL_PANIC_RANGE    = 22;  // px : PNJ temoin d'un meurtre proche
 static const uint8_t  WRECK_HOP_FRAMES   = 8;    // frames du petit saut a l'explosion
@@ -372,6 +373,8 @@ struct AiCar {
   uint16_t fleeTimer;  // >0 : frames de fuite restantes (decremente -> retour normal)
   uint8_t brakeReact;  // temps de reaction : compte les frames ou le joueur barre la
                        // route avant que la caisse ne freine vraiment (sinon : ecrase)
+  uint8_t backoff;     // >0 : frames ou la caisse RECULE (s'eloigne du joueur) au lieu
+                       // de poursuivre/forcer -- arme apres un choc ou en panique
   bool active;
 };
 
@@ -1536,6 +1539,7 @@ static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
     c.driver = true;                       // trafic = voiture avec conducteur
     c.fleeing = false; c.fleeTimer = 0;    // arrive calme
     c.brakeReact = 0;                      // reflexes au repos
+    c.backoff = 0;
     c.active = true;
   } else {
     c.active = false;
@@ -1643,9 +1647,18 @@ static void startPanic(AiPed &p, int srcx, int srcy) {
 // Affole une voiture (trafic civil) temoin d'un crime : elle accelere, n'evite
 // plus pietons ni joueur et ecrase en continuant. La police est exclue (elle
 // poursuit deja). Re-arme le timer si deja en fuite.
+// Arme le recul : la caisse va s'eloigner du joueur pendant CAR_BACKOFF_FRAMES.
+// On colle la cible sur la position courante pour qu'au pas suivant elle
+// choisisse tout de suite une direction qui l'eloigne (cf. aiCarStepAway).
+static void startBackoff(AiCar &c) {
+  c.backoff = CAR_BACKOFF_FRAMES;
+  c.tgtx = (int)c.x; c.tgty = (int)c.y;
+}
+
 static void startCarFlee(AiCar &c) {
   if (!c.active || c.isPolice || !c.driver) return;
   c.fleeing = true; c.fleeTimer = CAR_FLEE_FRAMES;
+  startBackoff(c);                       // panique : commence par s'eloigner du joueur
 }
 
 // Diffuse l'alarme aux voitures dans un rayon autour d'un crime (tir, meurtre,
@@ -2238,6 +2251,43 @@ static void policeCarStep(AiCar &c, int fcx, int fcy) {
   }
 }
 
+// Recul : meme logique que policeCarStep mais on choisit la case roulante voisine
+// qui MAXIMISE la distance au joueur -> la caisse s'eloigne (anti-poursuite).
+// Sert apres un choc (elle se degage au lieu de forcer) et en panique.
+static void aiCarStepAway(AiCar &c, int fcx, int fcy) {
+  float dx = (float)c.tgtx - c.x, dy = (float)c.tgty - c.y;
+  if (dx * dx + dy * dy <= AI_CAR_SPEED * AI_CAR_SPEED) {
+    c.x = (float)c.tgtx; c.y = (float)c.tgty;
+    int tx = (int)c.x >> 3, ty = (int)c.y >> 3;
+    long best = -1; uint8_t bestDir = 255; int ties = 0;
+    for (uint8_t d = 0; d < 4; d++) {
+      int nx = tx + AI_DX[d], ny = ty + AI_DY[d];
+      if (!aiIsDrivable(cityMap, CITY_W, CITY_H, nx, ny)) continue;
+      int ccx = nx * TILE_W + TILE_W / 2, ccy = ny * TILE_H + TILE_H / 2;
+      long dd = (long)(ccx - fcx) * (ccx - fcx) + (long)(ccy - fcy) * (ccy - fcy);
+      if (best < 0 || dd > best) { best = dd; bestDir = d; ties = 1; }   // MAX distance
+      else if (dd == best) { ties++; if (aiRngNext(aiRng) % (uint32_t)ties == 0) bestDir = d; }
+    }
+    if (bestDir != 255) {
+      c.dir = bestDir;
+      int ntx = tx + AI_DX[c.dir], nty = ty + AI_DY[c.dir];
+      aiLanePoint(ntx, nty, c.dir, c.tgtx, c.tgty);
+    }
+  } else {
+    float inv = AI_CAR_SPEED / sqrtf(dx * dx + dy * dy);
+    c.x += dx * inv; c.y += dy * inv;
+  }
+}
+
+// Repousse une voiture IA de (ox,oy) px SI la case d'arrivee reste roulante
+// (on ne la pousse pas dans un immeuble). Renvoie true si elle a bouge.
+static bool nudgeAiCar(AiCar &c, float ox, float oy) {
+  int tx = ((int)(c.x + ox)) >> 3, ty = ((int)(c.y + oy)) >> 3;
+  if (!aiIsDrivable(cityMap, CITY_W, CITY_H, tx, ty)) return false;
+  c.x += ox; c.y += oy;
+  return true;
+}
+
 // Un coup de klaxon "tuut tuut" : 1er bip tout de suite, 2e bip CAR_HONK_GAP
 // frames plus tard (declenche dans aiUpdate). Respecte le cooldown global.
 static void carHonk() {
@@ -2321,10 +2371,15 @@ static void aiUpdate(int fcx, int fcy) {
       if (pf > 0.0f && pf < STOP_AHEAD && fabsf(pl) < STOP_SIDE) blocked = true;
     }
     float cx0 = c.x, cy0 = c.y;             // position avant le pas (-> vitesse reelle)
-    if (!blocked && c.driver) {             // sans conducteur (descendu) : reste sur place
-      if (pursue) policeCarStep(c, fcx, fcy);   // poursuite routiere du joueur
-      else aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
-                  c.fleeing ? CAR_FLEE_SPEED : AI_CAR_SPEED, aiIsDrivable, aiRng);
+    if (c.driver) {                         // sans conducteur (descendu) : reste sur place
+      if (c.backoff > 0) {                  // recul : s'eloigne du joueur (prioritaire sur "bloque" et la poursuite)
+        c.backoff--;
+        aiCarStepAway(c, fcx, fcy);
+      } else if (!blocked) {
+        if (pursue) policeCarStep(c, fcx, fcy);   // poursuite routiere du joueur
+        else aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
+                    c.fleeing ? CAR_FLEE_SPEED : AI_CAR_SPEED, aiIsDrivable, aiRng);
+      }
     }
     float moved2 = (c.x - cx0) * (c.x - cx0) + (c.y - cy0) * (c.y - cy0);
     bool fast = moved2 >= CAR_RUNOVER_SPEED2;   // assez rapide pour ecraser
@@ -2339,7 +2394,10 @@ static void aiUpdate(int fcx, int fcy) {
       }
     }
     if (playerOverlapsCar(c.x, c.y)) {       // une voiture immobile (meme abandonnee) est solide
-      if (!fast) pushPlayerOffCar(c.x, c.y);          // solide : on ne passe pas dessous
+      if (!fast) {                                    // contact lent : solide, mais ne FORCE pas
+        pushPlayerOffCar(c.x, c.y);
+        if (c.driver) startBackoff(c);                // elle recule au lieu de me coincer
+      }
       else if (ignorePeople) runOverPlayer(c.x, c.y); // fuite/belier : ecrase et continue
       else {                                          // accident : stop + conducteur sort + ejection
         aiEjectDriver((int)c.x, (int)c.y, false, false, c.dir);
@@ -2363,12 +2421,22 @@ static void aiUpdate(int fcx, int fcy) {
       float dx = car.x - c.x, dy = car.y - c.y;
       if (fabsf(dx) < COL_CC && fabsf(dy) < COL_CC) {
         float px = COL_CC - fabsf(dx), py = COL_CC - fabsf(dy);
-        if (px < py) { car.x += (dx < 0 ? -px : px); car.vx *= -0.3f; carImpactX = (dx < 0 ? -1.0f : 1.0f); carImpactY = 0.0f; }
-        else { car.y += (dy < 0 ? -py : py); car.vy *= -0.3f; carImpactX = 0.0f; carImpactY = (dy < 0 ? -1.0f : 1.0f); }
+        // On separe sur l'axe de moindre penetration en repoussant d'ABORD la
+        // caisse IA (elle ne doit pas me bulldozer dans un mur). Si elle est
+        // bloquee (immeuble derriere elle), alors c'est moi qui me degage.
+        if (px < py) {
+          float s = (dx < 0 ? -1.0f : 1.0f);          // s = de quel cote je suis vs le PNJ
+          if (!nudgeAiCar(c, -s * px, 0.0f)) car.x += s * px;
+          car.vx *= -0.3f; carImpactX = s; carImpactY = 0.0f;
+        } else {
+          float s = (dy < 0 ? -1.0f : 1.0f);
+          if (!nudgeAiCar(c, 0.0f, -s * py)) car.y += s * py;
+          car.vy *= -0.3f; carImpactX = 0.0f; carImpactY = s;
+        }
         if (spd2 > RUNOVER_SPEED2 && carCrashTimer == 0) {
           carHp -= CAR_CRASH_DMG; carCrashTimer = CAR_CRASH_COOLDOWN;
         }
-        startCarFlee(c);                    // percutee : elle prend peur et detale
+        if (c.driver) { startCarFlee(c); startBackoff(c); }   // percutee : demi-tour, elle s'eloigne (police comprise)
       }
     }
   }
@@ -3831,18 +3899,57 @@ static void drawShop() {
 
 // --- Casino : machine a sous ---------------------------------------------
 
-// Apparence d'un symbole : couleur de fond + glyphe. Indexe par SlotSym.
-static const uint16_t SLOT_COL[SYM_COUNT]  = { 0xF800, 0xFFE0, 0xFD20, 0x07FF, 0xFFFF };
-static const char     SLOT_CHAR[SYM_COUNT] = { 'C',    'L',    'O',    '=',    '7'    };
+// Symboles 11x11 en pixel-art multicolore (vrais fruits/cloche/bar/sept au lieu
+// d'une lettre). 'x' du motif -> couleur via slotPal ; ' ' = transparent. Source
+// de verite : tools/preview_slot.py (rend l'ecran en PNG dans previews/).
+static uint16_t slotPal(char c) {
+  switch (c) {
+    case 'k': return 0x0000;   // contour noir
+    case 'r': return 0xE104;   // rouge vif
+    case 'd': return 0x8861;   // rouge sombre
+    case 'w': return 0xFFFF;   // reflet
+    case 'y': return 0xFF00;   // jaune
+    case 'o': return 0xFCC0;   // orange
+    case 'g': return 0x2E06;   // vert
+    case 'G': return 0x1383;   // vert sombre
+    case 's': return 0xD69C;   // argent clair
+    case 'S': return 0x7BD1;   // argent sombre
+    default:  return 0x0000;
+  }
+}
 
-// Dessine un rouleau (case 15x15) avec le symbole sym a (x,y).
-static void drawSlotReel(int x, int y, uint8_t sym) {
-  gb.display.setColor(BLACK);
-  gb.display.fillRect(x, y, 15, 15);
-  gb.display.setColor((Color)SLOT_COL[sym]);
-  gb.display.drawRect(x, y, 15, 15);
-  gb.display.setCursor(x + 6, y + 5);          // glyphe ~4x6, centre
-  gb.display.print(SLOT_CHAR[sym]);
+static const char *const SLOT_SPRITE[SYM_COUNT][11] = {
+  { "      gg   ", "     g G   ", "    g  G   ", "   g   G   ", "  g    GG  ",
+    " dwd  d  G ", "drrwd dwd  ", "drrrd drrwd", "drrrd drrrd", " ddd  drrrd", "       ddd " },  // CHERRY
+  { "           ", "    ooo    ", "  ooyyyo   ", " oyyyyyyo  ", " oyyywyyo  ",
+    "oyyywyyyyo ", "oyyyyyyyyo ", " oyyyyyyo  ", " oyyyyyyo  ", "  ooyyoo   ", "    ooo    " },  // LEMON
+  { "     k     ", "    kyk    ", "    yyy    ", "   yyyyk   ", "  yyyyyok  ",
+    "  ysyyyok  ", " ysyyyyook ", " ysyyyyook ", "kyyyyyyyook", "kkkkbbkkkk ", "    kbbk   " },  // BELL
+  { " sSSSSSSSs ", " swwwwwwws ", " sSSSSSSSs ", "           ", " sSSSSSSSs ",
+    " swwwwwwws ", " sSSSSSSSs ", "           ", " sSSSSSSSs ", " swwwwwwws ", " sSSSSSSSs " },  // BAR
+  { "           ", " rrrrrrrrr ", " rwwwwwddr ", " ddddddrrr ", "      drr  ",
+    "     drr   ", "     rr    ", "    drr    ", "    rr     ", "   rr      ", "           " },  // SEVEN
+};
+
+// Dessine un symbole 11x11 (halo noir 1px puis remplissage) a (sx,sy) dans fb.
+static void blitSlotSym(int sx, int sy, uint8_t sym) {
+  static const int8_t nb[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+  const char *const *rows = SLOT_SPRITE[sym];
+  for (int ry = 0; ry < 11; ry++)
+    for (int rx = 0; rx < 11; rx++) {
+      if (rows[ry][rx] == ' ') continue;
+      for (int k = 0; k < 4; k++) {
+        int x = sx + rx + nb[k][0], y = sy + ry + nb[k][1];
+        if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x0000;
+      }
+    }
+  for (int ry = 0; ry < 11; ry++)
+    for (int rx = 0; rx < 11; rx++) {
+      char c = rows[ry][rx];
+      if (c == ' ') continue;
+      int x = sx + rx, y = sy + ry;
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = slotPal(c);
+    }
 }
 
 // Repliques du videur quand on tente de jouer sans un rond.
@@ -3912,17 +4019,46 @@ static void updateCasino() {
   }
 }
 
+// Rectangle plein / contour ecrits directement dans fb (cabine du casino).
+static void fbFill(int x, int y, int w, int h, uint16_t col) {
+  for (int yy = y; yy < y + h; yy++)
+    for (int xx = x; xx < x + w; xx++)
+      if (xx >= 0 && xx < SCREEN_W && yy >= 0 && yy < SCREEN_H) fb[yy * SCREEN_W + xx] = col;
+}
+static void fbRect(int x, int y, int w, int h, uint16_t col) {
+  fbFill(x, y, w, 1, col); fbFill(x, y + h - 1, w, 1, col);
+  fbFill(x, y, 1, h, col); fbFill(x + w - 1, y, 1, h, col);
+}
+
 static void drawCasino() {
   fb = gb.display._buffer;
-  for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0008;   // fond bleu nuit
-  printShadow(1, 1, "CASINO");
+  const uint16_t GOLD = 0xD545, GOLD_D = 0x8B42, GOLD_HI = 0xFF0C, REELBG = 0x1085;
+  for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x1801;   // corps maroon sombre
+
+  // Marquee dore en haut (titre + solde poses dessus).
+  fbFill(0, 0, SCREEN_W, 7, GOLD_D);
+  fbFill(0, 0, SCREEN_W, 6, GOLD);
+  fbFill(0, 6, SCREEN_W, 1, GOLD_HI);
+  printShadowCol((SCREEN_W - 6 * 4) / 2, 1, "CASINO", 0x8B42);   // brun sombre sur l'or
   char money[12];
   snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
-  printShadowCol(SCREEN_W - (int)strlen(money) * 4 - 1, 1, money, 0x07E0);
+  printShadowCol(SCREEN_W - (int)strlen(money) * 4 - 1, 9, money, 0x07E0);
 
-  // 3 rouleaux centres (cases 15px, pas 23 -> x = 8, 31, 54)
-  int ry = 18;
-  for (int r = 0; r < 3; r++) drawSlotReel(8 + r * 23, ry, casinoReel[r]);
+  // Fenetre des rouleaux : cadre dore en relief + 3 lucarnes sombres.
+  const int fx = 4, fy = 16, fw = 72, fh = 19;
+  fbFill(fx, fy, fw, fh, GOLD_D);
+  fbRect(fx, fy, fw, fh, GOLD_HI);
+  for (int r = 0; r < 3; r++) {
+    int rx = fx + 3 + r * 23;
+    fbFill(rx, fy + 2, 19, fh - 4, REELBG);
+    fbRect(rx, fy + 2, 19, fh - 4, GOLD_D);
+    blitSlotSym(rx + 4, fy + 4, casinoReel[r]);
+  }
+  fbFill(fx + 1, fy + fh / 2, fw - 2, 1, 0xC945);   // ligne de paiement rouge
+  for (int k = 0; k < 3; k++) {                      // rivets dores lateraux
+    int yy = 20 + k * 6;
+    fb[yy * SCREEN_W + 1] = GOLD; fb[yy * SCREEN_W + SCREEN_W - 2] = GOLD;
+  }
 
   // Mise
   char bet[16];

@@ -100,9 +100,24 @@ inline float carForwardSpeed(const CarState &c) {
   return c.vx * cosf(c.angle) + c.vy * sinf(c.angle);
 }
 
+// Degage la voiture si sa boite chevauche deja du solide (spawn au ras d'un mur,
+// choc qui l'a enfoncee...). Pousse le centre de 1px vers la case libre cardinale
+// la plus proche -> en quelques frames la caisse "sort" du decor au lieu de rester
+// coincee (ne pouvant que pivoter). Vitesse annulee : pas de lutte avec la collision.
+inline void carUnstick(CarState &c) {
+  if (!carBoxHitsSolid(c.x, c.y, CAR_HALF)) return;
+  for (int r = 1; r <= 16; r++) {
+    if (!carBoxHitsSolid(c.x + r, c.y, CAR_HALF)) { c.x += 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x - r, c.y, CAR_HALF)) { c.x -= 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x, c.y + r, CAR_HALF)) { c.y += 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x, c.y - r, CAR_HALF)) { c.y -= 1.0f; c.vx = c.vy = 0.0f; return; }
+  }
+}
+
 // Avance la voiture d'un pas. throttle/steer dans [-1,1].
 //   drift = grip lateral faible (glisse) ; brake = decel forte sur l'avancee.
 inline void carUpdate(CarState &c, float throttle, float steer, bool drift, bool brake) {
+  carUnstick(c);                               // encastree ? on l'ejecte avant tout
   float cs = cosf(c.angle), sn = sinf(c.angle);
 
   // Braquage proportionnel a la vitesse avant (et a son signe -> AR inverse).
