@@ -609,9 +609,11 @@ static const MissionDef MISSIONS[] = {
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
 // Sequence des missions de trame : campaignStep -> index dans MISSIONS[].
-// (M1/M2/M3 ajoutees en fin de MISSIONS[] par une tache ulterieure ; M4 = MISSION_DEAL reusine.)
-#define ACT1_LAST 4
-static const uint8_t STORY_SEQ[ACT1_LAST] = { 16, 17, 18, 1 };
+// La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
+// declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
+// M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1 };
+static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
 //     Position voulue en TUILES ; setup() la snappe sur la case libre la plus
@@ -696,7 +698,7 @@ static bool      carGone        = false;   // voiture du joueur broyee / inexist
 
 // --- Etat runtime de la mission en cours. ---
 static MissionRun missionRun = { 0, 0, false };
-static uint8_t campaignStep = 0;          // prochaine mission de trame (0..3 = M1..M4 ; 4 = Acte I fini)
+static uint8_t campaignStep = 0;          // index de la mission de trame courante (== STORY_LEN : epilogue ; au-dela : fini)
 static bool    storyMissionActive = false;// la mission en cours est-elle une mission de trame ?
 static uint16_t missionFailedTimer = 0;   // >0 : overlay plein ecran "MISSION ECHOUEE"
 static const uint16_t MISSION_FAIL_FRAMES = 50;  // ~2 s a 25 fps
@@ -717,6 +719,7 @@ static int      objBeat = 0;
 static uint16_t objElapsed = 0;
 static int      objSubdue = 0;            // coups portes a la cible de SUBDUE (objectif courant)
 static bool     killerChase = false;      // le prochain OBJ_KILL spawne un TUEUR qui fonce (post EV_MARCO_DIE)
+static uint8_t  targetHp = 1;             // PV de la cible KILL : 1 = mort au 1er coup ; >1 = BOSS (encaisse `count` coups)
 
 // Cible de mission (Joe : erre + fuit ; tueur : fonce sur le joueur).
 enum { T_WANDER = 0, T_FLEE = 1, T_EMERGE = 2 };  // T_EMERGE : sort du batiment vers son poste
@@ -1998,6 +2001,9 @@ static void tryAttack() {
     if (curObjs[missionRun.step].type == OBJ_SUBDUE) {
       objSubdue++;                          // elle cede, elle ne meurt pas
       gb.sound.tone(150, 50);
+    } else if (targetHp > 1) {
+      targetHp--;                           // BOSS : encaisse le coup, vacille
+      gb.sound.tone(150, 50);
     } else {
       killTarget(pcx, pcy);
     }
@@ -2442,6 +2448,7 @@ static void enterObjective() {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
     mCarActive = true;
   } else if (o.type == OBJ_KILL && !target.active) {
+    targetHp = o.count > 1 ? o.count : 1;          // o.count>1 -> BOSS qui encaisse plusieurs coups
     if (killerChase) spawnTargetAt(o.x, o.y);     // tueur (post mort de Marco) : fonce
     else             spawnTargetWanderNear(o.x, o.y);  // PNJ qui erre/fuit (Joe, debiteur)
   } else if (o.type == OBJ_SUBDUE && !target.active) {
@@ -2598,8 +2605,7 @@ static void missionProgress() {
     gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
     if (storyMissionActive) {                      // progression de la trame
       storyMissionActive = false;
-      if (campaignStep < ACT1_LAST) campaignStep++;
-      if (campaignStep >= ACT1_LAST) narrate("Marco n'est plus. Quelque chose a change.");
+      if (campaignStep < STORY_LEN) campaignStep++; // mission suivante : le tel rouge re-sonne
     }
   }
 }
@@ -2929,7 +2935,9 @@ static void repaintCar() {
 }
 
 static void drawPhones(int camX, int camY) {
-  bool storyRings = (campaignStep < ACT1_LAST) && !missionRun.active;
+  // Sonne pendant toute la campagne ET une derniere fois pour l'epilogue
+  // (campaignStep == STORY_LEN). Au-dela : muette.
+  bool storyRings = (campaignStep <= STORY_LEN) && !missionRun.active;
   for (int i = 0; i < NUM_STORY_PHONES; i++)
     drawPhoneBooth(camX, camY, storyPx[i], storyPy[i], PHONE_BODY_STORY, storyRings);
   if (missionRun.active) return;
@@ -3680,9 +3688,15 @@ void loop() {
         long dS = (long)(pcx - storyPx[0]) * (pcx - storyPx[0])
                 + (long)(pcy - storyPy[0]) * (pcy - storyPy[0]);
         if (dS <= (long)PHONE_REACH * PHONE_REACH) {
-          if (campaignStep < ACT1_LAST) {
+          if (campaignStep < STORY_LEN) {
             storyMissionActive = true;
             startMission(STORY_SEQ[campaignStep]);
+          } else if (campaignStep == STORY_LEN) {
+            // Epilogue : on decroche une derniere fois. Silence... puis la ligne
+            // coupe. Le telephone se tait ensuite pour de bon.
+            narrate("Tu decroches. Silence au bout du fil... puis la ligne coupe. FIN.");
+            campaignStep++;
+            gb.sound.playCancel();
           } else {
             narrate("Le telephone reste muet.");
             gb.sound.playOK();
