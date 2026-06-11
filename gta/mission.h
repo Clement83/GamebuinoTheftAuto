@@ -150,6 +150,7 @@ enum ObjType {
   OBJ_BEAT      = 3,  // mettre KO `count` pietons (compteur cumule)
   OBJ_SURVIVE   = 4,  // tenir `limit` frames (le temps qui s'ecoule remplit l'objectif)
   OBJ_TALK      = 5,  // s'approcher d'un PNJ nomme (a pied, petit rayon) : auto-dialogue
+  OBJ_SUBDUE    = 6,  // frapper une cible nommee `count` fois : elle cede (ne meurt pas)
 };
 
 enum MissionEvent {
@@ -199,6 +200,7 @@ struct MissionState {
   bool targetAlive;       // cible de mission encore vivante
   int      beatCount;     // pietons mis KO depuis le debut de l'objectif
   uint16_t elapsed;       // frames ecoulees sur l'objectif courant
+  int      subdueCount;   // coups portes a la cible de SUBDUE depuis le debut de l'objectif
 };
 
 // L'objectif o est-il rempli compte tenu de l'etat s ?
@@ -217,6 +219,7 @@ inline bool missionObjectiveDone(const Objective &o, const MissionState &s) {
       long dx = s.actorCx - o.x, dy = s.actorCy - o.y;
       return dx * dx + dy * dy <= (long)o.radius * o.radius;
     }
+    case OBJ_SUBDUE:    return s.subdueCount >= (int)o.count;
   }
   return false;
 }

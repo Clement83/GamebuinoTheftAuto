@@ -143,6 +143,15 @@ int main() {
     s.actorCx = 130; s.actorCy = 100;        // 30 px -> hors rayon
     check("TALK hors rayon", !missionObjectiveDone(o, s));
   }
+  // --- Objectif SUBDUE : valide quand la cible nommee a pris `count` coups ---
+  {
+    Objective o = { OBJ_SUBDUE, 0, 0, 0, false, EV_NONE, nullptr, "mate", nullptr, 3, 0 };
+    MissionState s = {};
+    s.subdueCount = 2;
+    check("SUBDUE 2/3 -> non", !missionObjectiveDone(o, s));
+    s.subdueCount = 3;
+    check("SUBDUE 3/3 -> oui", missionObjectiveDone(o, s));
+  }
   // --- Limite de temps : GOTO chronometré echoue une fois depassee ---
   {
     Objective o = { OBJ_GOTO, 0, 0, 8, false, EV_NONE, nullptr, "timed", nullptr, 0, 50 };
