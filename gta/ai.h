@@ -18,8 +18,13 @@ static const uint8_t AI_RIGHT[4] = { 1, 2, 3, 0 };
 static const uint8_t AI_LEFT[4]  = { 3, 0, 1, 2 };
 static const uint8_t AI_BACK[4]  = { 2, 3, 0, 1 };
 
-static const int AI_LANE = 2;             // decalage lateral a droite (px)
-static const int AI_STRAIGHT_WEIGHT = 4;  // poids tout droit vs 1 pour tourner
+static const int AI_LANE = 3;             // decalage lateral a droite (px)
+// Pondere le choix au croisement : tout droit domine, puis on prefere TOURNER A
+// DROITE plutot qu'a gauche (un virage a gauche traverse la voie opposee -> moins
+// naturel). Demi-tour reserve au vrai cul-de-sac (cf. aiPickExit).
+static const int AI_STRAIGHT_WEIGHT = 6;  // poids tout droit
+static const int AI_RIGHT_WEIGHT    = 2;  // poids virage a droite
+static const int AI_LEFT_WEIGHT     = 1;  // poids virage a gauche
 static const uint8_t AI_STUCK = 0xFF;     // aucune sortie valide (tuile isolee)
 
 // Classifieur de tuile : carrossable / marchable. Signature commune.
@@ -83,7 +88,7 @@ inline uint8_t aiPickExit(const uint8_t *grid, int w, int h, int tx, int ty,
                           uint8_t d, AiClassify classify, uint32_t &rng) {
   uint8_t turns[3]; int cum[3]; int n = 0, total = 0;
   const uint8_t cand[3] = { d, AI_RIGHT[d], AI_LEFT[d] };
-  const int wts[3] = { AI_STRAIGHT_WEIGHT, 1, 1 };
+  const int wts[3] = { AI_STRAIGHT_WEIGHT, AI_RIGHT_WEIGHT, AI_LEFT_WEIGHT };
   for (int i = 0; i < 3; i++) {
     int nx = tx + AI_DX[cand[i]], ny = ty + AI_DY[cand[i]];
     if (classify(grid, w, h, nx, ny)) {

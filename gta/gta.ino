@@ -215,8 +215,21 @@ static const uint16_t CAR_FUSE_FRAMES = 250;   // ~10 s a ~25 fps
 static uint16_t       carFuse        = 0;       // >0 : compte a rebours avant boom
 static bool           carRunaway     = false;   // caisse sans conducteur, sur sa lancee
 static float          carImpactX = 0.0f, carImpactY = 0.0f;  // sens du dernier choc
-static const float    CAR_BAIL_SPEED2 = 0.6f;   // vitesse^2 mini pour un "saut en marche"
+// Sortie de voiture, 3 paliers selon la vitesse^2 (max ~5.3 = CAR_MAX_FWD^2) :
+//  - <= PARK   : a l'arret/presque, on se gare proprement (aucune chute).
+//  - <= HURT   : un peu de vitesse, on saute et on FINIT AU SOL, sans degat.
+//  -  > HURT   : tres vite, on finit au sol ET on se fait mal (-1 cœur).
+static const float    CAR_BAIL_PARK_SPEED2 = 0.25f;  // ~0.5 px/f : sortie propre
+static const float    CAR_BAIL_HURT_SPEED2 = 2.0f;   // ~1.4 px/f : au-dela, ca fait mal
 static const float    CAR_RUNAWAY_FRICTION = 0.94f;  // decel de la caisse lancee
+// Klaxon des voitures IA : un cooldown GLOBAL (pas par voiture, pour la RAM)
+// evite le spam quand plusieurs caisses sont genees en meme temps.
+static uint8_t        carHonkCooldown = 0;
+static uint8_t        carHonkBeep2    = 0;       // frames avant le 2e "tuut" (klaxon = 2 bips)
+static const uint8_t  CAR_HONK_COOLDOWN  = 30;   // frames de silence entre 2 klaxons
+static const uint16_t CAR_HONK_FREQ      = 320;  // Hz : tonalite du klaxon
+static const uint16_t CAR_HONK_BEEP_MS   = 70;   // duree d'un bip
+static const uint8_t  CAR_HONK_GAP       = 5;    // frames entre les 2 bips ("tuut tuut")
 static const int      SMOKE_HOOD_DIST = 4;      // px : avance du panache sur le capot
 static const int      BOOM_HURT_RADIUS  = 16;   // px : zone letale (PNJ) / -1 coeur (joueur a pied)
 static const int      BOOM_PANIC_RADIUS = 40;   // px : PNJ alentour pris de panique
@@ -293,9 +306,9 @@ static const int AI_PED_ANIM = 10;        // frames entre deux images de marche
 static const int RECYCLE_DIST = 80;       // px du centre camera -> recyclage
 static const int RING_MIN = 44;           // anneau de (re)spawn : juste hors ecran
 static const int RING_MAX = 72;
-static const int PED_DOWN_FRAMES = 70;     // duree au sol avant recyclage (mort)
-static const int GETUP_MIN_FRAMES = 45;    // au sol RECUPERABLE : ~1.8 s + alea avant de se relever
-static const int GETUP_RAND_FRAMES = 35;   // alea ajoute (pour que ce ne soit pas mecanique)
+static const int PED_DOWN_FRAMES = 35;     // duree au sol avant recyclage (mort) -- /2 : les PNJ restent moins longtemps a terre
+static const int GETUP_MIN_FRAMES = 22;    // au sol RECUPERABLE : ~0.9 s + alea avant de se relever (auto, filet de securite)
+static const int GETUP_RAND_FRAMES = 18;   // alea ajoute (pour que ce ne soit pas mecanique)
 static const int RUNOVER_SPEED2 = 1;       // vitesse^2 mini pour renverser
 static const float COL_CP_HIT = 5.0f;      // px : demi-boite voiture<->personne pour l'ecrasement
 static const int STOP_AHEAD = 15;          // px : distance d'arret devant obstacle
@@ -310,7 +323,7 @@ static const float    AI_PED_PANIC_SPEED = 0.6f; // plus rapide qu'en flanerie
 // --- voitures affolees par un crime : roulent vite, n'evitent plus personne ---
 static const uint16_t CAR_FLEE_FRAMES    = 90;   // duree de la fuite d'une voiture
 static const float    CAR_FLEE_SPEED     = 1.3f; // px/frame en fuite (> AI_CAR_SPEED)
-static const float    CAR_RUNOVER_SPEED2 = 0.30f;// vitesse^2 mini d'une voiture IA pour ecraser (sinon: solide)
+static const float    CAR_RUNOVER_SPEED2 = 0.55f;// vitesse^2 mini d'une voiture IA pour ecraser (sinon: solide) -- relevee : une caisse qui ralentit/tourne pousse au lieu d'ecraser
 static const float    CAR_EJECT_PUSH     = 10.0f;// px : projection du joueur renverse par une voiture
 static const int      GUNSHOT_PANIC_RANGE = 36;  // px : PNJ qui entendent un tir
 static const int      KILL_PANIC_RANGE    = 22;  // px : PNJ temoin d'un meurtre proche
@@ -1625,7 +1638,11 @@ static void dragPlayerFromCar() {
 }
 
 // Avance l'etat "joueur au sol". A 0 : arrestation, ou on se releve (controle rendu).
+// Relevage ANTICIPE : appuyer sur A se releve tout de suite (sauf arrestation par
+// un flic, ou il faut subir le delai). L'auto-relevage reste un filet de securite.
 static void updatePlayerDown() {
+  if (!playerDownArrest && playerDownTimer > 1 && gb.buttons.pressed(BUTTON_A))
+    playerDownTimer = 1;                       // se relevera des ce frame (decrement ci-dessous)
   if (playerDownTimer > 0 && --playerDownTimer == 0) {
     playerDown = false;
     if (playerDownArrest) bustedPlayer();
@@ -2023,10 +2040,22 @@ static void policeCarStep(AiCar &c, int fcx, int fcy) {
   }
 }
 
+// Un coup de klaxon "tuut tuut" : 1er bip tout de suite, 2e bip CAR_HONK_GAP
+// frames plus tard (declenche dans aiUpdate). Respecte le cooldown global.
+static void carHonk() {
+  if (carHonkCooldown > 0) return;
+  carHonkCooldown = CAR_HONK_COOLDOWN;
+  gb.sound.tone(CAR_HONK_FREQ, CAR_HONK_BEEP_MS);   // premier "tuut"
+  carHonkBeep2 = CAR_HONK_GAP;                       // le second suivra
+}
+
 // Met a jour le trafic autour du point de vue (fcx,fcy = centre suivi, px monde).
 // Recyclage des entites trop loin (culling), pas IA, collisions avec le joueur.
 static void aiUpdate(int fcx, int fcy) {
   const int rec2 = RECYCLE_DIST * RECYCLE_DIST;
+  if (carHonkCooldown > 0) carHonkCooldown--;
+  if (carHonkBeep2 > 0 && --carHonkBeep2 == 0)
+    gb.sound.tone(CAR_HONK_FREQ, CAR_HONK_BEEP_MS);  // second "tuut"
   // Collision voiture joueur : seuils en px (sommes de demi-boites).
   const float COL_CC = 6.0f;   // voiture-voiture (hitbox < sprite)
   const float COL_CP = 4.0f;   // voiture-pieton
@@ -2058,6 +2087,10 @@ static void aiUpdate(int fcx, int fcy) {
     bool playerAhead = (!ignorePeople && fwd > 0.0f && fwd < STOP_AHEAD && fabsf(lat) < STOP_SIDE);
     bool blocked = false;
     if (playerAhead) {
+      if (c.brakeReact == 0) {                  // onset : le joueur vient de barrer la route
+        if (driving) carHonk();                 // ta caisse devant la sienne -> klaxon
+        else if (aiRngNext(aiRng) % 20 == 0) carHonk();  // a pied (je traverse devant) : ~5%
+      }
       if (c.brakeReact < BRAKE_REACT_FRAMES) c.brakeReact++;   // reflexe en cours : roule encore
       else blocked = true;                                     // a fini par freiner
     } else if (c.brakeReact > 0) {
@@ -3735,12 +3768,14 @@ void loop() {
       if (findFootSpot((int)car.x, (int)car.y, ox, oy)) {
         playerX = ox; playerY = oy; driving = false;
         playerFrame = 0; animTimer = 0;
-        if (car.vx * car.vx + car.vy * car.vy > CAR_BAIL_SPEED2) {
-          carRunaway = true; gb.sound.tone(300, 70);
-          hurtPlayer(1, false);               // cout du saut (fatal -> mort)
-          knockdownPlayer(false);             // saut en marche -> on finit au sol
+        float bail2 = car.vx * car.vx + car.vy * car.vy;
+        if (bail2 <= CAR_BAIL_PARK_SPEED2) {
+          car.vx = 0.0f; car.vy = 0.0f;       // quasi a l'arret : on se gare proprement
         } else {
-          car.vx = 0.0f; car.vy = 0.0f;       // quasi a l'arret : on se gare
+          carRunaway = true; gb.sound.tone(300, 70);  // la caisse continue sur sa lancee
+          if (bail2 > CAR_BAIL_HURT_SPEED2)
+            hurtPlayer(1, false);             // tres vite : ca fait mal (fatal -> mort)
+          knockdownPlayer(false);             // saut en marche -> on finit au sol
         }
       }
     }

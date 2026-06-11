@@ -22,8 +22,13 @@ ROAD_TILES = (ROAD_H, ROAD_V, ROAD_CROSS)
 WALK_TILES = (PAVEMENT, GRASS)   # piétons : trottoirs + herbe (parcs/espaces)
 
 OPEN_TILES = (GRASS, ROAD_H, ROAD_V, ROAD_CROSS, PAVEMENT)  # tout sol non bâti
-LANE = 2            # décalage latéral (px) à droite du centre de tuile
-STRAIGHT_WEIGHT = 4  # poids « tout droit » vs 1 pour tourner
+LANE = 3            # décalage latéral (px) à droite du centre de tuile
+# Choix au croisement : tout droit domine, puis on préfère TOURNER À DROITE
+# plutôt qu'à gauche (un virage à gauche traverse la voie opposée -> moins
+# naturel). Demi-tour réservé au vrai cul-de-sac (cf. pick_exit).
+STRAIGHT_WEIGHT = 6  # poids « tout droit »
+RIGHT_WEIGHT = 2     # poids virage à droite
+LEFT_WEIGHT = 1      # poids virage à gauche
 STUCK = 0xFF         # aucune sortie valide (tuile isolée)
 
 
@@ -94,7 +99,7 @@ def pick_exit(grid, w, h, tx, ty, d, classify, state):
     """
     options = []  # (direction, poids cumulé)
     total = 0
-    for turn, wt in ((d, STRAIGHT_WEIGHT), (RIGHT[d], 1), (LEFT[d], 1)):
+    for turn, wt in ((d, STRAIGHT_WEIGHT), (RIGHT[d], RIGHT_WEIGHT), (LEFT[d], LEFT_WEIGHT)):
         nx, ny = tx + DIRS[turn][0], ty + DIRS[turn][1]
         if classify(grid, w, h, nx, ny):
             total += wt

@@ -58,7 +58,7 @@ int main() {
   // --- pick_exit : parite exacte (seed 1, venant Est sur la croix) ---
   {
     uint32_t s = 1;
-    const uint8_t want[8] = { 1, 1, 1, 0, 0, 2, 2, 1 };
+    const uint8_t want[8] = { 1, 1, 2, 0, 0, 2, 1, 2 };
     for (int i = 0; i < 8; i++) {
       uint8_t nd = aiPickExit(CROSS, 5, 5, 2, 2, DIR_E, aiIsDrivable, s);
       if (nd != want[i]) { printf("FAIL pick_exit[%d] got %d want %d\n", i, nd, want[i]); failures++; }
