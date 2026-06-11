@@ -521,6 +521,29 @@ static const Objective OBJS_PIZZA[] = {
     "Livre la pizza avant qu'elle refroidisse !",
     "Pizza livree, pourboire empoche !", 0, 1100 },
 };
+// --- Trame Acte I ---
+static const Objective OBJS_M1[] = {
+  { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Garage",
+    "Marco t'attend au Garage. Vas-y a pied.", nullptr },
+  { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Garage",
+    "Parle a Marco.", "Marco : embarque, on a un colis a livrer." },
+  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
+    "Conduis Marco aux Quais. Doucement.", nullptr },
+  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
+    "Livre le colis.", "Colis livre. Marco : pas mal, petit." },
+};
+static const Objective OBJS_M2[] = {
+  { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Commerces",
+    "Tournee du racket. Suis Marco aux Commerces.", "Marco : regarde et apprends." },
+  { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Commerces",
+    "Le commercant refuse de payer. Corrige-le.", "Marco : voila comment on fait.",
+    3, 0 },
+};
+static const Objective OBJS_M3[] = {
+  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Chinatown",
+    "Un type nous doit de l'argent. Il traine a Chinatown.",
+    "Dette reglee. Marco : il s'en souviendra." },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -543,13 +566,14 @@ static const MissionDef MISSIONS[] = {
   // a aucune cabine : sa mecanique Marco est conservee pour la trame principale
   // (cf. campagne.md, mission M4).
   { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
+  { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
 // Sequence des missions de trame : campaignStep -> index dans MISSIONS[].
 // (M1/M2/M3 ajoutees en fin de MISSIONS[] par une tache ulterieure ; M4 = MISSION_DEAL reusine.)
 #define ACT1_LAST 4
-static const uint8_t STORY_SEQ[ACT1_LAST] = { MISSION_DEAL, MISSION_DEAL, MISSION_DEAL, MISSION_DEAL };
+static const uint8_t STORY_SEQ[ACT1_LAST] = { 16, MISSION_DEAL, MISSION_DEAL, MISSION_DEAL };
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
 //     Position voulue en TUILES ; setup() la snappe sur la case libre la plus
