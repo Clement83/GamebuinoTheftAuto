@@ -98,6 +98,18 @@ static const int WEAPON_TOAST_FRAMES = 55;   // ~2.2 s @ ~25 fps
 //     (cf. POI.md). Affiche dans le HUD sous les cœurs. ---
 static int32_t playerMoney = 0;
 
+// --- animation de la cagnotte : un gain (mission, butin au sol, broyage...) ne
+//     saute pas d'un coup. moneyShown rattrape playerMoney en "roulant" dollar
+//     par dollar (~2 s), et un "+$X" flottant remonte depuis sous la cagnotte
+//     vers celle-ci. Generique : tout passe par addMoney(). Les depenses, elles,
+//     sont rattrapees instantanement (pas d'anim a la baisse). ---
+static int32_t moneyShown    = 0;     // $ affiche dans le HUD (suit playerMoney)
+static int32_t moneyRollStep = 1;     // $/frame du compteur qui tourne
+static int32_t moneyGainAmt  = 0;     // montant du dernier "+$X" flottant
+static uint16_t moneyGainTimer = 0;   // >0 : "+$X" en cours de montee
+static const uint16_t MONEY_GAIN_FRAMES = 24;   // ~1 s : duree du "+$X" flottant
+static const int32_t  MONEY_ROLL_FRAMES = 50;   // ~2 s : duree cible du compteur
+
 // --- butin au sol : objets laches par un pieton abattu (cf. dropLoot), ramasses
 //     a pied en marchant dessus. Pool tournant : un nouveau drop ecrase le plus
 //     ancien si le pool est plein. ---
@@ -667,6 +679,9 @@ static uint8_t campaignStep = 0;          // prochaine mission de trame (0..3 = 
 static bool    storyMissionActive = false;// la mission en cours est-elle une mission de trame ?
 static uint16_t missionFailedTimer = 0;   // >0 : overlay plein ecran "MISSION ECHOUEE"
 static const uint16_t MISSION_FAIL_FRAMES = 50;  // ~2 s a 25 fps
+static uint16_t missionDoneTimer = 0;     // >0 : petit bandeau "MISSION ACCOMPLIE" (monte du bas, repart)
+static const uint16_t MISSION_DONE_FRAMES = 60;  // ~2.4 s a 25 fps
+static const int MISSION_DONE_SLIDE = 12;        // frames de glissement (montee / descente)
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
 
 // Copie runtime des objectifs de la mission active : les coords des objectifs
@@ -937,6 +952,7 @@ void setup() {
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
   playerMoney = 10000;                         // pecule de depart (confort de test)
+  moneyShown = playerMoney; moneyRollStep = 1; moneyGainAmt = 0; moneyGainTimer = 0;
   for (int i = 0; i < NUM_LOOT; i++) loots[i].active = false;
   for (int i = 0; i < NUM_BULLETS; i++) bullets[i].active = false;
   for (int i = 0; i < NUM_PROJ; i++) projs[i].active = false;
@@ -950,6 +966,7 @@ void setup() {
   marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   killerChase = false;
   campaignStep = 0; storyMissionActive = false; missionFailedTimer = 0;  // trame remise a zero
+  missionDoneTimer = 0;
   narrHead = 0; narrCount = 0; narrTimer = 0;
 }
 
@@ -2420,6 +2437,36 @@ static void startMission(uint8_t m) {
   gb.sound.playOK();
 }
 
+// Point d'entree GENERIQUE de tout gain d'argent (mission, butin au sol, broyage
+// d'epave...) : credite la cagnotte et arme l'animation (compteur qui roule +
+// "+$X" flottant). N'emet pas de son : l'appelant garde le sien, le compteur
+// fait ses petits "tic" en roulant.
+static void addMoney(int32_t amount) {
+  if (amount <= 0) { playerMoney += amount; return; }   // depense/zero : pas d'anim
+  playerMoney  += amount;
+  moneyGainAmt  = amount;
+  moneyGainTimer = MONEY_GAIN_FRAMES;
+  int32_t step = (playerMoney - moneyShown) / MONEY_ROLL_FRAMES;  // pour finir en ~2 s
+  if (step < 1) step = 1;
+  if (step > moneyRollStep) moneyRollStep = step;       // gains cumules : on roule au moins aussi vite
+}
+
+// Anime la cagnotte chaque frame : moneyShown rattrape playerMoney en roulant
+// (gain) ou d'un coup (depense). Petit "tic" sonore pendant la montee.
+static void updateMoneyAnim() {
+  if (moneyShown > playerMoney) {                        // depense : rattrapage instantane
+    moneyShown = playerMoney;
+  } else if (moneyShown < playerMoney) {                 // gain : on roule vers le total
+    int32_t diff = playerMoney - moneyShown;
+    int32_t s = diff < moneyRollStep ? diff : moneyRollStep;
+    moneyShown += s;
+    if ((moneyShown & 3) == 0) gb.sound.playTick();      // tic discret du compteur
+  } else {
+    moneyRollStep = 1;                                   // au repos : vitesse remise a zero
+  }
+  if (moneyGainTimer > 0) moneyGainTimer--;
+}
+
 // Mission echouee (limite de temps depassee) : message + retour au repos.
 static void failMission(const char *msg) {
   narrate(msg);
@@ -2493,11 +2540,10 @@ static void missionProgress() {
   else {                                           // mission terminee : prime en $
     marcoWaiting = false; marcoFollow = false; marcoEmergeDelay = 0;
     if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
-    if (def.reward > 0) {
-      playerMoney += def.reward;
-      char msg[20]; snprintf(msg, sizeof(msg), "Mission ! +$%d", (int)def.reward);
-      narrate(msg);
-    }
+    // Prime creditee tout de suite (le compteur du HUD roule) + petit bandeau
+    // "MISSION ACCOMPLIE" qui monte du bas puis repart, sans figer le jeu.
+    addMoney(def.reward);
+    missionDoneTimer = MISSION_DONE_FRAMES;
     gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
     if (storyMissionActive) {                      // progression de la trame
       storyMissionActive = false;
@@ -2687,7 +2733,7 @@ static void tryPickupLoot(int pcx, int pcy) {
            + (long)(pcy - loots[i].y) * (pcy - loots[i].y);
     if (d > (long)LOOT_REACH * LOOT_REACH) continue;
     if (loots[i].kind == LOOT_MONEY) {
-      playerMoney += loots[i].amount;
+      addMoney(loots[i].amount);
       gb.sound.playOK();
     } else {
       uint8_t w = loots[i].weapon;
@@ -2979,9 +3025,34 @@ static void drawMissionStatus() {
 
 // Texte avec ombre portee (noir decale +1,+1 puis blanc) : lisible sur n'importe
 // quel decor sans fond opaque. Police 3x5 (~4 px/caractere).
-static void printShadow(int x, int y, const char *s) {
-  gb.display.setColor(BLACK); gb.display.setCursor(x + 1, y + 1); gb.display.print(s);
-  gb.display.setColor(WHITE); gb.display.setCursor(x, y);         gb.display.print(s);
+static void printShadowCol(int x, int y, const char *s, uint16_t col) {
+  gb.display.setColor(BLACK);      gb.display.setCursor(x + 1, y + 1); gb.display.print(s);
+  gb.display.setColor((Color)col); gb.display.setCursor(x, y);         gb.display.print(s);
+}
+static void printShadow(int x, int y, const char *s) { printShadowCol(x, y, s, 0xFFFF); }
+
+// Bandeau d'annonce GENERIQUE (mission accomplie / ratee, mort, arrestation) :
+// une bande sombre qui MONTE du bas de l'ecran, tient en place, puis repart vers
+// le bas. Non bloquant : le jeu continue derriere. Seule la couleur (liseres +
+// texte) change selon le contexte. timer = frames restantes, total = duree.
+static void drawSlideBanner(const char *msg, uint16_t color, int timer, int total) {
+  const int BH = 11, restY = 40;                       // bande de 11 px, calee a y=40
+  int e = total - timer;                               // frames ecoulees
+  int hidden = SCREEN_H - restY;                        // course de glissement
+  int off;                                              // decalage vers le bas (0 = en place)
+  if (e < MISSION_DONE_SLIDE)       off = hidden * (MISSION_DONE_SLIDE - e) / MISSION_DONE_SLIDE;       // monte
+  else if (timer < MISSION_DONE_SLIDE) off = hidden * (MISSION_DONE_SLIDE - timer) / MISSION_DONE_SLIDE; // repart
+  else                              off = 0;                                                            // stable
+  int y = restY + off;
+  for (int yy = y; yy < y + BH && yy < SCREEN_H; yy++)  // bande assombrie (le jeu transparait)
+    for (int x = 0; x < SCREEN_W; x++)
+      fb[yy * SCREEN_W + x] = (uint16_t)((fb[yy * SCREEN_W + x] >> 1) & 0x7BEF);
+  for (int x = 0; x < SCREEN_W; x++) {                  // liseres colores haut/bas
+    if (y >= 0 && y < SCREEN_H)            fb[y * SCREEN_W + x] = color;
+    int yb = y + BH - 1;
+    if (yb >= 0 && yb < SCREEN_H)          fb[yb * SCREEN_W + x] = color;
+  }
+  printShadowCol((SCREEN_W - (int)strlen(msg) * 4) / 2, y + 3, msg, color);
 }
 
 // Icone d'arme 6x6 en coords ecran avec contour noir 1 px (halo) : se detache du
@@ -3058,11 +3129,20 @@ static void drawTopHud() {
     const char *nm = WEAPONS[curWeapon].name;
     printShadow((SCREEN_W - (int)strlen(nm) * 4) / 2, 26, nm);
   }
-  // Argent (sous les cœurs) : "$" + montant en vert, avec ombre portee noire.
+  // Argent (sous les cœurs) : "$" + montant (qui roule) en vert, ombre noire.
   char money[12];
-  snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
+  snprintf(money, sizeof(money), "$%ld", (long)moneyShown);
   gb.display.setColor(BLACK); gb.display.setCursor(2, 9); gb.display.print(money);
   gb.display.setColor((Color)0x07E0); gb.display.setCursor(1, 8); gb.display.print(money);
+  // "+$X" flottant qui remonte depuis sous la cagnotte vers celle-ci (a chaque gain).
+  if (moneyGainTimer > 0) {
+    char g[12]; snprintf(g, sizeof(g), "+$%ld", (long)moneyGainAmt);
+    int rise = MONEY_GAIN_FRAMES - moneyGainTimer;          // 0..N : il monte
+    int gx = 2 + (int)strlen(money) * 4 + 2;                // juste a droite du montant
+    int gy = 18 - rise / 2;                                 // de y~18 vers la cagnotte (y~8)
+    if (!(moneyGainTimer < 4 && (moneyGainTimer & 1)))       // clignote en fin de course
+      printShadowCol(gx, gy, g, 0xFFE0);                    // jaune (billets qui filent)
+  }
 }
 
 // Narration : bandeau bas + texte (scroll horizontal si trop long).
@@ -3212,7 +3292,7 @@ static void updateSequence() {
       seqPhase = PH_CRUSH; seqTimer = SEQ_CRUSH_FRAMES;
       gb.sound.tone(60, 200); break;             // gros craquement
     case PH_CRUSH:                               // broyee : prime (joueur deja a pied)
-      playerMoney += crushReward;
+      addMoney(crushReward);
       carGone = true;
       narrate("Epave vendue !");
       gb.sound.tone(988, 60); gb.sound.playOK();  // cha-ching
@@ -3361,11 +3441,9 @@ static void drawSequence(int camX, int camY) {
     for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0000;
     return;
   }
-  if (seqPhase == PH_MSG && overlayMsg) {         // bandeau central "MORT"/"ARRETE"
-    for (int y = 24; y < 38; y++)
-      for (int x = 0; x < SCREEN_W; x++) fb[y * SCREEN_W + x] = 0x0000;
-    int len = (int)strlen(overlayMsg);
-    printShadow((SCREEN_W - len * 4) / 2, 28, overlayMsg);
+  if (seqPhase == PH_MSG && overlayMsg) {         // bandeau mort / arrestation
+    uint16_t col = (seqKind == SEQ_WASTED) ? 0xF800 : 0x07FF;  // rouge / cyan
+    drawSlideBanner(overlayMsg, col, (int)seqTimer, SEQ_MSG_FRAMES);
   }
   // PH_EXPLODE : rien a ajouter, drawBoom fait le spectacle.
 }
@@ -3441,18 +3519,6 @@ void loop() {
   // Magasin ouvert (AMU Nation) : UI modale, monde gele. On traite la nav et on
   // dessine le menu, puis on sort de la frame.
   if (shopOpen) { updateShop(); drawShop(); return; }
-
-  if (missionFailedTimer > 0) {
-    missionFailedTimer--;
-    fb = gb.display._buffer;
-    for (int y = 26; y < 38; y++)                 // bande centrale assombrie
-      for (int x = 0; x < SCREEN_W; x++)
-        fb[y * SCREEN_W + x] = 0x0000;
-    gb.display.setColor(WHITE);
-    gb.display.setCursor(9, 29);
-    gb.display.print("MISSION ECHOUEE");
-    return;                                        // monde gele pendant l'overlay
-  }
 
   // Cinematique en cours (mort / arrestation / repeinture) : le joueur est fige,
   // aucun input ne passe. Le monde (IA, police, fumee...) tourne quand meme,
@@ -3646,6 +3712,9 @@ void loop() {
   missionProgress();
   if (targetDownTimer > 0) targetDownTimer--;
   missionAnim++;                               // clignotement marqueurs/telephones
+  updateMoneyAnim();                           // cagnotte qui roule + "+$X" flottant
+  if (missionDoneTimer > 0)   missionDoneTimer--;    // bandeaux d'annonce (non bloquants)
+  if (missionFailedTimer > 0) missionFailedTimer--;
   if (weaponToast > 0) weaponToast--;          // toast d'arme : disparait tout seul
   updateBullets();                             // projectiles de tir (visuel)
   updateProjectiles();                         // roquettes/grenades : vol + detonation
@@ -3786,6 +3855,10 @@ void loop() {
   drawMissionStatus();
   drawTopHud();                                // barre stats : cœurs, etoiles, arme
   narrDraw();
+  if (missionDoneTimer > 0)                    // bandeau "mission accomplie" (monte du bas)
+    drawSlideBanner("MISSION ACCOMPLIE", 0x07E0, missionDoneTimer, MISSION_DONE_FRAMES);
+  else if (missionFailedTimer > 0)             // bandeau "mission ratee"
+    drawSlideBanner("MISSION RATEE", 0xF800, missionFailedTimer, MISSION_FAIL_FRAMES);
   drawSequence(camX, camY);                    // cinematique : message / ecran noir / bombe
 
   // Debug serie periodique (~1/s).
