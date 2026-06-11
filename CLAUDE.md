@@ -21,5 +21,9 @@ flash et RAM très limitées). Le firmware vit dans `gta/` ; les données
 - **Ne pas éditer** les fichiers marqués « généré par tools/… — NE PAS éditer ».
 - **Build** : flag `FOLDER_NAME` obligatoire (dossier `gta` < 4 chars). Commande
   exacte dans le README.
+- **Avant chaque commit, régénérer le `.bin`** : recompiler le firmware et
+  rafraîchir `GTADEMAKE/GTADEMAKE.bin` (paquet de distribution carte SD) pour
+  qu'il reflète l'état du code commité. Même commande de build que le README
+  (`FOLDER_NAME="GTADEMAKE"`).
 - **Aperçus** : le client n'affiche pas les images inline ; écris les PNG de
   debug dans `previews/`.
