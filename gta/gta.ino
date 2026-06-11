@@ -672,6 +672,14 @@ static const Objective OBJS_M13[] = {
     "Conduis Sarah a la planque. Reste sur tes gardes.",
     "Sarah est a l'abri. Pour l'instant." },
 };
+static const Objective OBJS_M14[] = {
+  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Planque",
+    "Sarah : ils nous ont trouves ! Reviens a la planque, vite !",
+    "Les hommes de Victor encerclent la planque." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
+    "Defends Sarah. Elimine tous les assaillants.",
+    "Sarah : je sais ou il garde les dossiers. Ses Bureaux.", 4, 0 },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -706,6 +714,7 @@ static const MissionDef MISSIONS[] = {
   { "Rico le Loup",     OBJS_M11,2, 450, true },   // index 25 = M11 (trame, boss)
   { "La mallette",      OBJS_M12,2, 350, true },   // index 26 = M12 (trame)
   { "Le temoin",        OBJS_M13,3, 400, true },   // index 27 = M13 (trame, escorte)
+  { "Embuscade",        OBJS_M14,2, 450, true },   // index 28 = M14 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -713,7 +722,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26, 27 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
