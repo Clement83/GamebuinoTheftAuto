@@ -175,6 +175,23 @@ int main() {
     check("advance3 -> fin mission", missionAdvance(run, def) == EV_NONE && run.step == 4 && !run.active);
   }
 
+  // --- Enchainement type M1 : GOTO->TALK(JOIN)->GOTO(car)->GOTO(car), isStory ---
+  {
+    static const Objective objs[] = {
+      { OBJ_GOTO, 10, 10, 8, false, EV_NONE,       nullptr, "va au garage" },
+      { OBJ_TALK, 10, 10, 6, false, EV_MARCO_JOIN, nullptr, "parle a Marco" },
+      { OBJ_GOTO, 90, 90, 12, true, EV_NONE,       nullptr, "roule aux quais" },
+      { OBJ_GOTO, 95, 95, 12, true, EV_NONE,       nullptr, "livre" },
+    };
+    MissionDef def = { "M1", objs, 4, 120, true };   // reward 120, isStory true
+    check("isStory lu", def.isStory);
+    MissionRun run = { 0, 0, true };
+    check("M1 a0 GOTO", missionAdvance(run, def) == EV_NONE && run.step == 1);
+    check("M1 a1 TALK->JOIN", missionAdvance(run, def) == EV_MARCO_JOIN && run.step == 2);
+    check("M1 a2 GOTO car", missionAdvance(run, def) == EV_NONE && run.step == 3 && run.active);
+    check("M1 a3 fin", missionAdvance(run, def) == EV_NONE && run.step == 4 && !run.active);
+  }
+
   if (failures == 0) { printf("OK : LOS, fuite, poursuite, objectifs, enchainement, fleche HUD valides\n"); return 0; }
   printf("%d echec(s)\n", failures);
   return 1;

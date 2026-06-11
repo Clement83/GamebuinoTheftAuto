@@ -184,6 +184,7 @@ struct MissionDef {
   // Champ ajoute en fin de struct : les anciennes initialisations restent
   // valides (membre absent -> 0 en initialisation aggregat C++).
   int16_t reward;  // $ credites a la completion de la mission (0 = aucune prime)
+  bool isStory;    // mission de trame principale (telephone rouge) ? (false = secondaire)
 };
 
 struct MissionRun {
