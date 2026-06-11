@@ -708,6 +708,17 @@ static const Objective OBJS_M17[] = {
     "Bruno encaisse. Ne le lache pas.",
     "Bruno, mourant : le vieux casino... Victor t'y attend.", 5, 0 },
 };
+// M18 : boss final. Victor est le plus coriace (KILL count=7).
+static const Objective OBJS_M18[] = {
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Le Casino",
+    "Victor : je t'attends au Casino. Viens donc, petit.",
+    "Ses gardes du corps verrouillent l'entree." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Le Casino",
+    "Ouvre-toi un chemin jusqu'a Victor.", "La voie est libre.", 3, 0 },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Le Casino",
+    "Victor : Marco allait me denoncer. Je l'ai fait taire. Comme toi, bientot.",
+    "Tout ca... pour un ami. C'est fini, Victor.", 7, 0 },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -746,6 +757,7 @@ static const MissionDef MISSIONS[] = {
   { "Les dossiers",     OBJS_M15,2, 500, true },   // index 29 = M15 (trame)
   { "Sabotage",         OBJS_M16,4, 550, true },   // index 30 = M16 (trame)
   { "Bruno",            OBJS_M17,2, 600, true },   // index 31 = M17 (trame, boss)
+  { "Le dernier appel", OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -753,7 +765,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
