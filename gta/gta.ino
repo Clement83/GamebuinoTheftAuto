@@ -626,6 +626,16 @@ static const Objective OBJS_M9[] = {
     "Des Loups sont venus se servir. Renvoie-les chez eux.",
     "Pour toi, Marco. La tournee est finie.", 3, 0 },
 };
+static const Objective OBJS_M10[] = {
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Les Quais",
+    "Tony : on a trouve le stock des Loups, aux entrepots des Quais.",
+    "Des gardes verrouillent l'entree." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Quais",
+    "Force le passage : deux gardes a la porte.", "Entree degagee.", 2, 0 },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Quais",
+    "Nettoie l'entrepot. Que personne ne ressorte.",
+    "Le patron des Loups va nous tuer pour ca... tant pis.", 3, 0 },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -656,6 +666,7 @@ static const MissionDef MISSIONS[] = {
   { "Voiture volee",    OBJS_M7, 4, 350, true },   // index 21 = M7 (trame)
   { "Represailles",     OBJS_M8, 2, 350, true },   // index 22 = M8 (trame)
   { "Tournee de Marco", OBJS_M9, 2, 300, true },   // index 23 = M9 (trame)
+  { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -663,7 +674,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
