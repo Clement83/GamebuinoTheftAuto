@@ -37,9 +37,33 @@ int main() {
     wantedOnKill(w); wantedOnKill(w); wantedOnKill(w);
     check("1 etoile gagnee", w.level == 1);
     tick(w, WANTED_DECAY_FRAMES - 1);
-    check("encore recherche juste avant 60 s", w.level == 1);
+    check("encore recherche juste avant 30 s", w.level == 1);
     tick(w, 1);
-    check("plus recherche apres 60 s", w.level == 0);
+    check("plus recherche apres 30 s", w.level == 0);
+  }
+
+  // --- clignotement dans les 10 dernieres secondes ---
+  {
+    WantedState w; wantedReset(w);
+    wantedOnCopKill(w);                       // 1 etoile, decompte plein (30 s)
+    check("pas de clignotement au depart", !wantedBlinking(w));
+    tick(w, WANTED_DECAY_FRAMES - WANTED_BLINK_FRAMES);
+    check("clignote a 10 s restantes", wantedBlinking(w));
+  }
+
+  // --- crime instantane (flic tue) pendant le clignotement : RENOUVELLE, n'ajoute pas ---
+  {
+    WantedState w; wantedReset(w);
+    wantedOnCopKill(w); wantedOnCopKill(w);   // 2 etoiles
+    check("2 etoiles", w.level == 2);
+    tick(w, WANTED_DECAY_FRAMES - WANTED_BLINK_FRAMES);
+    check("clignote", wantedBlinking(w));
+    wantedOnCopKill(w);                        // flic tue pendant le clignotement
+    check("flic en clignotement : pas d'etoile en plus", w.level == 2);
+    check("flic en clignotement : decompte remis a plein", w.decayTimer == WANTED_DECAY_FRAMES);
+    check("flic en clignotement : ne clignote plus", !wantedBlinking(w));
+    wantedOnCopKill(w);                        // hors clignotement : remonte normalement
+    check("flic hors clignotement : +1 etoile", w.level == 3);
   }
 
   // --- montee jusqu'a 5, puis gel (pas de decroissance) ---

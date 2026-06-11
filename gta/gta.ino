@@ -3114,8 +3114,12 @@ static void drawTopHud() {
   for (int i = 0; i < HUD_HEARTS_MAX; i++)      // cœurs (haut-gauche)
     blitIcon5(1 + i * 6, 1, ICON_HEART, i < playerHearts ? HEART_FULL : HEART_EMPTY);
   const int starsX = (SCREEN_W - HUD_STARS_MAX * 6) / 2;
-  for (int i = 0; i < HUD_STARS_MAX; i++)       // etoiles (centre)
-    blitIcon5(starsX + i * 6, 1, ICON_STAR, i < wanted.level ? STAR_FULL : STAR_EMPTY);
+  // L'etoile du dessus clignote dans ses 10 dernieres secondes (fin de vie).
+  bool starOff = wantedBlinking(wanted) && ((missionAnim >> 2) & 1);
+  for (int i = 0; i < HUD_STARS_MAX; i++) {     // etoiles (centre)
+    bool lit = (i < wanted.level) && !(starOff && i == wanted.level - 1);
+    blitIcon5(starsX + i * 6, 1, ICON_STAR, lit ? STAR_FULL : STAR_EMPTY);
+  }
   if (!driving) {                               // arme courante (haut-droite)
     const int sx = SCREEN_W - WEAPON_BOX - 1, sy = 0;
     blitWeaponHudIcon(sx, sy, curWeapon);
