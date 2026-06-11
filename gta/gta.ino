@@ -590,6 +590,14 @@ static const Objective OBJS_M5[] = {
     "Nico : les Loups cherchent un type depuis des semaines... c'est eux, surement.",
     3, 0 },
 };
+static const Objective OBJS_M6[] = {
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chinatown",
+    "Inconnu : envoie-leur un message. Va dans le quartier des Loups.",
+    "Les voila, accoudes au mur. Sers-toi de tes poings." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chinatown",
+    "Mets trois Loups au tapis. Qu'ils comprennent.",
+    "Ca devrait attirer leur attention. Inconnu : bien joue.", 3, 0 },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -616,6 +624,7 @@ static const MissionDef MISSIONS[] = {
   { "Les assurances",   OBJS_M2, 2, 150, true },   // index 17 = M2 (trame)
   { "Mauvaise dette",   OBJS_M3, 1, 180, true },   // index 18 = M3 (trame)
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
+  { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -623,7 +632,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
