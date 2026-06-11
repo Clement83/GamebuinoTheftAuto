@@ -616,17 +616,6 @@ static int16_t storyPx[NUM_STORY_PHONES], storyPy[NUM_STORY_PHONES];  // px mond
 static const uint16_t PHONE_BODY_MISSION = 0x019F;   // bleu
 static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
 
-// Cabine rouge pas encore branchee (campagne) : Marco, un pote, fait patienter.
-// Une phrase tiree au hasard a chaque decroche, pour donner de la vie.
-static const char *MARCO_BUSY_LINES[] = {
-  "Marco: ouais mec ? La je peux pas, je te rappelle !",
-  "Marco: dsl vieux, gros bordel ici. A plus tard !",
-  "Marco: pas maintenant frangin, je suis sur un coup.",
-  "Marco: t'es deja en manque de moi ? Patiente !",
-  "Repondeur: c'est Marco, laisse un message... ou pas.",
-  "Repondeur: Marco injoignable. Reessaye plus tard.",
-};
-static const int NUM_MARCO_BUSY = sizeof(MARCO_BUSY_LINES) / sizeof(MARCO_BUSY_LINES[0]);
 
 // --- Pay'n'Spray : garages eparpilles, accessibles EN VOITURE. Positions
 //     GENEREES par tools/pois.py (en bord de route, cote sans trottoir,
