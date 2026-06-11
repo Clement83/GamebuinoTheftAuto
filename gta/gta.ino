@@ -2332,6 +2332,15 @@ static void killTarget(int px, int py) {
 // transition (Marco monte / meurt) puis active l'objectif suivant, ou termine.
 static void missionProgress() {
   if (!missionRun.active) return;
+  // Echec de trame : un TUEUR (KILL en mode poursuite) qui sort des limites monde.
+  if (target.active && killerChase && curObjs[missionRun.step].type == OBJ_KILL) {
+    const int M = 8;  // marge px
+    if (target.x < -M || target.y < -M ||
+        target.x > WORLD_W + M || target.y > WORLD_H + M) {
+      failMission("Le tueur s'est echappe.");
+      return;
+    }
+  }
   const MissionDef &def = curDef;
   MissionState s;
   s.actorCx = driving ? (int)car.x : playerX + PLAYER_W / 2;
