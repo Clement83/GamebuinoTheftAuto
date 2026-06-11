@@ -165,6 +165,17 @@ static bool      playerDown       = false;
 static uint16_t  playerDownTimer  = 0;
 static bool      playerDownArrest = false;   // au relevage : true = arrestation, false = on se releve
 
+// --- saut (bouton B a pied) : bond en avant dans la direction du regard. En
+//     l'air, le joueur survole les voitures (ni repousse ni renverse). Apres le
+//     bond, court cooldown anti-spam. ---
+static uint8_t   playerJump      = 0;        // >0 : en l'air (frames de vol restantes)
+static uint8_t   playerJumpCool  = 0;        // >0 : recharge avant un nouveau saut
+static float     playerJumpAcc   = 0.0f;     // reste fractionnaire de deplacement
+static const uint8_t JUMP_FRAMES   = 11;     // ~0.44 s de vol
+static const uint8_t JUMP_COOLDOWN = 7;      // frames de recharge apres l'atterrissage
+static const float   JUMP_SPEED    = 1.3f;   // px/frame -> bond d'environ 1.5 case
+static const int     JUMP_MAX_Z    = 5;      // px : hauteur visuelle au sommet du bond
+
 // --- recherche police (etoiles). wanted.h = machine d'etat pure. ---
 static WantedState wanted = { 0, 0, 0, 0 };
 
@@ -272,6 +283,9 @@ static const int RUNOVER_SPEED2 = 1;       // vitesse^2 mini pour renverser
 static const float COL_CP_HIT = 5.0f;      // px : demi-boite voiture<->personne pour l'ecrasement
 static const int STOP_AHEAD = 15;          // px : distance d'arret devant obstacle
 static const int STOP_SIDE  = 6;           // px : tolerance laterale de l'obstacle
+static const uint8_t BRAKE_REACT_FRAMES = 9;   // frames avant qu'une caisse freine pour le joueur (~0.36 s : laisse une chance de me faucher)
+// --- effroi trottoir : caisse qui monte sur le trottoir vers un pieton -> panique ---
+static const int SIDEWALK_SCARE_RANGE = 22;   // px : portee de la menace (caisse sur trottoir)
 static const int ENTER_AI_DIST = 12;       // px : portee pour voler une voiture IA
 static const int DRIVER_DOOR_OFFSET = 7;   // px : conducteur ejecte pose a gauche de la caisse (marge anti-ecrasement)
 static const uint16_t PED_PANIC_FRAMES   = 70;   // duree de la fuite affolee
@@ -323,6 +337,8 @@ struct AiCar {
   bool isPolice;       // voiture de police (bleue) : poursuit le joueur recherche
   bool fleeing;        // affolee par un crime : roule vite, n'evite plus personne, ecrase
   uint16_t fleeTimer;  // >0 : frames de fuite restantes (decremente -> retour normal)
+  uint8_t brakeReact;  // temps de reaction : compte les frames ou le joueur barre la
+                       // route avant que la caisse ne freine vraiment (sinon : ecrase)
   bool active;
 };
 
@@ -816,6 +832,7 @@ void setup() {
   playerHearts = PLAYER_HEARTS_MAX;
   playerHurtTimer = 0;
   playerDown = false; playerDownTimer = 0; playerDownArrest = false;
+  playerJump = 0; playerJumpCool = 0; playerJumpAcc = 0.0f;
   wantedReset(wanted);
   carHp = CAR_MAX_HP;
   carFuse = 0; carRunaway = false; carImpactX = 0.0f; carImpactY = 0.0f;
@@ -1126,6 +1143,19 @@ static void drawPlayer(int camX, int camY) {
     blitDownBody(camX, camY, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2, PLAYER_BODY_COLOR);
     return;
   }
+  if (playerJump > 0) {                           // en l'air : ombre au sol + sprite souleve
+    int prog = JUMP_FRAMES - playerJump;          // 0..JUMP_FRAMES
+    float t = (float)prog / (float)JUMP_FRAMES;   // progression normalisee
+    int raise = (int)(JUMP_MAX_Z * 4.0f * t * (1.0f - t) + 0.5f);   // parabole 0->max->0
+    int sx = playerX + PLAYER_W / 2 - camX, sy = playerY + PLAYER_H / 2 - camY;
+    for (int rx = -2; rx <= 2; rx++) {            // petite ombre ovale sous les pieds
+      int x = sx + rx, y = sy + 2;
+      if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x2104;
+    }
+    blitPed(camX, camY, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2 - raise,
+            playerDir, playerFrame, PLAYER_BODY_COLOR);
+    return;
+  }
   blitPed(camX, camY, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2,
           playerDir, playerFrame, PLAYER_BODY_COLOR);
 }
@@ -1189,6 +1219,7 @@ static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
     c.hp = CAR_MAX_HP;
     c.driver = true;                       // trafic = voiture avec conducteur
     c.fleeing = false; c.fleeTimer = 0;    // arrive calme
+    c.brakeReact = 0;                      // reflexes au repos
     c.active = true;
   } else {
     c.active = false;
@@ -1425,6 +1456,14 @@ static uint16_t getupFrames() {
   return (uint16_t)(GETUP_MIN_FRAMES + aiRngNext(aiRng) % (GETUP_RAND_FRAMES + 1));
 }
 
+// Le joueur roule-t-il sur un trottoir ? (caisse pilotee, posee sur une tuile
+// TILE_PAVEMENT). Sert a affoler les pietons qu'on vient menacer sur le trottoir.
+static bool carOnSidewalk() {
+  if (!driving) return false;
+  int tx = (int)car.x >> 3, ty = (int)car.y >> 3;
+  return aiInBounds(CITY_W, CITY_H, tx, ty) && cityMap[ty * CITY_W + tx] == TILE_PAVEMENT;
+}
+
 // Met le JOUEUR au sol. arrest = coup de poing d'un flic -> arrestation au
 // relevage ; sinon (percute par une voiture) il se releve simplement.
 static void knockdownPlayer(bool arrest) {
@@ -1467,6 +1506,7 @@ static void updatePlayerDown() {
 // Le joueur a pied chevauche-t-il la boite d'une voiture en (cx,cy) ?
 static bool playerOverlapsCar(float cx, float cy) {
   if (driving || playerDown || seqKind != SEQ_NONE) return false;
+  if (playerJump > 0) return false;             // en l'air : on survole les voitures
   float dx = (playerX + PLAYER_W / 2) - cx, dy = (playerY + PLAYER_H / 2) - cy;
   return fabsf(dx) < COL_CP_HIT && fabsf(dy) < COL_CP_HIT;
 }
@@ -1876,7 +1916,17 @@ static void aiUpdate(int fcx, int fcy) {
     float relx = obx - c.x, rely = oby - c.y;
     float fwd = relx * AI_DX[c.dir] + rely * AI_DY[c.dir];
     float lat = relx * AI_DX[AI_RIGHT[c.dir]] + rely * AI_DY[AI_RIGHT[c.dir]];
-    bool blocked = (!ignorePeople && fwd > 0.0f && fwd < STOP_AHEAD && fabsf(lat) < STOP_SIDE);
+    // Le joueur barre la route : la caisse ne freine PAS tout de suite. Elle
+    // accumule un temps de reaction et continue d'avancer le temps de BRAKE_REACT_
+    // FRAMES -> laisse une vraie chance de me faucher (au lieu de l'arret instantane).
+    bool playerAhead = (!ignorePeople && fwd > 0.0f && fwd < STOP_AHEAD && fabsf(lat) < STOP_SIDE);
+    bool blocked = false;
+    if (playerAhead) {
+      if (c.brakeReact < BRAKE_REACT_FRAMES) c.brakeReact++;   // reflexe en cours : roule encore
+      else blocked = true;                                     // a fini par freiner
+    } else if (c.brakeReact > 0) {
+      c.brakeReact--;                                          // plus de menace : detend le pied
+    }
     // Une epave en travers de la voie arrete TOUJOURS le trafic (obstacle solide).
     for (int wI = 0; wI < NUM_WRECKS && !blocked; wI++) {
       if (!wrecks[wI].active) continue;
@@ -2032,6 +2082,23 @@ static void aiUpdate(int fcx, int fcy) {
       aiStep(cityMap, CITY_W, CITY_H, p.x, p.y, p.dir, p.tgtx, p.tgty,
              AI_PED_SPEED, aiIsWalkable, aiRng);
     if (++p.animTimer >= AI_PED_ANIM) { p.animTimer = 0; p.frame ^= 1; }
+    // Caisse qui monte sur le trottoir vers moi : le pieton AFFOLE et detale
+    // (panique, comme sous un tir). S'il ne s'enfuit pas assez vite, il se fait
+    // faucher juste apres. Ne vaut pas pour les flics (jamais en panique).
+    if (!p.isCop && carOnSidewalk() && spd2 > RUNOVER_SPEED2) {
+      int rx = (int)p.x - (int)car.x, ry = (int)p.y - (int)car.y;
+      float fwd = rx * car.vx + ry * car.vy;        // >0 : pieton devant la caisse (sens de marche)
+      if (fwd > 0.0f && rx * rx + ry * ry < SIDEWALK_SCARE_RANGE * SIDEWALK_SCARE_RANGE) {
+        // Fuite a ANGLE DROIT de mon angle d'arrivee : le pieton deboite sur le
+        // cote (sort de ma trajectoire) au lieu de courir devant la caisse. La
+        // panique fuit le point source -> on le place dans l'axe lateral oppose.
+        float perpx = -car.vy, perpy = car.vx;      // perpendiculaire a ma vitesse
+        float side = (rx * perpx + ry * perpy >= 0.0f) ? 1.0f : -1.0f;   // son cote
+        int srcx = (int)(p.x - side * perpx);       // source = oppose a la direction de fuite
+        int srcy = (int)(p.y - side * perpy);
+        startPanic(p, srcx, srcy);
+      }
+    }
     // Renversement par la voiture joueur lancee (vaut aussi pour les flics).
     if (driving && spd2 > RUNOVER_SPEED2 &&
         fabsf(car.x - p.x) < COL_CP && fabsf(car.y - p.y) < COL_CP) {
@@ -3155,8 +3222,28 @@ void loop() {
     // joueur fige
   } else if (playerDown) {
     updatePlayerDown();                        // au sol : aucun input, on attend le relevage/arrestation
+  } else if (!driving && playerJump > 0) {
+    // --- SAUT EN COURS (a pied) --- bond tout droit dans le sens du regard ;
+    // commandes ignorees, on survole les voitures (cf. playerOverlapsCar).
+    playerJump--;
+    playerJumpAcc += JUMP_SPEED;
+    int step = (int)playerJumpAcc;
+    if (step > 0) {
+      playerJumpAcc -= step;
+      tryMove(playerX, playerY, AI_DX[playerDir] * step, AI_DY[playerDir] * step);  // les murs stoppent quand meme
+    }
+    if (++animTimer >= ANIM_PERIOD) { animTimer = 0; playerFrame ^= 1; }
+    if (playerJump == 0) { playerJumpCool = JUMP_COOLDOWN; playerJumpAcc = 0.0f; }  // atterrissage
+    tryPickupWeapons(playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);
+    tryPickupLoot(playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);
   } else if (!driving) {
     // --- A PIED ---
+    if (playerJumpCool > 0) playerJumpCool--;
+    // B : saut (bond en avant) -> on passe au-dessus des voitures.
+    if (gb.buttons.pressed(BUTTON_B) && playerJumpCool == 0) {
+      playerJump = JUMP_FRAMES; playerJumpAcc = 0.0f;
+      gb.sound.tone(440, 30);
+    }
     int dx, dy;
     readFootInput(dx, dy);
     if (dx != 0 || dy != 0) {
