@@ -528,9 +528,9 @@ static const Objective OBJS_PIZZA[] = {
 static const Objective OBJS_M1[] = {
   { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Garage",
     "Premier jour. Marco, le bras droit du patron, t'attend au Garage. Vas-y a pied.",
-    "Tu cognes a la porte du Garage : Marco, c'est l'heure !" },
+    nullptr },
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Garage",
-    "Attends que Marco sorte, puis approche-toi.",
+    "Marco : deux secondes petit, j'arrive !",
     "Marco : la caisse est garee a cote. Embarque, on a un colis a livrer." },
   { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
     "En route pour les Quais. Roule peinard, attire pas les flics.", nullptr },
@@ -708,8 +708,10 @@ static bool marcoAboard  = false;
 static float   marcoX = 0.0f, marcoY = 0.0f;  // position monde quand il suit a pied
 static uint8_t marcoDir = DIR_SOUTH;          // orientation du sprite (suivi)
 static uint8_t marcoFrame = 0, marcoAnimTimer = 0;  // anim de marche
+static uint16_t marcoEmergeDelay = 0;           // >0 : Marco encore dans le batiment (a dit "j'arrive", sort apres)
 static const float MARCO_FOLLOW_SPEED = 0.55f;  // px/frame (un poil > joueur a pied)
 static const float MARCO_FOLLOW_GAP   = 10.0f;  // px : distance de confort derriere JW
+static const uint16_t MARCO_EMERGE_DELAY = 32;  // frames avant qu'il sorte (laisse lire "j'arrive")
 
 // Narration : file de messages flash ; bandeau bas auto-time + scroll horizontal.
 static const char *narrQueue[4];
@@ -717,9 +719,9 @@ static uint8_t narrHead = 0, narrCount = 0;
 static uint16_t narrTimer = 0;       // frames restantes du message courant
 static uint16_t narrAge = 0;         // frames ecoulees sur le message courant
 static int narrScroll = 0;           // decalage horizontal (px)
-static const int NARR_HOLD    = 55;  // frames cale a gauche (lecture du debut)
-static const int NARR_SPEED10 = 5;   // px de scroll par 10 frames (plus grand = rapide)
-static const int NARR_ENDPAD  = 50;  // frames cale a la fin
+static const int NARR_HOLD    = 28;  // frames cale a gauche (lecture du debut)
+static const int NARR_SPEED10 = 12;  // px de scroll par 10 frames (plus grand = rapide)
+static const int NARR_ENDPAD  = 22;  // frames cale a la fin
 
 // Declarations anticipees (utilisees avant leur definition).
 static void killTarget(int px, int py);
@@ -2359,20 +2361,14 @@ static void enterObjective() {
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
   if (o.event == EV_MARCO_JOIN) {
     marcoWaiting = true;                          // Marco va apparaitre puis etre pris (TALK ou GOTO)
-    // Marco SORT d'un immeuble voisin et marche jusqu'au marqueur (anim
-    // d'emergence dans marcoUpdate), au lieu de pop sur place.
+    // Marco reste D'ABORD dans l'immeuble (il vient de dire "j'arrive" via o.text)
+    // puis SORT et marche jusqu'au marqueur apres MARCO_EMERGE_DELAY frames.
     int bx, by;
     if (findBuildingTileNear(o.x, o.y, bx, by)) { marcoX = (float)bx; marcoY = (float)by; }
     else { marcoX = (float)o.x; marcoY = (float)(o.y - 3 * TILE_H); }  // repli : surgit "du nord"
     marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
-    narrate("Marco : deux secondes petit, j'arrive !");   // reponse a l'appel
-    if (!o.requireCar && !mCarActive) {           // PRISE A PIED (M1) : une caisse attend SUR LE COTE
-      // Route a droite du batiment, pas pile sur le marqueur : vue degagee sur Marco.
-      int cx, cy;
-      if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
-      mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
-      mCarActive = true;
-    }
+    marcoEmergeDelay = MARCO_EMERGE_DELAY;        // attend la fin de "j'arrive" avant de sortir
+    // (la caisse de mission est deja garee depuis le decrochage du telephone)
   }
   if (o.type == OBJ_ENTER_CAR) {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
@@ -2402,8 +2398,23 @@ static void startMission(uint8_t m) {
   missionRun.def = m; missionRun.step = 0; missionRun.active = true;
   buildMissionRuntime(m);                 // resout les coords POI de la mission
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
+  marcoEmergeDelay = 0;
   mCarActive = false;
   killerChase = false;
+  // Caisse "compagnon" de Marco : si la mission le ramasse A PIED (EV_MARCO_JOIN
+  // sans requireCar, ex. M1), sa voiture est garee SUR LE COTE (route a droite du
+  // batiment) DES LE DECROCHAGE -- elle ne pop pas en arrivant, et reste la
+  // jusqu'a ce qu'on l'utilise (elle devient alors la caisse du joueur).
+  for (uint8_t i = 0; i < curDef.count; i++) {
+    const Objective &o = curObjs[i];
+    if (o.event == EV_MARCO_JOIN && !o.requireCar) {
+      int cx, cy;
+      if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
+      mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
+      mCarActive = true;
+      break;
+    }
+  }
   narrate(curDef.title);                  // annonce le nom de la mission
   enterObjective();
   gb.sound.playOK();
@@ -2480,6 +2491,8 @@ static void missionProgress() {
   }
   if (missionRun.active) enterObjective();
   else {                                           // mission terminee : prime en $
+    marcoWaiting = false; marcoFollow = false; marcoEmergeDelay = 0;
+    if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
     if (def.reward > 0) {
       playerMoney += def.reward;
       char msg[20]; snprintf(msg, sizeof(msg), "Mission ! +$%d", (int)def.reward);
@@ -2569,8 +2582,9 @@ static bool npcWalkToward(float &x, float &y, uint8_t &dir, uint8_t &frame,
 // EMBARQUE des qu'on prend une voiture. (fcx,fcy) = repere joueur (centre px).
 static void marcoUpdate(int fcx, int fcy) {
   if (!missionRun.active) return;
-  if (marcoWaiting) {                              // emergence : il rejoint le marqueur a pied
-    const Objective &o = curObjs[1];
+  if (marcoWaiting) {                              // encore dans l'immeuble, puis emergence
+    if (marcoEmergeDelay > 0) { marcoEmergeDelay--; return; }  // il a dit "j'arrive" : on patiente
+    const Objective &o = curObjs[1];              // sort et rejoint le marqueur a pied
     npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
                   (float)o.x, (float)o.y, MARCO_FOLLOW_SPEED);
     return;
@@ -2837,6 +2851,7 @@ static void drawMissionCar(int camX, int camY) {
 // bord (marcoAboard) il n'est plus dessine separement.
 static void drawMarco(int camX, int camY) {
   if (!missionRun.active) return;
+  if (marcoWaiting && marcoEmergeDelay > 0) return;   // encore dans l'immeuble (pas encore sorti)
   if (marcoWaiting || marcoFollow)        // sort du batiment / attend / nous suit
     blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, MARCO_COLOR);
 }
