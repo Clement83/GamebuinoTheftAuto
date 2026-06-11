@@ -649,6 +649,8 @@ static MissionDef curDef = { "", curObjs, 0 };
 // Compteurs de l'objectif courant : pietons mis KO et frames ecoulees.
 static int      objBeat = 0;
 static uint16_t objElapsed = 0;
+static int      objSubdue = 0;            // coups portes a la cible de SUBDUE (objectif courant)
+static bool     killerChase = false;      // le prochain OBJ_KILL spawne un TUEUR qui fonce (post EV_MARCO_DIE)
 
 // Cible de mission (Joe : erre + fuit ; tueur : fonce sur le joueur).
 enum { T_WANDER = 0, T_FLEE = 1 };
@@ -2256,19 +2258,23 @@ static void enterObjective() {
   const MissionDef &def = curDef;
   const Objective &o = def.objectives[missionRun.step];
   narrate(o.text);
-  objBeat = 0; objElapsed = 0;             // compteurs propres a cet objectif
+  objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
+  if (o.event == EV_MARCO_JOIN) {
+    marcoWaiting = true;                          // Marco debout, attend la prise (TALK ou GOTO)
+  }
   if (o.type == OBJ_ENTER_CAR) {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
     mCarActive = true;
   } else if (o.type == OBJ_KILL && !target.active) {
-    if (missionRun.def == MISSION_DEAL) spawnTargetAt(o.x, o.y);
-    else                                spawnTargetWanderNear(o.x, o.y);
+    if (killerChase) spawnTargetAt(o.x, o.y);     // tueur (post mort de Marco) : fonce
+    else             spawnTargetWanderNear(o.x, o.y);  // PNJ qui erre/fuit (Joe, debiteur)
+  } else if (o.type == OBJ_SUBDUE && !target.active) {
+    spawnTargetAt(o.x, o.y);                       // cible nommee, immobile (le commercant)
+    target.chase = false;
   } else if (o.type == OBJ_SURVIVE) {
     int pcx = driving ? (int)car.x : playerX + PLAYER_W / 2;
     int pcy = driving ? (int)car.y : playerY + PLAYER_H / 2;
-    spawnTargetAt(pcx, pcy);               // un poursuivant te colle (pression)
-  } else if (o.type == OBJ_GOTO && missionRun.def == MISSION_DEAL && missionRun.step == 1) {
-    marcoWaiting = true;                 // Marco attend au coin de la rue
+    spawnTargetAt(pcx, pcy);
   }
 }
 
@@ -2278,6 +2284,7 @@ static void startMission(uint8_t m) {
   buildMissionRuntime(m);                 // resout les coords POI de la mission
   target.active = false; marcoWaiting = false; marcoAboard = false;
   mCarActive = false;
+  killerChase = false;
   narrate(curDef.title);                  // annonce le nom de la mission
   enterObjective();
   gb.sound.playOK();
@@ -2325,7 +2332,7 @@ static void missionProgress() {
   if (ev == EV_MARCO_JOIN) {
     marcoWaiting = false; marcoAboard = true;
   } else if (ev == EV_MARCO_DIE) {
-    marcoAboard = false;
+    marcoAboard = false; killerChase = true;
     const Objective &k = def.objectives[missionRun.step];  // KILL : coords chantier
     targetDownX = k.x; targetDownY = k.y; targetDownTimer = PED_DOWN_FRAMES;
   }
