@@ -427,13 +427,15 @@ static const Objective OBJS_JOE[] = {
 // M4 (trame) : reutilise la mecanique Marco passager -> mort -> tueur qui fonce.
 static const Objective OBJS_DEAL[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE,       "Le Garage",
-    "Marco : un dernier rendez-vous. Prends la caisse au Garage.", nullptr },
+    "Marco : un dernier rendez-vous, ce soir. Prends la caisse au Garage.", nullptr },
   { OBJ_GOTO,      0, 0, 14, true,  EV_MARCO_JOIN,  "Le Garage",
-    "Passe prendre Marco.", "Marco : roule, au Chantier." },
+    "Passe prendre Marco devant le Garage.", "Marco monte. Marco : direction le Chantier." },
   { OBJ_GOTO,      0, 0, 16, true,  EV_MARCO_DIE,   "Chantier",
-    "Conduis Marco au Chantier.", "Un type surgit... Marco s'effondre !" },
+    "Conduis Marco au Chantier. Il est nerveux ce soir.",
+    "Un type surgit de l'ombre... un coup part... Marco s'effondre !" },
   { OBJ_KILL,      0, 0,  0, false, EV_NONE,        "Chantier",
-    "Tu peux pas laisser passer ca. Bute le tueur.", "Justice est faite. ...pour l'instant." },
+    "Pas question de laisser passer ca. Rattrape le tueur.",
+    "Justice est faite. ...pour l'instant." },
 };
 // --- Combat ---
 static const Objective OBJS_FIGHT[] = {
@@ -525,25 +527,28 @@ static const Objective OBJS_PIZZA[] = {
 // --- Trame Acte I ---
 static const Objective OBJS_M1[] = {
   { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Garage",
-    "Marco t'attend au Garage. Vas-y a pied.", nullptr },
+    "Premier jour. Marco, le bras droit du patron, t'attend au Garage. Vas-y a pied.",
+    "Tu cognes a la porte du Garage : Marco, c'est l'heure !" },
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Garage",
-    "Parle a Marco.", "Marco : embarque, on a un colis a livrer." },
+    "Attends que Marco sorte, puis approche-toi.",
+    "Marco : la caisse est garee a cote. Embarque, on a un colis a livrer." },
   { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
-    "Conduis Marco aux Quais. Doucement.", nullptr },
+    "En route pour les Quais. Roule peinard, attire pas les flics.", nullptr },
   { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
-    "Livre le colis.", "Colis livre. Marco : pas mal, petit." },
+    "Depose le colis sur le quai.", "Colis livre. Marco : pas mal, pour un premier jour." },
 };
 static const Objective OBJS_M2[] = {
   { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Commerces",
-    "Tournee du racket. Suis Marco aux Commerces.", "Marco : regarde et apprends." },
+    "Jour de tournee. Marco t'emmene encaisser le loyer aux Commerces.",
+    "Marco : ce commercant fait le difficile. Regarde et apprends, petit." },
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Commerces",
-    "Le commercant refuse de payer. Corrige-le.", "Marco : voila comment on fait.",
-    3, 0 },
+    "Le commercant sort et refuse de payer. Secoue-le, mais le tue pas.",
+    "Il crache l'argent. Marco : voila comment on fait.", 3, 0 },
 };
 static const Objective OBJS_M3[] = {
   { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Chinatown",
-    "Un type nous doit de l'argent. Il traine a Chinatown.",
-    "Dette reglee. Marco : il s'en souviendra." },
+    "Un mauvais payeur se planque a Chinatown. Marco veut un exemple.",
+    "Dette reglee. Marco : il s'en souviendra... s'il s'en souvient encore." },
 };
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
@@ -678,7 +683,7 @@ static int      objSubdue = 0;            // coups portes a la cible de SUBDUE (
 static bool     killerChase = false;      // le prochain OBJ_KILL spawne un TUEUR qui fonce (post EV_MARCO_DIE)
 
 // Cible de mission (Joe : erre + fuit ; tueur : fonce sur le joueur).
-enum { T_WANDER = 0, T_FLEE = 1 };
+enum { T_WANDER = 0, T_FLEE = 1, T_EMERGE = 2 };  // T_EMERGE : sort du batiment vers son poste
 struct Target {
   float x, y; uint8_t dir; int tgtx, tgty;
   uint8_t frame, animTimer; uint8_t phase; uint16_t loseTimer;
@@ -724,6 +729,8 @@ static int  findPoi(const char *name);
 static void hurtPlayer(int dmg, bool byCop);
 static void explodeCarAt(int wx, int wy);
 static void startPanic(AiPed &p, int srcx, int srcy);
+static bool npcWalkToward(float &x, float &y, uint8_t &dir, uint8_t &frame,
+                          uint8_t &animTimer, float tx, float ty, float speed);
 static uint16_t getupFrames();
 
 // estimation RAM libre (debug serie)
@@ -782,6 +789,53 @@ static bool findSidewalkSpot(int cx, int cy, int &ox, int &oy) {
         int tx = ctx + dx, ty = cty + dy;
         if (tx < 0 || tx >= CITY_W || ty < 0 || ty >= CITY_H) continue;
         if (cityMap[ty * CITY_W + tx] == TILE_PAVEMENT) {
+          ox = tx * TILE_W + TILE_W / 2;
+          oy = ty * TILE_H + TILE_H / 2;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// Centre (px monde) d'une tuile d'IMMEUBLE (BUILDING_A/B) proche de (cx,cy) : sert
+// de point d'apparition "porte" d'ou un PNJ SORT du batiment (anim d'emergence)
+// au lieu de pop sur place. Spirale, rayon 6. false si aucun immeuble proche.
+static bool findBuildingTileNear(int cx, int cy, int &ox, int &oy) {
+  int ctx = cx >> 3, cty = cy >> 3;
+  for (int r = 1; r <= 6; r++) {
+    for (int dy = -r; dy <= r; dy++) {
+      for (int dx = -r; dx <= r; dx++) {
+        if (abs(dx) != r && abs(dy) != r) continue;            // anneau
+        int tx = ctx + dx, ty = cty + dy;
+        if (tx < 0 || tx >= CITY_W || ty < 0 || ty >= CITY_H) continue;
+        uint8_t t = cityMap[ty * CITY_W + tx];
+        if (t == TILE_BUILDING_A || t == TILE_BUILDING_B) {
+          ox = tx * TILE_W + TILE_W / 2;
+          oy = ty * TILE_H + TILE_H / 2;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// Centre (px monde) d'une tuile de ROUTE proche de (cx,cy), en PRIVILEGIANT le
+// cote droit (est) : la caisse de mission s'y gare "sur le cote" plutot que pile
+// sur le marqueur, pour laisser voir le PNJ sortir. Spirale ponderee est, r<=8.
+static bool findRoadSpotNear(int cx, int cy, int &ox, int &oy) {
+  int ctx = cx >> 3, cty = cy >> 3;
+  for (int r = 1; r <= 8; r++) {
+    // ordre de balayage : on tente les colonnes les plus a droite d'abord.
+    for (int dx = r; dx >= -r; dx--) {
+      for (int dy = -r; dy <= r; dy++) {
+        if (abs(dx) != r && abs(dy) != r) continue;            // anneau
+        int tx = ctx + dx, ty = cty + dy;
+        if (tx < 0 || tx >= CITY_W || ty < 0 || ty >= CITY_H) continue;
+        uint8_t t = cityMap[ty * CITY_W + tx];
+        if (t == TILE_ROAD_H || t == TILE_ROAD_V || t == TILE_ROAD_CROSS) {
           ox = tx * TILE_W + TILE_W / 2;
           oy = ty * TILE_H + TILE_H / 2;
           return true;
@@ -2304,9 +2358,19 @@ static void enterObjective() {
   narrate(o.text);
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
   if (o.event == EV_MARCO_JOIN) {
-    marcoWaiting = true;                          // Marco debout, attend la prise (TALK ou GOTO)
-    if (!o.requireCar && !mCarActive) {           // prise A PIED : une caisse l'attend deja sur place
-      mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
+    marcoWaiting = true;                          // Marco va apparaitre puis etre pris (TALK ou GOTO)
+    // Marco SORT d'un immeuble voisin et marche jusqu'au marqueur (anim
+    // d'emergence dans marcoUpdate), au lieu de pop sur place.
+    int bx, by;
+    if (findBuildingTileNear(o.x, o.y, bx, by)) { marcoX = (float)bx; marcoY = (float)by; }
+    else { marcoX = (float)o.x; marcoY = (float)(o.y - 3 * TILE_H); }  // repli : surgit "du nord"
+    marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
+    narrate("Marco : deux secondes petit, j'arrive !");   // reponse a l'appel
+    if (!o.requireCar && !mCarActive) {           // PRISE A PIED (M1) : une caisse attend SUR LE COTE
+      // Route a droite du batiment, pas pile sur le marqueur : vue degagee sur Marco.
+      int cx, cy;
+      if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
+      mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
       mCarActive = true;
     }
   }
@@ -2317,8 +2381,15 @@ static void enterObjective() {
     if (killerChase) spawnTargetAt(o.x, o.y);     // tueur (post mort de Marco) : fonce
     else             spawnTargetWanderNear(o.x, o.y);  // PNJ qui erre/fuit (Joe, debiteur)
   } else if (o.type == OBJ_SUBDUE && !target.active) {
-    spawnTargetAt(o.x, o.y);                       // cible nommee, immobile (le commercant)
-    target.chase = false;
+    // Le commercant SORT de sa boutique (immeuble voisin) et marche jusqu'a son
+    // poste (le marqueur), ou il se fige -- au lieu de pop sur place.
+    int bx, by;
+    if (findBuildingTileNear(o.x, o.y, bx, by)) { target.x = (float)bx; target.y = (float)by; }
+    else { target.x = (float)o.x; target.y = (float)(o.y - 3 * TILE_H); }
+    target.tgtx = o.x; target.tgty = o.y;
+    target.dir = DIR_SOUTH; target.frame = 0; target.animTimer = 0;
+    target.phase = T_EMERGE; target.loseTimer = 0;
+    target.active = true; target.chase = false;
   } else if (o.type == OBJ_SURVIVE) {
     int pcx = driving ? (int)car.x : playerX + PLAYER_W / 2;
     int pcy = driving ? (int)car.y : playerY + PLAYER_H / 2;
@@ -2384,6 +2455,12 @@ static void missionProgress() {
   s.elapsed = objElapsed;
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
+  // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
+  // de SORTIR et de rejoindre son poste, pour qu'on le voie arriver ("j'arrive !").
+  if (cur.type == OBJ_TALK && cur.event == EV_MARCO_JOIN && marcoWaiting) {
+    float ddx = marcoX - (float)cur.x, ddy = marcoY - (float)cur.y;
+    if (ddx * ddx + ddy * ddy > 4.0f) return;
+  }
   if (!missionObjectiveDone(cur, s)) return;
 
   const Objective &done = def.objectives[missionRun.step];  // objectif accompli
@@ -2394,9 +2471,7 @@ static void missionProgress() {
     if (driving) {                                // deja au volant (M4) : Marco monte direct
       marcoAboard = true;
     } else {                                      // a pied (M1) : Marco nous emboite le pas
-      marcoFollow = true;
-      marcoX = (float)done.x; marcoY = (float)done.y;  // depart la ou il attendait
-      marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
+      marcoFollow = true;                          // reprend sa position courante (deja sorti)
     }
   } else if (ev == EV_MARCO_DIE) {
     marcoAboard = false; killerChase = true;
@@ -2423,7 +2498,14 @@ static void missionProgress() {
 // Plus animation et ecrasement par la voiture lancee. (fcx,fcy) = repere joueur.
 static void missionUpdate(int fcx, int fcy) {
   if (!missionRun.active || !target.active) return;
-  if (curObjs[missionRun.step].type == OBJ_SUBDUE) { return; }   // cible immobile (le commercant)
+  if (curObjs[missionRun.step].type == OBJ_SUBDUE) {             // commercant : sort puis se fige
+    if (target.phase == T_EMERGE &&
+        npcWalkToward(target.x, target.y, target.dir, target.frame,
+                      target.animTimer, (float)target.tgtx, (float)target.tgty,
+                      TARGET_WANDER_SPEED))
+      target.phase = T_WANDER;                                  // arrive a son poste
+    return;
+  }
 
   if (target.chase) {
     missionChaseStep(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
@@ -2467,14 +2549,36 @@ static void missionUpdate(int fcx, int fcy) {
   }
 }
 
-// Marco companion (a pied) : nous suit en gardant une distance de confort, et
-// embarque automatiquement des qu'on prend une voiture. (fcx,fcy) = repere
-// joueur (centre px). Sans effet hors de l'etat marcoFollow.
+// Avance (x,y) vers (tx,ty) a `speed` px/frame, oriente le sprite et anime la
+// marche. Renvoie true une fois arrive (a moins de `speed` du but : pose neutre).
+static bool npcWalkToward(float &x, float &y, uint8_t &dir, uint8_t &frame,
+                          uint8_t &animTimer, float tx, float ty, float speed) {
+  float dx = tx - x, dy = ty - y;
+  float d2 = dx * dx + dy * dy;
+  if (d2 <= speed * speed) { x = tx; y = ty; frame = 0; return true; }
+  float d = sqrtf(d2);
+  x += dx / d * speed; y += dy / d * speed;
+  if (fabsf(dx) > fabsf(dy)) dir = (dx > 0) ? DIR_EAST : DIR_WEST;
+  else                       dir = (dy > 0) ? DIR_SOUTH : DIR_NORTH;
+  if (++animTimer >= AI_PED_ANIM) { animTimer = 0; frame ^= 1; }
+  return false;
+}
+
+// Marco companion (a pied). Trois temps : il SORT du batiment et marche jusqu'au
+// marqueur (marcoWaiting), puis nous SUIT a distance de confort (marcoFollow), et
+// EMBARQUE des qu'on prend une voiture. (fcx,fcy) = repere joueur (centre px).
 static void marcoUpdate(int fcx, int fcy) {
-  if (!missionRun.active || !marcoFollow) return;
+  if (!missionRun.active) return;
+  if (marcoWaiting) {                              // emergence : il rejoint le marqueur a pied
+    const Objective &o = curObjs[1];
+    npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
+                  (float)o.x, (float)o.y, MARCO_FOLLOW_SPEED);
+    return;
+  }
+  if (!marcoFollow) return;
   if (driving) {                                   // on vient de monter -> Marco embarque
     marcoFollow = false; marcoAboard = true;
-    narrate("Marco embarque.");
+    narrate("Marco : roule, je monte derriere.");
     gb.sound.playOK();
     return;
   }
@@ -2733,12 +2837,8 @@ static void drawMissionCar(int camX, int camY) {
 // bord (marcoAboard) il n'est plus dessine separement.
 static void drawMarco(int camX, int camY) {
   if (!missionRun.active) return;
-  if (marcoWaiting) {
-    const Objective &o = curObjs[1];      // Marco attend au marqueur de l'objectif 1
-    blitPed(camX, camY, o.x, o.y, DIR_SOUTH, 0, MARCO_COLOR);
-  } else if (marcoFollow) {
+  if (marcoWaiting || marcoFollow)        // sort du batiment / attend / nous suit
     blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, MARCO_COLOR);
-  }
 }
 
 // Marqueur de destination clignotant (objectif GOTO / ENTER_CAR).
