@@ -883,6 +883,8 @@ void setup() {
   targetDownTimer = 0;
   mCarActive = false; carIsMission = false;
   marcoWaiting = false; marcoAboard = false;
+  killerChase = false;
+  campaignStep = 0; storyMissionActive = false; missionFailedTimer = 0;  // trame remise a zero
   narrHead = 0; narrCount = 0; narrTimer = 0;
 }
 
