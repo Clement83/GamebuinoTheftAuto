@@ -1128,7 +1128,7 @@ void setup() {
   hospInside = false; crushReward = 0;
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
-  playerMoney = 10000;                         // pecule de depart (confort de test)
+  playerMoney = 10;                            // pecule de depart
   moneyShown = playerMoney; moneyRollStep = 1; moneyGainAmt = 0; moneyGainTimer = 0;
   for (int i = 0; i < NUM_LOOT; i++) loots[i].active = false;
   for (int i = 0; i < NUM_BULLETS; i++) bullets[i].active = false;
