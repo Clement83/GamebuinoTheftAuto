@@ -567,13 +567,14 @@ static const MissionDef MISSIONS[] = {
   // (cf. campagne.md, mission M4).
   { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
   { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
+  { "Les assurances",   OBJS_M2, 2, 150, true },   // index 17 = M2 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
 // Sequence des missions de trame : campaignStep -> index dans MISSIONS[].
 // (M1/M2/M3 ajoutees en fin de MISSIONS[] par une tache ulterieure ; M4 = MISSION_DEAL reusine.)
 #define ACT1_LAST 4
-static const uint8_t STORY_SEQ[ACT1_LAST] = { 16, MISSION_DEAL, MISSION_DEAL, MISSION_DEAL };
+static const uint8_t STORY_SEQ[ACT1_LAST] = { 16, 17, MISSION_DEAL, MISSION_DEAL };
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
 //     Position voulue en TUILES ; setup() la snappe sur la case libre la plus
