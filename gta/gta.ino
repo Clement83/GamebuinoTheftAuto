@@ -272,7 +272,7 @@ static const uint16_t OVERLAY_FRAMES = 55;   // ~2.2 s
 //     fumee, explosion...) continue de tourner. Petite machine d'etats par
 //     phases + minuterie. La teleportation / revie se fait DERRIERE l'ecran
 //     noir, en fin de sequence (et non plus instantanement comme avant). ---
-enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY, SEQ_HEAL, SEQ_CRUSH };
+enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY, SEQ_HEAL, SEQ_CRUSH, SEQ_SLEEP };
 enum { PH_EXPLODE, PH_MSG, PH_FADE, PH_IN, PH_SPRAY, PH_OUT,
        PH_HEAL, PH_SWING, PH_CARRY, PH_CRUSH, PH_EJECT };
 static uint8_t  seqKind  = SEQ_NONE;
@@ -289,8 +289,10 @@ static const uint16_t SEQ_SWING_FRAMES = 30;    // fleche pivote vers la voiture
 static const uint16_t SEQ_CARRY_FRAMES = 32;    // fleche repivote avec la voiture vers le broyeur
 static const uint16_t SEQ_CRUSH_FRAMES = 30;    // broyage de l'epave
 static const uint16_t SEQ_EJECT_FRAMES = 16;    // prime affichee + ejection
+static const uint16_t SEQ_SLEEP_FRAMES = 45;    // ~1.8 s : ecran noir du dodo (Planque)
 static const int32_t  HEAL_COST   = 40;         // $ d'un soin complet a l'hopital
 static bool           hospInside  = false;      // dans la bbox hopital a la frame -1
+static bool           commInside  = false;      // dans la bbox commissariat a la frame -1
 static int32_t        crushReward = 0;          // prime de la casse (broyage), pour l'affichage
 
 // ---------------------------------------------------------------------------
@@ -1122,6 +1124,7 @@ void setup() {
   casinoPoiIdx = findPoi("Le Casino");
   casinoOpen = false; casinoState = CASINO_IDLE; casinoBet = 1;
   casinoWinToast = 0; casinoLastWin = 0;
+  hospInside = false; commInside = false;
 
   casseArm = 0; carGone = false;
 
@@ -1743,6 +1746,14 @@ static void startHealSeq() {
   int32_t pay = playerMoney < HEAL_COST ? playerMoney : HEAL_COST;
   playerMoney -= pay;
   narrate("Soigne. -$40");
+}
+
+// Dormir a la Planque (entree a pied, presser A) : ecran noir bref puis reveil
+// devant la porte, vie pleine (3 coeurs ROUGES, gilet retire). Gratuit.
+static void startSleepSeq() {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_SLEEP; seqPhase = PH_FADE; seqTimer = SEQ_SLEEP_FRAMES;
+  gb.sound.tone(330, 120); gb.sound.tone(247, 180);   // petit air de dodo
 }
 
 // Enfile le gilet pare-balles : +3 PV (les points du dessus, bleus), plafonne a
@@ -2688,6 +2699,51 @@ static void addMoney(int32_t amount) {
   if (step > moneyRollStep) moneyRollStep = step;       // gains cumules : on roule au moins aussi vite
 }
 
+// --- Le Bar : tournee du vieux poivrot --------------------------------------
+// Presser A dans la bbox "Le Bar" : -10 $ et une replique au hasard (univers
+// GTA, ton rigolard). Si trop fauche : pas de verre.
+static const char *BAR_LINES[10] = {
+  "Le vieux: repeins ta caisse au Pay'n'Spray, les poulets te calculent plus!",
+  "Le vieux: a ton age je braquais 3 superettes avant le cafe.",
+  "Le vieux: la Casse paye bien... surtout les caisses qui sont pas a toi.",
+  "Le vieux: un bazooka a l'AMU Nation, moins cher qu'un bon dentiste.",
+  "Le vieux: les poulets courent vite, mais pas plus qu'une bonne caisse.",
+  "Le vieux: paie-moi un coup et je te dis ou est planque le fric... j'ai oublie.",
+  "Le vieux: dors a la planque gamin, meme les durs ont besoin d'un dodo.",
+  "Le vieux: j'ai vu un gus sauter par-dessus 3 bagnoles. C'etait toi?",
+  "Le vieux: le casino t'aime pas, la maison gagne toujours. Crois le vieux.",
+  "Le vieux: sante! A la tienne et a celle des pigeons du parc.",
+};
+static void barDrink() {
+  if (playerMoney < 10) { narrate("Le barman: pas de thune, pas de tournee."); gb.sound.tone(120, 120); return; }
+  addMoney(-10);
+  narrate(BAR_LINES[aiRngNext(aiRng) % 10]);
+  gb.sound.tone(330, 50); gb.sound.tone(294, 70);       // glouglou
+}
+
+// --- Les Commerces : braquage -----------------------------------------------
+// Presser A dans la bbox "Commerces" : chance de reussite selon l'arme tenue.
+// Reussite -> +100 $ ; echec -> -1 PV (le commercant riposte).
+static void robStore() {
+  if (seqKind != SEQ_NONE || playerDown) return;
+  uint8_t chance;
+  switch (curWeapon) {
+    case WEAPON_PISTOL:               chance = 30;  break;
+    case WEAPON_SMG: case WEAPON_SHOTGUN: chance = 80;  break;
+    case WEAPON_BAZOOKA: case WEAPON_GRENADE: chance = 100; break;
+    default:                          chance = 10;  break;   // poing / mains nues
+  }
+  if ((uint8_t)(aiRngNext(aiRng) % 100) < chance) {
+    addMoney(100);
+    narrate("Braquage reussi ! +$100");
+    gb.sound.tone(988, 60); gb.sound.playOK();            // cha-ching
+  } else {
+    narrate("Braquage rate ! Le commercant riposte. -1 PV");
+    gb.sound.tone(160, 160);
+    hurtPlayer(1, false);
+  }
+}
+
 // Anime la cagnotte chaque frame : moneyShown rattrape playerMoney en roulant
 // (gain) ou d'un coup (depense). Petit "tic" sonore pendant la montee.
 static void updateMoneyAnim() {
@@ -3523,7 +3579,12 @@ static void updateSequence() {
     case PH_MSG:                                 // le bandeau a tenu sa duree
       seqPhase = PH_FADE; seqTimer = SEQ_FADE_FRAMES; break;
     case PH_FADE:                                // derriere l'ecran noir : revie + TP
-      reviveCommon(); respawnAtPoi(seqPoi);
+      if (seqKind == SEQ_SLEEP) {                 // dodo : juste soin + repositionnement
+        playerHearts = PLAYER_HEARTS_MAX;         // reveil : 3 coeurs rouges
+        respawnAtPoi("Planque");                  // devant la porte, pret a partir
+      } else {                                    // mort / arrestation : revie complete
+        reviveCommon(); respawnAtPoi(seqPoi);
+      }
       seqKind = SEQ_NONE; seqPhase = 0; overlayMsg = nullptr; break;
     case PH_IN:                                  // la caisse a disparu dans le garage
       seqPhase = PH_SPRAY; seqTimer = SEQ_SPRAY_FRAMES; break;
@@ -3688,6 +3749,8 @@ static void drawSequence(int camX, int camY) {
   }
   if (seqPhase == PH_FADE) {                      // ecran noir plein avant la TP
     for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0000;
+    if (seqKind == SEQ_SLEEP)                      // dodo : petit "Zzz" centre
+      printShadowCol((SCREEN_W - 3 * 4) / 2, SCREEN_H / 2 - 3, "Zzz", 0x7BEF);
     return;
   }
   if (seqPhase == PH_MSG && overlayMsg) {         // bandeau mort / arrestation
@@ -3779,11 +3842,32 @@ static void drawSlotReel(int x, int y, uint8_t sym) {
   gb.display.print(SLOT_CHAR[sym]);
 }
 
-// Amorce un spin : borne la mise au solde, deduit, demarre l'animation.
+// Repliques du videur quand on tente de jouer sans un rond.
+static const char *BOUNCER_LINES[6] = {
+  "Le videur: pas de fric, pas de jackpot. Dehors!",
+  "Le videur: reviens quand t'auras de quoi miser, clodo.",
+  "Le videur: ici c'est pas la soupe populaire. Ouste!",
+  "Le videur: tu mises avec quoi, des boutons? Dehors!",
+  "Le videur: les fauches, c'est sur le trottoir. Allez!",
+  "Le videur: la maison gagne, toi tu perds meme l'entree.",
+};
+
+// Tentative de jeu sans assez d'argent : le videur te vire. On ferme la machine,
+// le joueur se retrouve allonge devant (se releve seul), -1 PV, et une replique.
+static void casinoBouncerThrowOut() {
+  casinoOpen = false;
+  narrate(BOUNCER_LINES[aiRngNext(aiRng) % 6]);
+  gb.sound.tone(120, 220);
+  hurtPlayer(1, false);          // -1 PV (avant le knockdown, sinon ignore)
+  knockdownPlayer(false);        // allonge devant la porte, relevage auto
+}
+
+// Amorce un spin : borne la mise au solde, deduit, demarre l'animation. Si le
+// joueur est trop fauche pour miser, le videur le sort de force.
 static void casinoSpinStart() {
   int32_t maxBet = playerMoney < CASINO_BET_MAX ? playerMoney : CASINO_BET_MAX;
   if (casinoBet > maxBet) casinoBet = maxBet;
-  if (casinoBet < 1 || playerMoney < casinoBet) { gb.sound.tone(120, 120); return; }
+  if (casinoBet < 1 || playerMoney < casinoBet) { casinoBouncerThrowOut(); return; }
   addMoney(-casinoBet);                         // depense : pas d'animation HUD
   casinoState   = CASINO_SPINNING;
   casinoSpinTimer = 0;
@@ -3958,6 +4042,15 @@ void loop() {
         casinoRng ^= ((uint32_t)missionAnim << 16) ^ ((uint32_t)playerX << 8)
                    ^ (uint32_t)playerY ^ 0x9E3779B9u;   // melange un peu d'entropie
         gb.sound.playOK(); answered = true;
+      }
+      // Autres POI a "porte" (a pied, A sur la bbox) : Planque (dodo), Le Bar
+      // (tournee du poivrot), Les Commerces (braquage).
+      if (!answered) {
+        int pt = poiAtTile(pcx >> 3, pcy >> 3);
+        const char *pn = (pt >= 0) ? cityPois[pt].name : "";
+        if (strcmp(pn, "Planque") == 0)        { startSleepSeq(); answered = true; }
+        else if (strcmp(pn, "Le Bar") == 0)    { barDrink();      answered = true; }
+        else if (strcmp(pn, "Commerces") == 0) { robStore();      answered = true; }
       }
       if (!answered && !missionRun.active) {
         for (int i = 0; i < NUM_PHONES; i++) {
@@ -4167,6 +4260,19 @@ void loop() {
     else narrate("Pas assez ($40)");
   }
   hospInside = onHosp;
+
+  // Commissariat : entrer (a pied ou en caisse) avec au moins une etoile ->
+  // arrestation directe (meme cinematique que dans la rue). Une fois par entree.
+  bool onComm = false;
+  if (seqKind == SEQ_NONE && !playerDown) {
+    int cxw = driving ? (int)car.x : playerX + PLAYER_W / 2;
+    int cyw = driving ? (int)car.y : playerY + PLAYER_H / 2;
+    int pt = poiAtTile(cxw >> 3, cyw >> 3);
+    onComm = (pt >= 0 && strcmp(cityPois[pt].name, "Commissariat") == 0);
+  }
+  if (onComm && !commInside && wanted.level >= 1) bustedPlayer();
+  commInside = onComm;
+
   // Sonnerie : au repos, le telephone fixe le plus proche sonne s'il est dans
   // le cercle audible. Melodie deux tons (sinon muet).
   if (!missionRun.active) {

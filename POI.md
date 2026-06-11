@@ -25,15 +25,19 @@ déclenche l'effet.
 | HUD billet + montant | ✅ Fait | `"$<montant>"` en vert sous les cœurs (`drawTopHud`). |
 | Gain : pietons abattus | ✅ Fait | À la mort d'un piéton (poing/arme/écrasement), 40 % de chance de lâcher un billet (5–50 $) et 12 % une arme de poing (pistolet + munitions). Butin au sol ramassé à pied (`loots[]`, `dropLoot`, `tryPickupLoot`). |
 | Gain : missions | ✅ Fait | Récompense en $ à la complétion (champ `reward` sur `MissionDef`, crédité dans `missionProgress` ; narration « Mission ! +$nnn » + cha-ching). Primes 120–500 $ selon la mission. |
-| Gain : ventes (casse, etc.) | ⏳ À faire | cf. POI ci-dessous. |
-| Dépense : achats/services | 🔜 En cours de spec | cf. POI interactifs. |
+| Gain : ventes (casse, etc.) | ✅ Fait | Broyeur de La Casse (prime selon `carHp`). |
+| Gain/dépense : jeu (casino) | ✅ Fait | Machine à sous du Casino (mise / gains, retour ~0,90). |
+| Gain : braquage (Commerces) | ✅ Fait | +100 $ si réussite (proba selon l'arme), sinon -1 PV. |
+| Dépense : achats/services | ✅ Fait | Hôpital (soin 40 $), AMU Nation (armes), Pay'n'Spray (peinture), Le Bar (verre 10 $). |
+| Pénalité : arrestation/mort | ✅ Fait | Perte de la moitié du fric (commissariat / hôpital). |
 
 ---
 
 ## POI existants (générés)
 
 Ces POI sont déjà posés sur la carte et détectés (bandeau HUD + ancrage de
-missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
+missions). Plusieurs sont désormais **interactifs** (✅) ; les autres restent
+des repères/ancres de mission sans action propre.
 
 | POI | Type généré | Rôle actuel | Interactivité visée | État |
 |---|---|---|---|---|
@@ -41,9 +45,15 @@ missions). Aucun n'est encore *interactif* au sens « j'achète / je vends ».
 | **Chinatown** | quartier thématique | repère + ancrage mission | (ambiance) | ⏳ |
 | **Chantier** (construction) | quartier thématique | repère + ancrage mission | (ambiance) | ⏳ |
 | **La Casse** (junkyard) | quartier thématique | repère + ancrage mission | **Grue → broyeur** : vendre/détruire sa caisse contre $ | ✅ Fait |
-| **Commissariat** (police) | stamp 3×3 | repère | (entrer = prison/relâche si arrêté) | ⏳ idée |
+| **Le Casino** | stamp 3×3 | repère + ancrage M18 | **Machine à sous** : miser, faire tourner les rouleaux | ✅ Fait |
+| **Commissariat** (police) | stamp 3×3 | repère + ancrage M7 | **Arrestation** : entrer avec ≥1 étoile → busted | ✅ Fait |
 | **Hôpital** | stamp 3×3 | repère + ancrage mission | **Soin** : entrer → vie restaurée (payant) | ✅ Fait |
 | **Pompiers** | stamp 3×3 | repère + ancrage mission | (camion de pompiers / mission incendie) | ⏳ idée |
+| **Le Garage** | stamp 3×3 | ancrage M1/M7/M8 | (réparer/repeindre sa caisse) | ⏳ idée |
+| **Le Bar** | stamp 3×3 | ancrage M5 | **Tournée du poivrot** : -10 $, réplique au hasard | ✅ Fait |
+| **Les Bureaux** | stamp 3×3 | ancrage M15 | — | ⏳ |
+| **Les Commerces** | stamp 3×3 | ancrage racket M2/M9 | **Braquage** : réussite selon l'arme (+100 $ / -1 PV) | ✅ Fait |
+| **Planque** | stamp 3×3 | base joueur + tél rouge trame | **Dormir** : écran noir → vie pleine (3 ❤). Tél rouge à venir | ✅ dodo / ⏳ trame |
 
 **Découpage complet en quartiers** : ✅ Fait. En plus des 4 quartiers
 thématiques, **chaque district** reçoit désormais un nom (style GTA :
@@ -125,6 +135,72 @@ dessinés sur l'aperçu PNG (`render_png`).
   (≈40–160 $). La voiture broyée disparaît (`carGone`) : plus dessinée ni
   re-montable tant qu'on n'en vole pas une autre.
 
+### 5. Le Casino — machine à sous 🎰 *(POI déjà présent)*
+- **Service** : entrer à pied sur une tuile du POI « Le Casino » (là où le
+  bandeau s'affiche) et presser **A** → ouvre une **machine à sous** modale
+  (monde gelé, comme le magasin AMU). **Haut/Bas** règle la mise (1–50 $,
+  plafonnée par le solde), **B** = mise max, **A** = lancer, **MENU** = sortir
+  (comme pour sortir d'une voiture).
+- **Implémentation** :
+  - Logique de tirage/gains **pure** dans `gta/slot.h` (`slotEvaluate`,
+    `slotNext` xorshift), couverte par `tools/host_test/test_slot_host.cpp`.
+  - 5 symboles, rouleaux animés s'arrêtant un par un ; rendu procédural
+    (`drawSlotReel`, pas de nouvelles tuiles). Entrée via
+    `poiAtTile == findPoi("Le Casino")`.
+  - Table de gains (×mise, total recrédité) : 🍒×3 = ×4, 🍋×3 = ×5, 🔔×3 = ×10,
+    BAR×3 = ×20, 7×3 = ×50, deux cerises = ×2. Retour moyen ~0,90 (avantage
+    maison ~10 % → pas de farm d'argent infini).
+- **État** : ✅ Fait. (Le POI reste aussi l'ancre du boss final M18 de la
+  campagne — les deux usages coexistent.)
+
+### 6. La Planque — dormir 😴 *(POI déjà présent)*
+- **Service** : à pied sur la bbox « Planque », presser **A** → **dodo**. Écran
+  qui devient noir (petit « Zzz »), puis réveil **devant la porte** avec la vie
+  pleine (**3 cœurs rouges**, gilet retiré). Gratuit.
+- **Implémentation** : nouvelle séquence `SEQ_SLEEP` (réutilise la phase
+  `PH_FADE` : écran noir N frames → `playerHearts = PLAYER_HEARTS_MAX` +
+  `respawnAtPoi("Planque")`). N'efface ni les étoiles ni la mission en cours
+  (≠ mort/arrestation). *(La Planque hébergera aussi le téléphone rouge de la
+  trame, à venir.)*
+- **État** : ✅ Fait (dodo). ⏳ Téléphone rouge (campagne).
+
+### 7. Le Bar — la tournée du poivrot 🍺 *(POI déjà présent)*
+- **Service** : à pied sur la bbox « Le Bar », **A** → **-10 $** et une
+  **réplique au hasard** d'un vieux poivrot (10 lignes, ton GTA rigolard :
+  Pay'n'Spray & poulets, La Casse, AMU Nation, casino…). Trop fauché (< 10 $) :
+  pas de verre.
+- **Implémentation** : `barDrink()` — `addMoney(-10)`, `narrate(BAR_LINES[rng%10])`.
+- **État** : ✅ Fait.
+
+### 8. Les Commerces — braquage 🔫 *(POI déjà présent)*
+- **Service** : à pied sur la bbox « Commerces », **A** → tentative de braquage.
+  **Réussite → +100 $** ; **échec → -1 PV** (le commerçant riposte). La proba
+  dépend de l'**arme tenue** :
+
+  | Arme sélectionnée | Réussite |
+  |---|---|
+  | Aucune (poing) | 10 % |
+  | Pistolet | 30 % |
+  | Pompe / PM (SMG) | 80 % |
+  | Grenade / Bazooka | 100 % |
+
+- **Implémentation** : `robStore()` — proba selon `curWeapon`, `aiRngNext % 100`,
+  `addMoney(100)` ou `hurtPlayer(1, false)`.
+- **État** : ✅ Fait.
+
+### 9. Commissariat — arrestation 🚓 *(POI déjà présent)*
+- **Service** : entrer (à pied **ou** en voiture) dans la bbox « Commissariat »
+  avec **au moins une étoile** → **arrestation directe** (même cinématique
+  `SEQ_BUSTED` que dans la rue : bandeau « ARRETE », écran noir, perte de la
+  moitié du fric, étoiles remises à zéro, réapparition au commissariat).
+- **Implémentation** : détection d'entrée (`poiAtTile`, flag `commInside` pour
+  ne déclencher qu'une fois) + `wanted.level >= 1` → `bustedPlayer()`.
+- **État** : ✅ Fait.
+
+> **Bonus casino** : tenter de lancer la machine à sous **sans assez d'argent**
+> → le **videur** te sort de force : tu te retrouves **allongé devant** (relevage
+> auto), **-1 PV**, et une réplique au hasard (`casinoBouncerThrowOut`).
+
 ---
 
 ## POI supplémentaires pertinents (proposés)
@@ -160,7 +236,7 @@ forcément de nouvelles tuiles). Bandeau HUD + ancrage de missions par nom
 | **Le Garage** | Garage de Marco puis QG de Tony. | M1, M7, M8 | ⏳ À faire |
 | **Le Bar** | Nico traîne devant. | M5 | ⏳ À faire |
 | **Les Bureaux** | Bureaux de Victor (dossiers à dérober). | M15 | ⏳ À faire |
-| **Le Casino** | Repaire final de Victor. | M18 | ⏳ À faire |
+| **Le Casino** | Repaire final de Victor. POI déjà posé + **machine à sous** interactive (cf. POI #5). | M18 | ✅ POI posé ; M18 ⏳ |
 | **Les Commerces** | Rangée de 3 supérettes (repères fixes) pour le racket et son callback. | M2, M9 | ⏳ À faire |
 
 POI **existants réutilisés** par la campagne (aucun nouveau travail) : **Les
@@ -203,3 +279,8 @@ de Marco M4 ; ancienne usine de Rico M11), **Commissariat** (planque M7),
 5. ~~**Pay'n'Spray** : remplacer les positions provisoires par les bons spots~~
    ✅ Fait (positions générées en bord de route, côté sans trottoir). Reste
    éventuellement : passer à un vrai stamp/tuiles dédiés (cf. POI #3).
+6. ~~**Le Casino** : machine à sous~~ ✅ Fait (mini-jeu modal, `slot.h` + host test).
+7. ~~**Planque** (dodo), **Le Bar** (poivrot), **Les Commerces** (braquage),
+   **Commissariat** (arrestation)~~ ✅ Fait.
+8. **Prochains POI interactifs** au choix : Le Garage (réparer/peindre la
+   caisse), Pompiers (mission incendie), Les Bureaux. Même patterns que ci-dessus.
