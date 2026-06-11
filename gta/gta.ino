@@ -644,6 +644,8 @@ static bool      carGone        = false;   // voiture du joueur broyee / inexist
 static MissionRun missionRun = { 0, 0, false };
 static uint8_t campaignStep = 0;          // prochaine mission de trame (0..3 = M1..M4 ; 4 = Acte I fini)
 static bool    storyMissionActive = false;// la mission en cours est-elle une mission de trame ?
+static uint16_t missionFailedTimer = 0;   // >0 : overlay plein ecran "MISSION ECHOUEE"
+static const uint16_t MISSION_FAIL_FRAMES = 50;  // ~2 s a 25 fps
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
 
 // Copie runtime des objectifs de la mission active : les coords des objectifs
@@ -1415,6 +1417,7 @@ static void reviveCommon() {
     missionRun.active = false; target.active = false;
     marcoWaiting = false; marcoAboard = false;
     mCarActive = false;
+    storyMissionActive = false; killerChase = false;
   }
 }
 
@@ -2310,6 +2313,8 @@ static void failMission(const char *msg) {
   missionRun.active = false;
   target.active = false; marcoWaiting = false; marcoAboard = false;
   mCarActive = false; carIsMission = false;
+  killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
+  missionFailedTimer = MISSION_FAIL_FRAMES;
   gb.sound.playCancel();
 }
 
@@ -3243,6 +3248,18 @@ void loop() {
   // Magasin ouvert (AMU Nation) : UI modale, monde gele. On traite la nav et on
   // dessine le menu, puis on sort de la frame.
   if (shopOpen) { updateShop(); drawShop(); return; }
+
+  if (missionFailedTimer > 0) {
+    missionFailedTimer--;
+    fb = gb.display._buffer;
+    for (int y = 26; y < 38; y++)                 // bande centrale assombrie
+      for (int x = 0; x < SCREEN_W; x++)
+        fb[y * SCREEN_W + x] = 0x0000;
+    gb.display.setColor(WHITE);
+    gb.display.setCursor(9, 29);
+    gb.display.print("MISSION ECHOUEE");
+    return;                                        // monde gele pendant l'overlay
+  }
 
   // Cinematique en cours (mort / arrestation / repeinture) : le joueur est fige,
   // aucun input ne passe. Le monde (IA, police, fumee...) tourne quand meme,
