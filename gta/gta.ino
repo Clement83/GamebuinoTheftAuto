@@ -31,6 +31,7 @@
 #include "weapons.h"
 #include "weapons_gfx.h"
 #include "wanted.h"
+#include "slot.h"
 
 // L'enum WeaponId (weapons.h) et les sprites (weapons_gfx.h) doivent rester
 // alignes : meme nombre, meme ordre (cf. tools/build_weapons.py).
@@ -838,6 +839,23 @@ static const uint8_t SHOP_ARMOR = WEAPON_COUNT;
 static bool    shopOpen = false;
 static uint8_t shopSel  = WEAPON_PISTOL;   // ligne surlignee (WEAPON_PISTOL..SHOP_ARMOR)
 
+// --- Casino : machine a sous (UI modale, comme le magasin AMU) ---
+// On entre a portee de la porte (POI "Le Casino") + A ; on sort avec MENU
+// (comme pour sortir d'une voiture). Logique de tirage/gains : slot.h (pur).
+#define CASINO_IDLE     0
+#define CASINO_SPINNING 1
+static const int32_t CASINO_BET_MAX = 50;   // mise plafond ($)
+static bool     casinoOpen   = false;
+static int      casinoPoiIdx = -1;                // index du POI "Le Casino"
+static int32_t  casinoBet    = 1;
+static uint8_t  casinoState  = CASINO_IDLE;
+static uint8_t  casinoReel[3] = { SYM_SEVEN, SYM_SEVEN, SYM_SEVEN };
+static uint8_t  casinoStop[3] = { 0, 0, 0 };      // frame d'arret par rouleau
+static uint8_t  casinoSpinTimer = 0;
+static int32_t  casinoLastWin   = 0;
+static uint16_t casinoWinToast  = 0;              // frames d'affichage du resultat
+static uint32_t casinoRng       = 0x1234567u;     // graine xorshift
+
 // La Casse (broyeur) : GARER sa caisse sur la zone (point fixe genere
 // cityCasse), DESCENDRE, et rester a portee -> la grue s'amorce puis broie
 // l'epave contre une prime (selon les PV). Si on est au volant la grue ne se
@@ -1098,6 +1116,13 @@ void setup() {
     ammuPy[i] = cityAmmus[i].ty * TILE_H + TILE_H / 2;
   }
   shopOpen = false; shopSel = WEAPON_PISTOL;
+
+  // Casino : ouvrable dans toute la bbox du POI (la ou le bandeau affiche
+  // "Le Casino"). Pas de donnees a regenerer.
+  casinoPoiIdx = findPoi("Le Casino");
+  casinoOpen = false; casinoState = CASINO_IDLE; casinoBet = 1;
+  casinoWinToast = 0; casinoLastWin = 0;
+
   casseArm = 0; carGone = false;
 
   // Armes : seul le poing au depart ; pickups poses sur une case libre proche
@@ -3738,6 +3763,99 @@ static void drawShop() {
   }
 }
 
+// --- Casino : machine a sous ---------------------------------------------
+
+// Apparence d'un symbole : couleur de fond + glyphe. Indexe par SlotSym.
+static const uint16_t SLOT_COL[SYM_COUNT]  = { 0xF800, 0xFFE0, 0xFD20, 0x07FF, 0xFFFF };
+static const char     SLOT_CHAR[SYM_COUNT] = { 'C',    'L',    'O',    '=',    '7'    };
+
+// Dessine un rouleau (case 15x15) avec le symbole sym a (x,y).
+static void drawSlotReel(int x, int y, uint8_t sym) {
+  gb.display.setColor(BLACK);
+  gb.display.fillRect(x, y, 15, 15);
+  gb.display.setColor((Color)SLOT_COL[sym]);
+  gb.display.drawRect(x, y, 15, 15);
+  gb.display.setCursor(x + 6, y + 5);          // glyphe ~4x6, centre
+  gb.display.print(SLOT_CHAR[sym]);
+}
+
+// Amorce un spin : borne la mise au solde, deduit, demarre l'animation.
+static void casinoSpinStart() {
+  int32_t maxBet = playerMoney < CASINO_BET_MAX ? playerMoney : CASINO_BET_MAX;
+  if (casinoBet > maxBet) casinoBet = maxBet;
+  if (casinoBet < 1 || playerMoney < casinoBet) { gb.sound.tone(120, 120); return; }
+  addMoney(-casinoBet);                         // depense : pas d'animation HUD
+  casinoState   = CASINO_SPINNING;
+  casinoSpinTimer = 0;
+  casinoStop[0] = 24; casinoStop[1] = 38; casinoStop[2] = 52;  // arrets echelonnes
+  casinoLastWin = 0; casinoWinToast = 0;
+  gb.sound.playOK();
+}
+
+static void updateCasino() {
+  // MENU : sortir (comme pour sortir d'une voiture).
+  if (gb.buttons.pressed(BUTTON_MENU)) { casinoOpen = false; gb.sound.playCancel(); return; }
+
+  if (casinoState == CASINO_IDLE) {
+    int32_t maxBet = playerMoney < CASINO_BET_MAX ? playerMoney : CASINO_BET_MAX;
+    if (gb.buttons.repeat(BUTTON_UP, 4)   && casinoBet < maxBet) { casinoBet++; gb.sound.playTick(); }
+    if (gb.buttons.repeat(BUTTON_DOWN, 4) && casinoBet > 1)      { casinoBet--; gb.sound.playTick(); }
+    if (gb.buttons.pressed(BUTTON_B) && maxBet >= 1)   { casinoBet = maxBet; gb.sound.playTick(); }
+    if (gb.buttons.pressed(BUTTON_A))                  casinoSpinStart();
+    if (casinoWinToast > 0) casinoWinToast--;
+    return;
+  }
+
+  // SPINNING : chaque rouleau defile puis se fige a sa frame d'arret.
+  casinoSpinTimer++;
+  for (int r = 0; r < 3; r++) {
+    if (casinoSpinTimer < casinoStop[r]) {
+      if ((casinoSpinTimer & 1) == 0) casinoReel[r] = slotNext(&casinoRng);  // defile
+    } else if (casinoSpinTimer == casinoStop[r]) {
+      casinoReel[r] = slotNext(&casinoRng);     // symbole final
+      gb.sound.playTick();
+    }
+  }
+  if (casinoSpinTimer > casinoStop[2]) {        // les 3 sont arretes : on solde
+    int32_t win = slotEvaluate(casinoReel[0], casinoReel[1], casinoReel[2], casinoBet);
+    casinoLastWin = win;
+    if (win > 0) { addMoney(win); casinoWinToast = 120; gb.sound.playOK(); }
+    else         { casinoWinToast = 75;             gb.sound.tone(160, 160); }
+    casinoState = CASINO_IDLE;
+  }
+}
+
+static void drawCasino() {
+  fb = gb.display._buffer;
+  for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0008;   // fond bleu nuit
+  printShadow(1, 1, "CASINO");
+  char money[12];
+  snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
+  printShadowCol(SCREEN_W - (int)strlen(money) * 4 - 1, 1, money, 0x07E0);
+
+  // 3 rouleaux centres (cases 15px, pas 23 -> x = 8, 31, 54)
+  int ry = 18;
+  for (int r = 0; r < 3; r++) drawSlotReel(8 + r * 23, ry, casinoReel[r]);
+
+  // Mise
+  char bet[16];
+  snprintf(bet, sizeof(bet), "MISE $%ld", (long)casinoBet);
+  printShadow((SCREEN_W - (int)strlen(bet) * 4) / 2, 38, bet);
+
+  // Resultat du dernier spin (toast)
+  if (casinoState == CASINO_IDLE && casinoWinToast > 0) {
+    if (casinoLastWin > 0) {
+      char w[16]; snprintf(w, sizeof(w), "GAGNE +$%ld", (long)casinoLastWin);
+      printShadowCol((SCREEN_W - (int)strlen(w) * 4) / 2, 47, w, 0xFFE0);
+    } else {
+      printShadowCol((SCREEN_W - 7 * 4) / 2, 47, "PERDU !", 0xF800);
+    }
+  }
+
+  // Aide en bas
+  printShadow(1, 58, "A:spin B:max MENU:sortir");
+}
+
 // LEDs RGB de la console (gb.lights = image 2x4, poussee au matos a chaque
 // gb.update). Priorite au coup recu (flash rouge) ; sinon, au-dela de 3 etoiles
 // de recherche (donc 4* et 5*), elles clignotent rouge/bleu facon girophare,
@@ -3762,6 +3880,9 @@ void loop() {
   // Magasin ouvert (AMU Nation) : UI modale, monde gele. On traite la nav et on
   // dessine le menu, puis on sort de la frame.
   if (shopOpen) { updateShop(); drawShop(); return; }
+
+  // Casino ouvert : machine a sous modale, monde gele (idem magasin).
+  if (casinoOpen) { updateCasino(); drawCasino(); return; }
 
   // Cinematique en cours (mort / arrestation / repeinture) : le joueur est fige,
   // aucun input ne passe. Le monde (IA, police, fumee...) tourne quand meme,
@@ -3827,6 +3948,16 @@ void loop() {
           shopOpen = true; shopSel = WEAPON_PISTOL; gb.sound.playOK();
           answered = true; break;
         }
+      }
+      // Sur une tuile du POI Casino (la ou le bandeau affiche "Le Casino") ?
+      // Ouvre la machine a sous.
+      if (!answered && casinoPoiIdx >= 0
+          && poiAtTile(pcx >> 3, pcy >> 3) == casinoPoiIdx) {
+        casinoOpen = true; casinoState = CASINO_IDLE; casinoWinToast = 0;
+        if (casinoBet < 1) casinoBet = 1;
+        casinoRng ^= ((uint32_t)missionAnim << 16) ^ ((uint32_t)playerX << 8)
+                   ^ (uint32_t)playerY ^ 0x9E3779B9u;   // melange un peu d'entropie
+        gb.sound.playOK(); answered = true;
       }
       if (!answered && !missionRun.active) {
         for (int i = 0; i < NUM_PHONES; i++) {
