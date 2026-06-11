@@ -1849,8 +1849,14 @@ static void tryAttack() {
   }
   // La cible de mission est frappable comme un pieton (toujours dans le cone).
   if (missionRun.active && target.active &&
-      combatInCone(target.x, target.y, pcx, pcy, playerDir, wd.reach, wd.side))
-    killTarget(pcx, pcy);
+      combatInCone(target.x, target.y, pcx, pcy, playerDir, wd.reach, wd.side)) {
+    if (curObjs[missionRun.step].type == OBJ_SUBDUE) {
+      objSubdue++;                          // elle cede, elle ne meurt pas
+      gb.sound.tone(150, 50);
+    } else {
+      killTarget(pcx, pcy);
+    }
+  }
 
   // Decompte des munitions ; arme videe -> retiree, retour au poing.
   if (!weaponInfinite(curWeapon) && --weaponAmmo[curWeapon] <= 0) {
@@ -2321,6 +2327,7 @@ static void missionProgress() {
   s.inMissionCar = driving && carIsMission;
   s.targetAlive = target.active;
   s.beatCount = objBeat;
+  s.subdueCount = objSubdue;
   s.elapsed = objElapsed;
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
@@ -2351,6 +2358,7 @@ static void missionProgress() {
 // Plus animation et ecrasement par la voiture lancee. (fcx,fcy) = repere joueur.
 static void missionUpdate(int fcx, int fcy) {
   if (!missionRun.active || !target.active) return;
+  if (curObjs[missionRun.step].type == OBJ_SUBDUE) { return; }   // cible immobile (le commercant)
 
   if (target.chase) {
     missionChaseStep(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
