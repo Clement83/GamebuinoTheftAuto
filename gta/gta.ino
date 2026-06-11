@@ -598,6 +598,18 @@ static const Objective OBJS_M6[] = {
     "Mets trois Loups au tapis. Qu'ils comprennent.",
     "Ca devrait attirer leur attention. Inconnu : bien joue.", 3, 0 },
 };
+static const Objective OBJS_M7[] = {
+  { OBJ_GOTO,      0, 0, 18, false, EV_NONE, "Les Quais",
+    "Tony - oui, l'Inconnu a un nom : une caisse des Loups dort aux Quais.",
+    "Deux gardes la surveillent." },
+  { OBJ_BEAT,      0, 0,  0, false, EV_NONE, "Les Quais",
+    "Occupe-toi des deux gardes.", "La voie est libre. La caisse est a toi.", 2, 0 },
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Les Quais",
+    "Embarque la caisse des Loups.", nullptr },
+  { OBJ_GOTO,      0, 0, 18, true,  EV_NONE, "Commissariat",
+    "Planque-la derriere le Commissariat. Roule peinard.",
+    "Tony : parfait. Tu montes en grade, petit." },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -625,6 +637,7 @@ static const MissionDef MISSIONS[] = {
   { "Mauvaise dette",   OBJS_M3, 1, 180, true },   // index 18 = M3 (trame)
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
   { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
+  { "Voiture volee",    OBJS_M7, 4, 350, true },   // index 21 = M7 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -632,7 +645,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
