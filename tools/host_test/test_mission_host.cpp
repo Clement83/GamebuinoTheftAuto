@@ -134,6 +134,15 @@ int main() {
     check("SURVIVE 100/100 -> oui", missionObjectiveDone(o, s));
     check("SURVIVE jamais timeout", !missionTimedOut(o, 200));
   }
+  // --- Objectif TALK : valide a pied dans le petit rayon (comme GOTO sans voiture) ---
+  {
+    Objective o = { OBJ_TALK, 100, 100, 6, false, EV_NONE, nullptr, "parle" };
+    MissionState s = {};
+    s.actorCx = 103; s.actorCy = 100;        // 3 px -> dans rayon 6
+    check("TALK dans rayon", missionObjectiveDone(o, s));
+    s.actorCx = 130; s.actorCy = 100;        // 30 px -> hors rayon
+    check("TALK hors rayon", !missionObjectiveDone(o, s));
+  }
   // --- Limite de temps : GOTO chronometré echoue une fois depassee ---
   {
     Objective o = { OBJ_GOTO, 0, 0, 8, false, EV_NONE, nullptr, "timed", nullptr, 0, 50 };

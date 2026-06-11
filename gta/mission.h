@@ -149,6 +149,7 @@ enum ObjType {
   OBJ_KILL      = 2,  // la cible de mission est morte
   OBJ_BEAT      = 3,  // mettre KO `count` pietons (compteur cumule)
   OBJ_SURVIVE   = 4,  // tenir `limit` frames (le temps qui s'ecoule remplit l'objectif)
+  OBJ_TALK      = 5,  // s'approcher d'un PNJ nomme (a pied, petit rayon) : auto-dialogue
 };
 
 enum MissionEvent {
@@ -212,6 +213,10 @@ inline bool missionObjectiveDone(const Objective &o, const MissionState &s) {
     case OBJ_KILL:      return !s.targetAlive;
     case OBJ_BEAT:      return s.beatCount >= (int)o.count;
     case OBJ_SURVIVE:   return s.elapsed >= o.limit;
+    case OBJ_TALK: {                        // proximite a pied (jamais requireCar)
+      long dx = s.actorCx - o.x, dy = s.actorCy - o.y;
+      return dx * dx + dy * dy <= (long)o.radius * o.radius;
+    }
   }
   return false;
 }
