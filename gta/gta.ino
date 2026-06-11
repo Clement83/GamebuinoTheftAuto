@@ -646,6 +646,15 @@ static const Objective OBJS_M11[] = {
     "Rico, a terre : tu crois qu'on a tue Marco ? Tu bosses pour le vrai coupable...",
     5, 0 },
 };
+// --- Trame Acte III : la verite (Sarah, les preuves) ---
+static const Objective OBJS_M12[] = {
+  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Chinatown",
+    "Sarah (numero inconnu) : je peux prouver ce que Rico a dit. Un parking, a Chinatown.",
+    "Un homme mort, une mallette pres du corps. Ramasse-la et file." },
+  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Planque",
+    "Rapporte la mallette a la Planque.",
+    "Sarah : c'est bien ce que je craignais. Il faut qu'on se voie." },
+};
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
@@ -678,6 +687,7 @@ static const MissionDef MISSIONS[] = {
   { "Tournee de Marco", OBJS_M9, 2, 300, true },   // index 23 = M9 (trame)
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
   { "Rico le Loup",     OBJS_M11,2, 450, true },   // index 25 = M11 (trame, boss)
+  { "La mallette",      OBJS_M12,2, 350, true },   // index 26 = M12 (trame)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -685,7 +695,7 @@ static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 // La campagne avance d'un cran a chaque mission de trame reussie ; l'epilogue se
 // declenche quand campaignStep atteint STORY_LEN (cf. boucle du telephone rouge).
 // M4 = MISSION_DEAL (index 1) reusine ; M5+ ajoutees en fin de MISSIONS[].
-static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25 };
+static const uint8_t STORY_SEQ[] = { 16, 17, 18, 1, 19, 20, 21, 22, 23, 24, 25, 26 };
 static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 
 // --- Telephones : UN par mission, repartis sur toute la carte (grille ~4x4).
