@@ -1,14 +1,43 @@
 # Campagne — scénario de la trame principale
 
-Ce fichier décrit la **trame principale scénarisée** du demake (18 missions +
+Ce dossier décrit la **trame principale scénarisée** du demake (18 missions +
 épilogue), pilotée par un **téléphone rouge unique** à la planque du joueur. Il
 sert de feuille de route : ce qui se branche sur le moteur existant, et les
 **nouvelles mécaniques à implémenter** (clairement balisées `🆕 À IMPLÉMENTER`).
 
 Lis d'abord, pour le contexte :
-- [docs/superpowers/specs/2026-06-09-missions-modulaires-design.md](docs/superpowers/specs/2026-06-09-missions-modulaires-design.md)
+- [docs/superpowers/specs/2026-06-09-missions-modulaires-design.md](../docs/superpowers/specs/2026-06-09-missions-modulaires-design.md)
   — moteur de missions modulaire (types d'objectifs, événements, narration).
-- [POI.md](POI.md) — points d'intérêt, économie, services interactifs.
+- [POI.md](../POI.md) — points d'intérêt, économie, services interactifs.
+
+## Sommaire des missions
+
+### ACTE I — Marco (M1–M4) · *tutoriel déguisé*
+- [M1 — Premier jour](acte-1-marco/m1-premier-jour.md)
+- [M2 — Les assurances](acte-1-marco/m2-les-assurances.md)
+- [M3 — Mauvaise dette](acte-1-marco/m3-mauvaise-dette.md)
+- [M4 — Le dernier trajet](acte-1-marco/m4-le-dernier-trajet.md)
+
+### ACTE II — La vengeance manipulée (M5–M11) · *fausse piste, les Loups*
+- [M5 — Un nom](acte-2-vengeance-manipulee/m5-un-nom.md)
+- [M6 — Message aux Loups](acte-2-vengeance-manipulee/m6-message-aux-loups.md)
+- [M7 — Voiture volée](acte-2-vengeance-manipulee/m7-voiture-volee.md)
+- [M8 — Représailles](acte-2-vengeance-manipulee/m8-represailles.md)
+- [M9 — La tournée de Marco](acte-2-vengeance-manipulee/m9-la-tournee-de-marco.md)
+- [M10 — L'entrepôt](acte-2-vengeance-manipulee/m10-l-entrepot.md)
+- [M11 — Rico le Loup](acte-2-vengeance-manipulee/m11-rico-le-loup.md)
+
+### ACTE III — La vérité (M12–M15) · *Sarah, les preuves*
+- [M12 — La mallette](acte-3-la-verite/m12-la-mallette.md)
+- [M13 — Le témoin](acte-3-la-verite/m13-le-temoin.md)
+- [M14 — Embuscade](acte-3-la-verite/m14-embuscade.md)
+- [M15 — Les dossiers](acte-3-la-verite/m15-les-dossiers.md)
+
+### ACTE IV — Victor (M16–M18 + épilogue)
+- [M16 — Sabotage](acte-4-victor/m16-sabotage.md)
+- [M17 — Bruno](acte-4-victor/m17-bruno.md)
+- [M18 — Le dernier appel](acte-4-victor/m18-le-dernier-appel.md)
+- [Épilogue](acte-4-victor/epilogue.md)
 
 ---
 
@@ -148,218 +177,6 @@ Chaque mission précise : **Appel** (dialogue tél), **Lieu(x)**, **Objectifs**
 
 Primes indicatives : croissantes le long de l'arc (120 → 800 $), réutilisant le
 barème des missions secondaires.
-
----
-
-## 6. Les missions
-
-### ACTE I — Marco (M1–M4) · *tutoriel déguisé*
-
-#### M1 — Premier jour
-- **Appel** — *Marco : « Salut. On m'a dit que tu cherchais du boulot. Viens au
-  parking derrière le Garage. »*
-- **Lieux** — Le Garage (parking), Les Quais (docks).
-- **Objectifs**
-  1. `OBJ_GOTO` → Le Garage (à pied). *« Va voir Marco au Garage. »*
-  2. `OBJ_TALK` → Marco. *« Parle à Marco. »* → `EV_ALLY_JOIN` (Marco monte).
-  3. `OBJ_ESCORT` `requireCar` → **Les Quais**. *« Conduis Marco aux docks. »*
-     → narration de conduite (cf. amélioration).
-  4. `OBJ_GOTO` `requireCar` → point de livraison aux Quais. Un PNJ attend.
-     *« Le colis est livré. »*
-- **Événements** — `EV_ALLY_JOIN` à l'étape 2.
-- **Échec** — aucun (mission d'intro ; Marco ne meurt pas ici).
-- **Prime** — 120 $.
-- **Améliorations**
-  - *« Ralentis, c'est pas une course »* : si la vitesse dépasse un seuil ou en
-    cas de collision, Marco râle (narration), **sans échec**. Tutoriel doux de
-    la conduite.
-  - On fusionne les deux arrêts de ton brouillon (Garage Sud puis docks) en
-    **un seul trajet** Garage → Quais pour rester lisible sur 80×64.
-
-#### M2 — Les assurances *(le racket, version pédagogique)*
-- **Appel** — *Marco : « Aujourd'hui tu vas voir comment on gagne vraiment de
-  l'argent. »*
-- **Lieux** — Les Commerces (3 supérettes, repères fixes).
-- **Objectifs**
-  1. `OBJ_GOTO` → Commerce 1. Marco encaisse seul. *« Tu vois ? Facile. »*
-  2. `OBJ_GOTO` → Commerce 2. *« Hé ! Viens là ! »* → `OBJ_SUBDUE` le
-     commerçant (3 coups) : *« OK ! OK ! »* Marco récupère l'argent.
-  3. `OBJ_GOTO` → Commerce 3. Paiement normal. *« Tournée bouclée. »*
-- **Échec** — aucun.
-- **Prime** — 150 $.
-- **Améliorations** — réutilise les **3 repères Commerces** qui reviennent en
-  **M9** (callback émotionnel après la mort de Marco).
-
-#### M3 — Mauvaise dette
-- **Appel** — *Marco : « Un idiot nous doit de l'argent. »*
-- **Lieux** — un parking (repère fixe près de Chinatown).
-- **Objectifs**
-  1. `OBJ_GOTO` → le parking. Le débiteur est là. *« On vient chercher notre
-     dû. »* → *« Pas aujourd'hui ! »* → `EV_REVEAL` : il **s'enfuit**.
-  2. `OBJ_KILL`/`OBJ_SUBDUE` → poursuivre (IA de **fuite**) puis le tabasser.
-     *« Tu cours moins vite, maintenant ? »*
-- **Échec** — aucun (s'il s'échappe trop loin, simple re-flânerie, pas de fail).
-- **Prime** — 180 $.
-- **Améliorations** — réutilise directement l'IA de fuite existante (celle de
-  Joe). Introduit la **poursuite à pied** avant la poursuite en voiture de M4.
-
-#### M4 — Le dernier trajet *(pivot tragique)*
-- **Appel** — *Marco : « Après aujourd'hui, je quitte peut-être la ville. »*
-- **Lieux** — Le Garage (prendre Marco), **Chantier**.
-- **Objectifs**
-  1. `OBJ_ENTER_CAR` → caisse au Garage. *« Prends la caisse. »*
-  2. `OBJ_ESCORT` `requireCar` → Le Garage prendre Marco → `EV_ALLY_JOIN`.
-     *« Marco : encore un dernier rendez-vous. »*
-  3. `OBJ_GOTO` `requireCar` → **Chantier**. *« Conduis-moi au Chantier. »*
-  4. À l'arrivée : `EV_REVEAL` (PNJ mystérieux) → court dialogue → **BANG** →
-     `EV_ALLY_DIE` : *« C'était un piège… »* Le tueur s'enfuit.
-  5. `OBJ_KILL` → poursuivre et tuer le **tueur** (IA `missionChaseStep`).
-- **Événements** — `EV_ALLY_JOIN`, `EV_REVEAL`, `EV_ALLY_DIE`.
-- **Fin** — `EV_CALL` : le tél sonne. *Inconnu : « Tu veux savoir pourquoi il
-  est mort ? Réponds au prochain appel. »*
-- **Échec** — si le tueur s'échappe (hors map) : **échec** → retour Planque.
-- **Prime** — 250 $.
-- **Améliorations** — reprend exactement la structure de l'ancienne
-  « Mauvaise affaire » (Marco passager → mort → tueur qui fonce), désormais
-  **dans la trame** au lieu d'une cabine bleue.
-
----
-
-### ACTE II — La vengeance manipulée (M5–M11) · *fausse piste, les Loups*
-
-#### M5 — Un nom
-- **Appel** — *Inconnu : « Trouve Nico. »*
-- **Lieux** — Le Bar `🆕`.
-- **Objectifs** — `OBJ_GOTO` → le Bar ; `OBJ_SUBDUE` Nico : *« Les Loups
-  cherchent quelqu'un depuis des semaines… c'est sûrement eux. »*
-- **Échec** — aucun. **Prime** — 200 $.
-
-#### M6 — Message aux Loups
-- **Lieux** — quartier des Loups (district nommé).
-- **Objectifs** — `OBJ_GOTO` → le quartier ; `OBJ_KILL`×3 ou `OBJ_BEAT count=3`
-  (les trois membres). `EV_CALL` final : *« Ça devrait attirer leur
-  attention. »*
-- **Échec** — aucun. **Prime** — 250 $. Monte fortement les **étoiles** (3
-  meurtres rapprochés) → le joueur découvre Pay'n'Spray / la fuite.
-
-#### M7 — Voiture volée
-- **Appel** — *Tony : « J'ai besoin d'une caisse appartenant aux Loups. »*
-  (premier dialogue signé Tony, l'« Inconnu » prend un nom.)
-- **Lieux** — parking des Loups (repère) → planque derrière le **Commissariat**.
-- **Objectifs** — `OBJ_BEAT count=2` (gardes) ; `OBJ_STEAL_CAR` (la caisse
-  marquée) ; `OBJ_GOTO requireCar` → planque. *« Tony : parfait. »*
-- **Échec** — si la caisse volée est détruite : **échec**. **Prime** — 350 $.
-
-#### M8 — Représailles
-- **Appel** — *Tony : « Ils ont retrouvé mon Garage ! »*
-- **Lieux** — Le Garage.
-- **Objectifs** — `OBJ_GOTO` → Le Garage ; `OBJ_DEFEND` Tony (éliminer 3
-  assaillants ; **Tony ne doit pas tomber**). *« Tony : ils deviennent
-  nerveux. »*
-- **Échec** — si Tony meurt : **échec**. **Prime** — 350 $.
-- **Améliorations** — première mission **de défense** : conseiller au joueur de
-  passer par **AMU Nation** avant (gear up).
-
-#### M9 — La tournée de Marco *(callback émotionnel)*
-- **Lieux** — Les **3 Commerces** de M2.
-- **Objectifs**
-  1. `OBJ_GOTO` Commerce 1 — *« C'est toi maintenant ? »*
-  2. `OBJ_GOTO` Commerce 2 — *« Désolé pour Marco. »*
-  3. `OBJ_GOTO` Commerce 3 — des **Loups** sont là → `OBJ_KILL`/`OBJ_BEAT`.
-- **Échec** — aucun. **Prime** — 300 $. Petit **hommage à Marco** en narration.
-
-#### M10 — L'entrepôt
-- **Appel** — *Inconnu/Tony : « On a trouvé leur stock. »*
-- **Lieux** — un entrepôt (repère fixe, district industriel / **Les Quais**).
-- **Objectifs** — `OBJ_BEAT` (gardes de la porte) ; `OBJ_GOTO` (entrer) ;
-  `OBJ_KILL`/`OBJ_BEAT count=N` (tous les ennemis). *« Le patron va nous
-  tuer ! »*
-- **Échec** — aucun. **Prime** — 400 $.
-
-#### M11 — Rico le Loup *(retournement)*
-- **Lieux** — ancienne usine (**Chantier** ou repère industriel).
-- **Objectifs** — `OBJ_GOTO` → l'usine ; `OBJ_KILL` **Rico** (boss : plus de
-  PV, peut tirer). Après défaite, `OBJ_TALK`/dialogue : *« Tu crois vraiment
-  qu'on a tué Marco ? Tu bosses pour le vrai coupable. »* → `EV_CALL` :
-  l'inconnu **raccroche aussitôt**.
-- **Échec** — aucun. **Prime** — 450 $.
-- **Améliorations** — **boss fight** : introduit l'idée d'ennemis à PV élevés
-  (réutilise les PV PNJ existants, multipliés). Pivot narratif de la campagne.
-
----
-
-### ACTE III — La vérité (M12–M15) · *Sarah, les preuves*
-
-#### M12 — La mallette
-- **Appel** — *(nouveau numéro) Sarah : « Je peux prouver ce qu'il dit. »*
-- **Lieux** — un parking (repère). Un homme mort au sol, une **mallette** à
-  côté.
-- **Objectifs** — `OBJ_GOTO` → le parking ; `OBJ_PICKUP` la mallette ;
-  `OBJ_GOTO` la rapporter (à Sarah / Planque).
-- **Échec** — aucun. **Prime** — 350 $.
-
-#### M13 — Le témoin
-- **Lieux** — point de rendez-vous → planque de Sarah.
-- **Objectifs** — `OBJ_TALK` Sarah (*« Victor a peur… il efface les
-  preuves. »*) → `EV_ALLY_JOIN` ; `OBJ_ESCORT requireCar` → la planque.
-  En route : `EV_AMBUSH` (2 voitures ennemies) ; `OBJ_GOTO requireCar`
-  (continuer jusqu'à la planque malgré l'embuscade).
-- **Échec** — si Sarah meurt : **échec**. **Prime** — 400 $.
-
-#### M14 — Embuscade
-- **Appel** — *Sarah : « Ils nous ont trouvés. »*
-- **Lieux** — la planque de Sarah.
-- **Objectifs** — `OBJ_GOTO` → la planque ; `OBJ_DEFEND` (éliminer tous les
-  attaquants, Sarah survit). *« Je sais où sont les dossiers. »*
-- **Échec** — si Sarah meurt : **échec**. **Prime** — 450 $.
-
-#### M15 — Les dossiers
-- **Lieux** — **Les Bureaux** `🆕` de Victor.
-- **Objectifs** — `OBJ_GOTO` (entrer) ; `OBJ_PICKUP` les documents ;
-  `OBJ_GOTO` (sortir) → à la sortie `EV_AMBUSH`/`OBJ_BEAT count=3` (gardes).
-  Sarah lit : *« Victor a ordonné l'assassinat. »*
-- **Échec** — aucun (le combat de sortie est obligatoire mais sans fail).
-- **Prime** — 500 $.
-
----
-
-### ACTE IV — Victor (M16–M18 + épilogue)
-
-#### M16 — Sabotage *(intègre le broyeur de La Casse)*
-- **Appel** — *Tony : « On va lui faire mal au portefeuille. »*
-- **Lieux** — rue chic (repère) → **La Casse**.
-- **Objectifs**
-  1. `OBJ_STEAL_CAR` voiture de luxe #1 ; `OBJ_GOTO requireCar` → **La Casse** →
-     la **broyer** (déclenche `SEQ_CRUSH` existant). *« Une de moins. »*
-  2. `OBJ_STEAL_CAR` voiture de luxe #2 ; rebelote → broyeur. *« Tony : ça va le
-     rendre fou. »*
-- **Échec** — aucun (si la caisse est détruite avant la Casse, re-spawn de la
-  cible). **Prime** — 550 $.
-- **Améliorations** — concrétise ton idée *« va le faire broyer à la casse »* :
-  on **réutilise la grue/broyeur déjà livré** (cf. POI.md §4) comme **objectif
-  de sabotage**, pas seulement comme vente. Belle synergie avec l'existant.
-
-#### M17 — Bruno
-- **Lieux** — casse automobile (**La Casse**) — Bruno surveille.
-- **Objectifs** — `OBJ_GOTO` → La Casse ; `OBJ_KILL` **Bruno** (boss). Après
-  défaite : *« Le vieux casino… »* → `EV_CALL` coupé.
-- **Échec** — aucun. **Prime** — 600 $.
-
-#### M18 — Le dernier appel *(boss final)*
-- **Appel** — *Victor : « Je suis au casino. »*
-- **Lieux** — **Le Casino** `🆕`.
-- **Objectifs** — `OBJ_GOTO` → Casino ; `OBJ_BEAT count=N` (gardes) ;
-  `OBJ_GOTO` (atteindre Victor) ; dialogue (*« Marco allait me dénoncer. Je ne
-  pouvais pas le laisser parler. »*) ; `OBJ_KILL` **Victor** (boss final, le
-  plus coriace). Après : *« Tout ça pour un ami ? »*
-- **Échec** — aucun. **Prime** — 800 $.
-
-#### Épilogue
-- À la Planque, le **téléphone rouge sonne une dernière fois**. On décroche.
-  **Silence.** Puis la ligne coupe. **FIN.**
-- Mécanique : `campaignStep` atteint le terminal → le tél rouge déclenche une
-  **séquence de fin** (pas d'objectif), puis se tait définitivement (ou
-  propose un mode « ville ouverte » : seules les cabines bleues sonnent encore).
 
 ---
 

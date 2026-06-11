@@ -4,7 +4,7 @@ Date : 2026-06-11
 Cible : GTA demake Gamebuino META (sketch `gta/`, écran 80×64, ~25 fps).
 
 Ce document est la **couche « comment on construit »** par-dessus le scénario
-[campagne.md](../../../campagne.md). Il couvre le **socle campagne** et les
+[campagne/](../../../campagne/README.md). Il couvre le **socle campagne** et les
 **4 missions de l'Acte I** (Marco), choisis comme premier jalon jouable.
 
 ## Décisions de cadrage (brainstorming 2026-06-11)
@@ -14,7 +14,7 @@ Ce document est la **couche « comment on construit »** par-dessus le scénario
   (`gb.save`/`gb.load`) est repoussé à une passe dédiée ultérieure.
 - **`OBJ_TALK`** : version simple = `OBJ_GOTO` à petit rayon sur un PNJ nommé
   immobile + message auto (pas d'appui touche dédié).
-- **Une seule mission active à la fois** (ajustement vs campagne.md §1) :
+- **Une seule mission active à la fois** (ajustement vs campagne/README.md §1) :
   pendant **n'importe quelle** mission (cabine bleue OU rouge), **toutes** les
   autres cabines restent **visibles mais muettes et non-décrochables**. On ne
   peut donc jamais lancer deux missions en parallèle → une seule flèche
@@ -99,7 +99,7 @@ multiples.
 
 ## 4. Contenu des missions (Acte I)
 
-Conforme à campagne.md §6. Textes **courts** (contrainte flash).
+Conforme à campagne/ §6. Textes **courts** (contrainte flash).
 
 - **M1 — Premier jour** (prime 120) : `OBJ_GOTO` Le Garage (à pied) →
   `OBJ_TALK` Marco (`EV_MARCO_JOIN`) → `OBJ_GOTO requireCar` Les Quais →

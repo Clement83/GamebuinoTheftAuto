@@ -140,7 +140,7 @@ STAMP_DEFS = {
                      prefer=None),
     "fire": dict(tiles={"F": "fire_facade", "S": "fire_sign", "D": "fire_door"},
                  prefer=None),
-    # --- batiments-reperes de la trame principale (cf. campagne.md) ---
+    # --- batiments-reperes de la trame principale (cf. campagne/) ---
     # prefer=None : leur dispersion est geree par STORY_STAMPS (placement le
     # plus eloigne possible des autres reperes) plutot que par une zone, sinon
     # ils s'agglutinent tous dans le meme quartier (downtown / Chinatown).

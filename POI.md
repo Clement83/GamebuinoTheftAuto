@@ -149,7 +149,7 @@ Idées dans l'esprit « acheter un service/bien » ou « vendre pour gagner $ »
 ## POI de la trame principale (campagne) 🆕
 
 Nouveaux POI **proposés** pour la trame principale scénarisée (18 missions +
-épilogue) décrite dans [campagne.md](campagne.md). À générer via `tools/pois.py`
+épilogue) décrite dans [campagne/](campagne/README.md). À générer via `tools/pois.py`
 (comme les quartiers thématiques / services : dessin procédural possible, pas
 forcément de nouvelles tuiles). Bandeau HUD + ancrage de missions par nom
 (`findPoi`), comme les POI existants.
@@ -172,7 +172,7 @@ de Marco M4 ; ancienne usine de Rico M11), **Commissariat** (planque M7),
 > **Lien téléphones bleus** : l'ancienne cabine bleue « Mauvaise affaire »
 > (Marco) est **retirée** des missions secondaires — Marco devient le pivot de
 > la trame principale. Elle est remplacée par une **« Livraison de pizza »**
-> (mission jetable, chrono, 0 nouvelle mécanique). Voir `campagne.md` §1 et §9.
+> (mission jetable, chrono, 0 nouvelle mécanique). Voir `campagne/README.md` §1 et §9.
 
 ---
 
