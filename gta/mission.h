@@ -168,9 +168,10 @@ enum SpawnMode {
 };
 
 enum MissionEvent {
-  EV_NONE       = 0,
-  EV_MARCO_JOIN = 1,  // Marco monte dans la voiture (passager + message)
-  EV_MARCO_DIE  = 2,  // Marco meurt, le tueur (chasseur) apparait
+  EV_NONE        = 0,
+  EV_MARCO_JOIN  = 1,  // Marco monte dans la voiture (passager + message)
+  EV_MARCO_DIE   = 2,  // Marco meurt, le tueur (chasseur) apparait
+  EV_MARCO_LEAVE = 3,  // Marco descend, remercie le joueur et rentre chez lui (fin amicale)
 };
 
 struct Objective {

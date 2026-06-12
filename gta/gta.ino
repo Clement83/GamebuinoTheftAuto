@@ -573,12 +573,12 @@ static const Objective OBJS_M1[] = {
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Garage",
     "Marco : deux secondes petit, j'arrive !",
     "Marco : la caisse est garee a cote. Embarque, on a un colis a livrer." },
-  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
+  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,         "Les Quais",
     "En route pour les Quais. Roule peinard, attire pas les flics.",
-    "Colis depose. Marco : tiens, on a de la visite..." },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE,        "Les Quais",
-    "Deux dockers veulent ta peau. Montre-leur qui tu es.",
-    "Marco : pas mal, pour un premier jour.", 0, 0, 2, EK_THUG, SP_PRESENT },
+    "Colis livre. Marco : nickel. Maintenant ramene-moi chez moi, petit." },
+  { OBJ_GOTO, 0, 0, 14, true,  EV_MARCO_LEAVE,  "Le Garage",
+    "Ramene Marco au Garage.",
+    nullptr },
 };
 static const Objective OBJS_M2[] = {
   { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Commerces",
@@ -950,11 +950,12 @@ static bool     missionCrushDone = false; // OBJ_CRUSH : la voiture de mission v
 // le controle revient. cutsceneUpdate() pilote tout. CUT_MARCO_DEATH = Marco
 // descend, parle au tueur, se fait abattre. CUT_TAUNT = bref face-a-face (boss/
 // embuscade) : deux repliques puis les ennemis (deja poses) chargent.
-enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2 };
+enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2, CUT_MARCO_LEAVE = 3 };
 static uint8_t  cutKind  = CUT_NONE;
 static uint8_t  cutPhase = 0;
 static uint16_t cutTimer = 0;
 static const char *cutLine1 = nullptr, *cutLine2 = nullptr;  // repliques du TAUNT
+static int16_t marcoLeaveX = 0, marcoLeaveY = 0;             // porte vers laquelle Marco rentre (CUT_MARCO_LEAVE)
 static const uint16_t CUT_LINE_FRAMES  = 80;   // ~3 s par replique
 static const uint16_t CUT_SHOOT_FRAMES = 26;   // temps sur le corps de Marco
 
@@ -3080,6 +3081,35 @@ static void robStore() {
   }
 }
 
+// --- Les Bureaux : selon l'arme tenue ---------------------------------------
+// Repliques quand on entre les mains vides (le type refuse de "bosser").
+static const char *BUREAU_REFUSALS[6] = {
+  "Je vais quand meme pas me mettre au vert.",
+  "Les horaires de bureau, tres peu pour moi.",
+  "Costard-cravate ? Plutot crever.",
+  "Bosser huit heures par jour ? T'es malade.",
+  "La paperasse, c'est pas pour les types comme moi.",
+  "Pointer a la machine a cafe ? Sans facon.",
+};
+// Presser A dans la bbox "Les Bureaux". Mains nues -> on rebrousse chemin avec
+// une vanne. Arme au poing -> braquage eclair : +200 $, alarme, et 3 etoiles.
+static void bureauVisit() {
+  if (seqKind != SEQ_NONE || playerDown) return;
+  if (curWeapon == WEAPON_FIST) {                        // mains vides : demi-tour
+    narrate(BUREAU_REFUSALS[aiRngNext(aiRng) % 6]);
+    gb.sound.playCancel();
+    return;
+  }
+  // Braquage eclair : tout le monde se planque, tu rafles la caisse...
+  addMoney(200);
+  narrate("Braquage eclair ! Panique, +$200... mais l'alarme hurle !");
+  gb.sound.tone(988, 60); gb.sound.playOK();             // cha-ching
+  gb.sound.tone(1568, 120); gb.sound.tone(1175, 120);    // alarme stridente
+  if (wanted.level < 3) wanted.level = 3;                // ...et te voila a 3 etoiles
+  wanted.streak = 0; wanted.streakTimer = 0;
+  wanted.decayTimer = WANTED_DECAY_FRAMES;               // pleine duree de vie de l'etoile
+}
+
 // Anime la cagnotte chaque frame : moneyShown rattrape playerMoney en roulant
 // (gain) ou d'un coup (depense). Petit "tic" sonore pendant la montee.
 static void updateMoneyAnim() {
@@ -3122,6 +3152,23 @@ static void killTarget(int px, int py) {
 // Marco descend de la caisse, va parler au tueur, se fait abattre (joueur fige).
 // Le KILL est deja l'objectif courant (missionAdvance vient de passer dessus) :
 // on positionne le tueur ICI et on l'arme (chase) seulement a la fin de la scene.
+// Cloture la mission courante : retire l'allie/la caisse, credite la prime,
+// declenche le bandeau "MISSION ACCOMPLIE" et fait avancer la trame le cas
+// echeant. Appelable depuis missionProgress (etape finale) comme depuis une
+// cinematique de fin (CUT_MARCO_LEAVE).
+static void finishMission() {
+  const MissionDef &def = curDef;
+  marcoWaiting = false; marcoFollow = false; marcoAboard = false; marcoEmergeDelay = 0;
+  if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
+  addMoney(def.reward);
+  missionDoneTimer = MISSION_DONE_FRAMES;
+  gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
+  if (storyMissionActive) {                      // progression de la trame
+    storyMissionActive = false;
+    if (campaignStep < STORY_LEN) campaignStep++; // mission suivante : le tel rouge re-sonne
+  }
+}
+
 static void startMarcoDeathCut() {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_CUT; cutKind = CUT_MARCO_DEATH; cutPhase = 0; cutTimer = 0;
@@ -3142,6 +3189,22 @@ static void startMarcoDeathCut() {
   targetHp = k.count > 1 ? k.count : 1;
 }
 
+// Fin amicale de M1 : la caisse s'arrete, Marco descend a cote, marche vers la
+// porte (doorX,doorY = position du POI cible) en remerciant le joueur, puis
+// disparait dans le batiment -> finishMission(). Joueur fige (SEQ_CUT).
+static void startMarcoLeaveCut(int doorX, int doorY) {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_CUT; cutKind = CUT_MARCO_LEAVE; cutPhase = 0; cutTimer = 0;
+  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
+  marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
+  marcoFollow = true;                                  // pour que drawMarco le dessine
+  int ox, oy;                                          // Marco descend a cote de la caisse
+  if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+  else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  marcoFrame = 0; marcoAnimTimer = 0;
+  marcoLeaveX = (int16_t)doorX; marcoLeaveY = (int16_t)doorY;
+}
+
 // Bref face-a-face avant baston (boss / embuscade) : deux repliques, puis on rend
 // la main -- les ennemis deja poses chargent des qu'on approche. Joueur fige.
 static void startTauntCut(const char *l1, const char *l2) {
@@ -3157,6 +3220,30 @@ static void cutsceneUpdate() {
     if (cutTimer > 0 && --cutTimer == 0) {
       if (cutPhase == 1) { cutPhase = 2; cutTimer = CUT_LINE_FRAMES; if (cutLine2) narrate(cutLine2); }
       else { seqKind = SEQ_NONE; cutKind = CUT_NONE; }   // fin : les ennemis chargent
+    }
+    return;
+  }
+  if (cutKind == CUT_MARCO_LEAVE) {
+    switch (cutPhase) {
+      case 0: {                                          // Marco marche vers sa porte
+        float dx = (float)marcoLeaveX - marcoX, dy = (float)marcoLeaveY - marcoY;
+        if (dx * dx + dy * dy > 12.0f * 12.0f) {
+          npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
+                        (float)marcoLeaveX, (float)marcoLeaveY, MARCO_FOLLOW_SPEED);
+        } else {
+          marcoFrame = 0;
+          cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
+          narrate("Marco : bon boulot pour un premier jour. Repose-toi, petit.");
+        }
+        break;
+      }
+      case 1:                                            // replique -> il rentre et disparait
+        if (cutTimer > 0 && --cutTimer == 0) {
+          marcoFollow = false;                           // Marco disparait dans son batiment
+          seqKind = SEQ_NONE; cutKind = CUT_NONE;
+          finishMission();                               // prime + bandeau "MISSION ACCOMPLIE"
+        }
+        break;
     }
     return;
   }
@@ -3254,21 +3341,14 @@ static void missionProgress() {
     // La scene arme elle-meme le KILL (tueur en fuite) a sa fin -> pas d'enterObjective.
     startMarcoDeathCut();
     return;
+  } else if (ev == EV_MARCO_LEAVE) {
+    // Fin amicale : Marco descend, remercie, rentre chez lui. La cinematique
+    // cloture elle-meme la mission (finishMission) a sa fin -> pas de suite ici.
+    startMarcoLeaveCut(done.x, done.y);
+    return;
   }
   if (missionRun.active) enterObjective();
-  else {                                           // mission terminee : prime en $
-    marcoWaiting = false; marcoFollow = false; marcoEmergeDelay = 0;
-    if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
-    // Prime creditee tout de suite (le compteur du HUD roule) + petit bandeau
-    // "MISSION ACCOMPLIE" qui monte du bas puis repart, sans figer le jeu.
-    addMoney(def.reward);
-    missionDoneTimer = MISSION_DONE_FRAMES;
-    gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
-    if (storyMissionActive) {                      // progression de la trame
-      storyMissionActive = false;
-      if (campaignStep < STORY_LEN) campaignStep++; // mission suivante : le tel rouge re-sonne
-    }
-  }
+  else finishMission();                            // derniere etape franchie : prime + bandeau
 }
 
 // Deplace la cible chaque frame : tueur -> poursuite ; Joe -> vue/fuite/flanerie.
@@ -4569,6 +4649,11 @@ void loop() {
         if (strcmp(pn, "Planque") == 0)        { startSleepSeq(); answered = true; }
         else if (strcmp(pn, "Le Bar") == 0)    { barDrink();      answered = true; }
         else if (strcmp(pn, "Commerces") == 0) { robStore();      answered = true; }
+        // Les Bureaux : interaction libre seulement hors mission (la trame Sarah
+        // s'y deroule plus tard et exige d'y entrer sans declencher le braquage).
+        else if (strcmp(pn, "Les Bureaux") == 0 && !missionRun.active) {
+          bureauVisit(); answered = true;
+        }
       }
       if (!answered && !missionRun.active) {
         for (int i = 0; i < NUM_PHONES; i++) {
