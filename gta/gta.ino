@@ -272,7 +272,7 @@ static const uint16_t OVERLAY_FRAMES = 55;   // ~2.2 s
 //     fumee, explosion...) continue de tourner. Petite machine d'etats par
 //     phases + minuterie. La teleportation / revie se fait DERRIERE l'ecran
 //     noir, en fin de sequence (et non plus instantanement comme avant). ---
-enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY, SEQ_HEAL, SEQ_CRUSH, SEQ_SLEEP };
+enum { SEQ_NONE, SEQ_WASTED, SEQ_BUSTED, SEQ_SPRAY, SEQ_HEAL, SEQ_CRUSH, SEQ_SLEEP, SEQ_CUT };
 enum { PH_EXPLODE, PH_MSG, PH_FADE, PH_IN, PH_SPRAY, PH_OUT,
        PH_HEAL, PH_SWING, PH_CARRY, PH_CRUSH, PH_EJECT };
 static uint8_t  seqKind  = SEQ_NONE;
@@ -473,10 +473,10 @@ static const Objective OBJS_DEAL[] = {
     "Passe prendre Marco devant le Garage.", "Marco monte. Marco : direction le Chantier." },
   { OBJ_GOTO,      0, 0, 16, true,  EV_MARCO_DIE,   "Chantier",
     "Conduis Marco au Chantier. Il est nerveux ce soir.",
-    "Un type surgit de l'ombre... un coup part... Marco s'effondre !" },
+    "Le Chantier. Marco descend, mefiant... une silhouette l'attend dans l'ombre." },
   { OBJ_KILL,      0, 0,  0, false, EV_NONE,        "Chantier",
-    "Pas question de laisser passer ca. Rattrape le tueur.",
-    "Justice est faite. ...pour l'instant." },
+    "Le tueur fonce sur toi. Pas question de le laisser filer !",
+    "Justice est faite. ...pour l'instant.", 3, 0 },
 };
 // --- Combat ---
 static const Objective OBJS_FIGHT[] = {
@@ -574,22 +574,41 @@ static const Objective OBJS_M1[] = {
     "Marco : deux secondes petit, j'arrive !",
     "Marco : la caisse est garee a cote. Embarque, on a un colis a livrer." },
   { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
-    "En route pour les Quais. Roule peinard, attire pas les flics.", nullptr },
-  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Les Quais",
-    "Depose le colis sur le quai.", "Colis livre. Marco : pas mal, pour un premier jour." },
+    "En route pour les Quais. Roule peinard, attire pas les flics.",
+    "Colis depose. Marco : tiens, on a de la visite..." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE,        "Les Quais",
+    "Deux dockers veulent ta peau. Montre-leur qui tu es.",
+    "Marco : pas mal, pour un premier jour.", 0, 0, 2, EK_THUG, SP_PRESENT },
 };
 static const Objective OBJS_M2[] = {
   { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Commerces",
     "Jour de tournee. Marco t'emmene encaisser le loyer aux Commerces.",
     "Marco : ce commercant fait le difficile. Regarde et apprends, petit." },
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Commerces",
-    "Le commercant sort et refuse de payer. Secoue-le, mais le tue pas.",
+    "Le commercant refuse et te saute dessus. Mate-le, mais le tue pas.",
     "Il crache l'argent. Marco : voila comment on fait.", 3, 0 },
+  { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Chinatown",
+    "Client suivant : une echoppe de Chinatown.", "Encaisse. Sans histoire, celui-la." },
+  { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Le Bar",
+    "Encore un : le vieux du Bar paie toujours rubis sur l'ongle.",
+    "Le vieux paie, et t'offre meme un verre." },
+  { OBJ_GOTO,   0, 0, 16, false, EV_NONE, "Chantier",
+    "Dernier client, au Chantier. Marco : celui-la... je le sens pas.",
+    "Personne en vue. Trop calme." },
+  { OBJ_BEAT,   0, 0,  0, false, EV_NONE, "Chantier",
+    "Embuscade ! Ils t'attendaient. Defends-toi !",
+    "Marco : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_AMBUSH },
 };
 static const Objective OBJS_M3[] = {
-  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Chinatown",
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chinatown",
     "Un mauvais payeur se planque a Chinatown. Marco veut un exemple.",
-    "Dette reglee. Marco : il s'en souviendra... s'il s'en souvient encore." },
+    "Il a paye des gros bras pour te recevoir." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chinatown",
+    "Ecarte ses hommes de main.", "La voie est libre. Reste le payeur.",
+    0, 0, 2, EK_THUG, SP_PRESENT },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
+    "Il detale ! Rattrape-le.",
+    "Dette reglee. Marco : il s'en souviendra... s'il s'en souvient encore.", 1, 0 },
 };
 // --- Trame Acte II : la vengeance manipulee (les Loups) ---
 static const Objective OBJS_M5[] = {
@@ -597,24 +616,26 @@ static const Objective OBJS_M5[] = {
     "Inconnu : tu veux savoir pour Marco ? Trouve Nico. Il traine au Bar.",
     nullptr },
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Le Bar",
-    "Nico fait le malin. Secoue-le, sans le tuer : il parlera.",
+    "Nico fait le malin et te bouscule. Secoue-le, sans le tuer : il parlera.",
     "Nico : les Loups cherchent un type depuis des semaines... c'est eux, surement.",
     3, 0 },
 };
 static const Objective OBJS_M6[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chinatown",
     "Inconnu : envoie-leur un message. Va dans le quartier des Loups.",
-    "Les voila, accoudes au mur. Sers-toi de tes poings." },
+    "Les voila, accoudes au mur. Ils t'ont vu." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chinatown",
     "Mets trois Loups au tapis. Qu'ils comprennent.",
-    "Ca devrait attirer leur attention. Inconnu : bien joue.", 3, 0 },
+    "Ca devrait attirer leur attention. Inconnu : bien joue.",
+    0, 0, 3, EK_THUG, SP_PRESENT },
 };
 static const Objective OBJS_M7[] = {
   { OBJ_GOTO,      0, 0, 18, false, EV_NONE, "Les Quais",
     "Tony - oui, l'Inconnu a un nom : une caisse des Loups dort aux Quais.",
-    "Deux gardes la surveillent." },
-  { OBJ_BEAT,      0, 0,  0, false, EV_NONE, "Les Quais",
-    "Occupe-toi des deux gardes.", "La voie est libre. La caisse est a toi.", 2, 0 },
+    "Deux gardes armes la surveillent." },
+  { OBJ_KILL,      0, 0,  0, false, EV_NONE, "Les Quais",
+    "Occupe-toi des deux gardes.", "La voie est libre. La caisse est a toi.",
+    0, 0, 2, EK_GUNNER, SP_PRESENT },
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Les Quais",
     "Embarque la caisse des Loups.", nullptr },
   { OBJ_GOTO,      0, 0, 18, true,  EV_NONE, "Commissariat",
@@ -626,8 +647,11 @@ static const Objective OBJS_M8[] = {
     "Tony : ils ont retrouve mon Garage ! Ramene-toi, et arme-toi en chemin.",
     "Les Loups debarquent. Tiens bon." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Le Garage",
-    "Repousse l'assaut. Qu'aucun ne reste debout.",
-    "Tony : ils deviennent nerveux. Merci, petit.", 3, 0 },
+    "Premiere vague : repousse-les !", "Ca se calme... non, ils reviennent !",
+    0, 0, 3, EK_THUG, SP_PRESENT },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Le Garage",
+    "Deuxieme vague, et ils sont armes. Couvre-toi !",
+    "Tony : ils deviennent nerveux. Merci, petit.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
 };
 static const Objective OBJS_M9[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Commerces",
@@ -635,23 +659,30 @@ static const Objective OBJS_M9[] = {
     "Un commercant : c'est toi qui passes, desormais ? ...Desole, pour Marco." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Commerces",
     "Des Loups sont venus se servir. Renvoie-les chez eux.",
-    "Pour toi, Marco. La tournee est finie.", 3, 0 },
+    "Pour toi, Marco.", 0, 0, 3, EK_THUG, SP_PRESENT },
+  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Le Bar",
+    "Le vieux du Bar a vu quelque chose. Va l'ecouter.",
+    "Le vieux : un type chic donnait des ordres aux Loups... Va savoir qui." },
 };
 static const Objective OBJS_M10[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Les Quais",
     "Tony : on a trouve le stock des Loups, aux entrepots des Quais.",
     "Des gardes verrouillent l'entree." },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Quais",
-    "Force le passage : deux gardes a la porte.", "Entree degagee.", 2, 0 },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Quais",
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Quais",
+    "Force le passage : deux gardes armes a la porte.", "Entree degagee.",
+    0, 0, 2, EK_GUNNER, SP_PRESENT },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Quais",
     "Nettoie l'entrepot. Que personne ne ressorte.",
-    "Le patron des Loups va nous tuer pour ca... tant pis.", 3, 0 },
+    "Le patron des Loups va nous tuer pour ca... tant pis.", 0, 0, 3, EK_THUG, SP_AMBUSH },
 };
 // M11 : boss (KILL count>1 -> encaisse plusieurs coups). Pivot de la campagne.
 static const Objective OBJS_M11[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chantier",
     "Tony : Rico, le lieutenant des Loups, se terre a l'ancienne usine. Finis-le.",
-    "Rico t'attend. Il ne tombera pas en un coup." },
+    "Ses hommes te coupent la route." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chantier",
+    "Ecarte sa garde rapprochee.", "Reste Rico. Il ne tombera pas en un coup.",
+    0, 0, 2, EK_GUNNER, SP_PRESENT },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chantier",
     "Rico est coriace. Acharne-toi.",
     "Rico, a terre : tu crois qu'on a tue Marco ? Tu bosses pour le vrai coupable...",
@@ -661,7 +692,10 @@ static const Objective OBJS_M11[] = {
 static const Objective OBJS_M12[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Chinatown",
     "Sarah (numero inconnu) : je peux prouver ce que Rico a dit. Un parking, a Chinatown.",
-    "Un homme mort, une mallette pres du corps. Ramasse-la et file." },
+    "Un homme mort, une mallette pres du corps. Mais tu n'es pas seul..." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
+    "Des nettoyeurs viennent pour la mallette. Prends-les de vitesse.",
+    "Ramasse la mallette et file.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Planque",
     "Rapporte la mallette a la Planque.",
     "Sarah : c'est bien ce que je craignais. Il faut qu'on se voie." },
@@ -683,33 +717,45 @@ static const Objective OBJS_M14[] = {
     "Sarah : ils nous ont trouves ! Reviens a la planque, vite !",
     "Les hommes de Victor encerclent la planque." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
-    "Defends Sarah. Elimine tous les assaillants.",
-    "Sarah : je sais ou il garde les dossiers. Ses Bureaux.", 4, 0 },
+    "Defends Sarah : premiere vague !", "Ils refluent... non, d'autres arrivent !",
+    0, 0, 3, EK_THUG, SP_PRESENT },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
+    "Des tireurs, cette fois. Tiens bon !",
+    "Sarah : je sais ou il garde les dossiers. Ses Bureaux.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
 };
 static const Objective OBJS_M15[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Les Bureaux",
     "Les Bureaux de Victor. Les preuves sont a l'interieur. Entre.",
-    "Tu tiens les dossiers. Maintenant, sors de la." },
+    "Des gardes patrouillent le hall." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Bureaux",
+    "Neutralise les gardes du hall.", "Tu tiens les dossiers. Maintenant, sors.",
+    0, 0, 2, EK_GUNNER, SP_PRESENT },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Bureaux",
-    "Des gardes te coupent la sortie. Force le passage.",
-    "Sarah : 'Victor a ordonne l'assassinat de Marco.' On le tient.", 3, 0 },
+    "Des renforts te coupent la sortie. Force le passage.",
+    "Sarah : 'Victor a ordonne l'assassinat de Marco.' On le tient.",
+    0, 0, 3, EK_THUG, SP_AMBUSH },
 };
 // --- Trame Acte IV : Victor ---
 static const Objective OBJS_M16[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Chinatown",
     "Tony : on va lui faire mal au portefeuille. Vole sa voiture de luxe, a Chinatown.",
     nullptr },
-  { OBJ_GOTO,      0, 0, 14, true,  EV_NONE, "La Casse",
-    "Amene-la a la Casse et fais-la broyer.", "Une de moins." },
+  { OBJ_CRUSH,     0, 0, 14, true,  EV_NONE, "La Casse",
+    "Amene-la a la Casse. Descends pres de la grue et fais-la BROYER.",
+    "Une de moins. Tony : ca pique, hein Victor ?" },
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Le Casino",
     "Encore une, garee devant le Casino.", nullptr },
-  { OBJ_GOTO,      0, 0, 14, true,  EV_NONE, "La Casse",
-    "Rebelote : direction le broyeur.", "Tony : ca va le rendre fou." },
+  { OBJ_CRUSH,     0, 0, 14, true,  EV_NONE, "La Casse",
+    "Rebelote : au broyeur, et reste pres de la grue jusqu'au bout.",
+    "Tony : ca va le rendre fou." },
 };
 static const Objective OBJS_M17[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "La Casse",
     "Tony : Bruno, l'homme de Victor, surveille la Casse. Descends-le.",
-    "Bruno t'a vu venir. Il ne lachera pas facilement." },
+    "Bruno et ses hommes t'attendent." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "La Casse",
+    "Ses gardes d'abord.", "Reste Bruno. Il ne lachera pas facilement.",
+    0, 0, 2, EK_THUG, SP_PRESENT },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "La Casse",
     "Bruno encaisse. Ne le lache pas.",
     "Bruno, mourant : le vieux casino... Victor t'y attend.", 5, 0 },
@@ -718,11 +764,12 @@ static const Objective OBJS_M17[] = {
 static const Objective OBJS_M18[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Le Casino",
     "Victor : je t'attends au Casino. Viens donc, petit.",
-    "Ses gardes du corps verrouillent l'entree." },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Le Casino",
-    "Ouvre-toi un chemin jusqu'a Victor.", "La voie est libre.", 3, 0 },
+    "Victor : tu es alle trop loin. Messieurs, occupez-vous de lui." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Le Casino",
-    "Victor : Marco allait me denoncer. Je l'ai fait taire. Comme toi, bientot.",
+    "Ses gardes du corps t'attaquent ! Ouvre-toi un chemin jusqu'a Victor.",
+    "La voie est libre. Reste Victor.", 0, 0, 4, EK_GUNNER, SP_PRESENT },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Le Casino",
+    "Victor est coriace et bien protege. Acharne-toi.",
     "Tout ca... pour un ami. C'est fini, Victor.", 7, 0 },
 };
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
@@ -748,21 +795,21 @@ static const MissionDef MISSIONS[] = {
   // (cf. campagne.md, mission M4).
   { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
   { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
-  { "Les assurances",   OBJS_M2, 2, 150, true },   // index 17 = M2 (trame)
-  { "Mauvaise dette",   OBJS_M3, 1, 180, true },   // index 18 = M3 (trame)
+  { "Les assurances",   OBJS_M2, 6, 150, true },   // index 17 = M2 (trame)
+  { "Mauvaise dette",   OBJS_M3, 3, 180, true },   // index 18 = M3 (trame)
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
   { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
   { "Voiture volee",    OBJS_M7, 4, 350, true },   // index 21 = M7 (trame)
-  { "Represailles",     OBJS_M8, 2, 350, true },   // index 22 = M8 (trame)
-  { "Tournee de Marco", OBJS_M9, 2, 300, true },   // index 23 = M9 (trame)
+  { "Represailles",     OBJS_M8, 3, 350, true },   // index 22 = M8 (trame)
+  { "Tournee de Marco", OBJS_M9, 3, 300, true },   // index 23 = M9 (trame)
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
-  { "Rico le Loup",     OBJS_M11,2, 450, true },   // index 25 = M11 (trame, boss)
-  { "La mallette",      OBJS_M12,2, 350, true },   // index 26 = M12 (trame)
+  { "Rico le Loup",     OBJS_M11,3, 450, true },   // index 25 = M11 (trame, boss)
+  { "La mallette",      OBJS_M12,3, 350, true },   // index 26 = M12 (trame)
   { "Le temoin",        OBJS_M13,3, 400, true },   // index 27 = M13 (trame, escorte)
-  { "Embuscade",        OBJS_M14,2, 450, true },   // index 28 = M14 (trame)
-  { "Les dossiers",     OBJS_M15,2, 500, true },   // index 29 = M15 (trame)
+  { "Embuscade",        OBJS_M14,3, 450, true },   // index 28 = M14 (trame)
+  { "Les dossiers",     OBJS_M15,3, 500, true },   // index 29 = M15 (trame)
   { "Sabotage",         OBJS_M16,4, 550, true },   // index 30 = M16 (trame)
-  { "Bruno",            OBJS_M17,2, 600, true },   // index 31 = M17 (trame, boss)
+  { "Bruno",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
   { "Le dernier appel", OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
@@ -886,7 +933,7 @@ static uint16_t missionAnim = 0;          // compteur d'animation (clignotements
 // Copie runtime des objectifs de la mission active : les coords des objectifs
 // references par un POI (champ `poi`) sont resolues ici au lancement, car la
 // carte (donc les POI) change a chaque regeneration. curDef pointe sur curObjs.
-static const int MAX_OBJS = 4;
+static const int MAX_OBJS = 8;
 static Objective curObjs[MAX_OBJS];
 static MissionDef curDef = { "", curObjs, 0 };
 
@@ -896,6 +943,20 @@ static uint16_t objElapsed = 0;
 static int      objSubdue = 0;            // coups portes a la cible de SUBDUE (objectif courant)
 static bool     killerChase = false;      // le prochain OBJ_KILL spawne un TUEUR qui fonce (post EV_MARCO_DIE)
 static uint8_t  targetHp = 1;             // PV de la cible KILL : 1 = mort au 1er coup ; >1 = BOSS (encaisse `count` coups)
+static bool     missionCrushDone = false; // OBJ_CRUSH : la voiture de mission vient d'etre broyee
+
+// --- Cinematique de mission (seqKind == SEQ_CUT : joueur fige) -------------
+// Un acteur marche, des repliques defilent en bas, un evenement survient, puis
+// le controle revient. cutsceneUpdate() pilote tout. CUT_MARCO_DEATH = Marco
+// descend, parle au tueur, se fait abattre. CUT_TAUNT = bref face-a-face (boss/
+// embuscade) : deux repliques puis les ennemis (deja poses) chargent.
+enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2 };
+static uint8_t  cutKind  = CUT_NONE;
+static uint8_t  cutPhase = 0;
+static uint16_t cutTimer = 0;
+static const char *cutLine1 = nullptr, *cutLine2 = nullptr;  // repliques du TAUNT
+static const uint16_t CUT_LINE_FRAMES  = 80;   // ~3 s par replique
+static const uint16_t CUT_SHOOT_FRAMES = 26;   // temps sur le corps de Marco
 
 // Cible de mission (Joe : erre + fuit ; tueur : fonce sur le joueur).
 enum { T_WANDER = 0, T_FLEE = 1, T_EMERGE = 2 };  // T_EMERGE : sort du batiment vers son poste
@@ -907,6 +968,37 @@ struct Target {
 static Target target;
 static uint8_t targetDownTimer = 0;       // >0 : splat (cible/Marco) feedback
 static int targetDownX = 0, targetDownY = 0;
+static uint16_t targetAtkTimer = 0;       // recharge des coups de la cible AGRESSIVE (boss/tueur/SUBDUE)
+
+// --- Ennemis scenarises (gardes, assaillants) : pool d'entites AGRESSIVES posees
+//     par un objectif (enemyCount>0). Contrairement aux passants, ils foncent sur
+//     le joueur et le frappent (ou tirent), et SEULS comptent pour l'objectif (un
+//     passant tue n'avance plus jamais une mission). cf. mission.h. ---
+enum { EN_IDLE = 0, EN_AGGRO = 1, EN_DOWN = 2 };   // phase d'un ennemi
+struct Enemy {
+  float x, y; uint8_t dir, frame, animTimer;
+  int tgtx, tgty;        // point-cible courant (poursuite par voies)
+  uint8_t hp;            // coups avant de tomber
+  uint8_t kind;          // EK_THUG / EK_GUNNER
+  uint8_t phase;         // EN_IDLE / EN_AGGRO / EN_DOWN
+  uint16_t atkTimer;     // recharge entre deux frappes/tirs
+  uint8_t downTimer;     // EN_DOWN : frames de splat avant despawn
+  bool active;
+};
+static const int MAX_ENEMIES = 4;
+static Enemy enemies[MAX_ENEMIES];
+static const uint16_t ENEMY_COLOR_THUG   = 0xFA20;  // orange-rouge (gros bras)
+static const uint16_t ENEMY_COLOR_GUNNER = 0xF800;  // rouge vif (tireur arme)
+static const int   ENEMY_AGGRO_RANGE  = 56;   // px : distance d'eveil (IDLE -> AGGRO)
+static const float ENEMY_SPEED        = 0.45f;// px/frame (un poil < joueur a pied)
+static const int   ENEMY_MELEE_DIST   = 8;    // px : portee du coup au corps-a-corps
+static const uint16_t ENEMY_MELEE_PERIOD = 26;// frames entre deux coups (~1 s)
+static const int   ENEMY_MELEE_DMG    = 1;    // coeurs perdus par coup
+static const int   ENEMY_SHOOT_RANGE  = 50;   // px : portee de tir (gunner)
+static const uint16_t ENEMY_SHOOT_PERIOD = 42;// frames entre deux tirs
+static const uint8_t ENEMY_HP_THUG    = 3;    // 3 coups de poing pour un gros bras
+static const uint8_t ENEMY_HP_GUNNER  = 2;    // tireur plus fragile
+static const uint8_t ENEMY_DOWN_FRAMES = 35;  // duree du splat avant despawn
 
 // Voiture de mission a recuperer au parking (objectif ENTER_CAR).
 static CarState mCar;
@@ -949,6 +1041,12 @@ static void startPanic(AiPed &p, int srcx, int srcy);
 static bool npcWalkToward(float &x, float &y, uint8_t &dir, uint8_t &frame,
                           uint8_t &animTimer, float tx, float ty, float speed);
 static uint16_t getupFrames();
+static void hitEnemy(Enemy &e, bool lethal);
+static int  enemiesAliveCount();
+static void clearEnemies();
+static void startMarcoDeathCut();
+static void startTauntCut(const char *l1, const char *l2);
+static void cutsceneUpdate();
 
 // estimation RAM libre (debug serie)
 extern "C" char *sbrk(int incr);
@@ -1736,6 +1834,7 @@ static void reviveCommon() {
     marcoWaiting = false; marcoFollow = false; marcoAboard = false;
     mCarActive = false;
     storyMissionActive = false; killerChase = false;
+    clearEnemies();
   }
 }
 
@@ -2038,6 +2137,14 @@ static void updateBullets() {
         }
       }
       if (consumed) continue;
+      for (int q = 0; q < MAX_ENEMIES; q++) {                      // ennemis scenarises (balle = mortelle)
+        Enemy &e = enemies[q];
+        if (!e.active || e.phase == EN_DOWN) continue;
+        if (fabsf(b.x - e.x) < 4.0f && fabsf(b.y - e.y) < 4.0f) {
+          hitEnemy(e, true); b.active = false; consumed = true; break;
+        }
+      }
+      if (consumed) continue;
     }
     // 3) Ma propre caisse (garee : a pied elle est un obstacle plein) : tirable.
     if (!driving && !carGone &&
@@ -2189,6 +2296,14 @@ static void tryAttack() {
     }
     int hit = combatConeTarget(px, py, act, NUM_AI_PEDS, pcx, pcy, playerDir, wd.reach, wd.side);
     if (hit >= 0) hitPed(aiPeds[hit], false);
+    // Ennemis scenarises : frappables au poing comme un pieton (cone), 3 coups.
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+      Enemy &e = enemies[i];
+      if (e.active && e.phase != EN_DOWN &&
+          combatInCone(e.x, e.y, pcx, pcy, playerDir, wd.reach, wd.side)) {
+        hitEnemy(e, false); break;
+      }
+    }
   }
   // Le bruit du tir affole les civils alentour (toutes armes a feu : ils detalent du tireur).
   if (firearm) {
@@ -2642,6 +2757,121 @@ static void spawnTargetAt(int wx, int wy) {
   target.loseTimer = 0; target.active = true; target.chase = true;
 }
 
+// --- Pool d'ennemis scenarises ---------------------------------------------
+// Desactive tous les ennemis (changement d'objectif / fin de mission / mort).
+static void clearEnemies() {
+  for (int i = 0; i < MAX_ENEMIES; i++) enemies[i].active = false;
+}
+
+// Nombre d'ennemis encore DEBOUT (ni au sol, ni despawned). 0 => objectif rempli.
+static int enemiesAliveCount() {
+  int n = 0;
+  for (int i = 0; i < MAX_ENEMIES; i++)
+    if (enemies[i].active && enemies[i].phase != EN_DOWN) n++;
+  return n;
+}
+
+// Pose les `o.enemyCount` ennemis AGRESSIFS de l'objectif autour de son point,
+// de facon DETERMINISTE : chaque ennemi est calé sur la tuile marchable la plus
+// proche d'un offset fixe en anneau autour de (o.x,o.y). Ils restent IDLE jusqu'a
+// ce que le joueur entre dans ENEMY_AGGRO_RANGE (SP_PRESENT : visibles d'emblee ;
+// SP_AMBUSH : memes positions, eveil au contact). Aucun RNG -> pas de pop hasardeux.
+static void spawnEnemiesForObjective(const Objective &o) {
+  clearEnemies();
+  // Offsets en tuiles : devant, puis flancs, puis derriere le point d'ancrage.
+  static const int OFFX[MAX_ENEMIES] = { 0,  2, -2,  0 };
+  static const int OFFY[MAX_ENEMIES] = { 2,  0,  0, -2 };
+  int n = o.enemyCount; if (n > MAX_ENEMIES) n = MAX_ENEMIES;
+  uint8_t hp = (o.enemyKind == EK_GUNNER) ? ENEMY_HP_GUNNER : ENEMY_HP_THUG;
+  for (int i = 0; i < n; i++) {
+    Enemy &e = enemies[i];
+    int wx = o.x + OFFX[i] * TILE_W, wy = o.y + OFFY[i] * TILE_H;
+    int tx, ty;
+    if (aiFindWalkTileNear(wx, wy, tx, ty)) { e.x = tx * 8 + 4; e.y = ty * 8 + 4; }
+    else { e.x = (float)wx; e.y = (float)wy; }
+    e.tgtx = (int)e.x; e.tgty = (int)e.y;
+    e.dir = DIR_SOUTH; e.frame = 0; e.animTimer = 0;
+    e.hp = hp; e.kind = o.enemyKind; e.phase = EN_IDLE;
+    e.atkTimer = 0; e.downTimer = 0; e.active = true;
+  }
+}
+
+// Inflige un coup a un ennemi. lethal = balle (mort immediate) ; sinon 3 coups de
+// poing (le frapper l'eveille s'il dormait). A 0 PV : a terre (splat puis despawn).
+static void hitEnemy(Enemy &e, bool lethal) {
+  if (!e.active || e.phase == EN_DOWN) return;
+  if (lethal || e.hp <= 1) {
+    e.phase = EN_DOWN; e.downTimer = ENEMY_DOWN_FRAMES;
+    targetDownX = (int)e.x; targetDownY = (int)e.y; targetDownTimer = ENEMY_DOWN_FRAMES;
+    gb.sound.playOK();
+  } else {
+    e.hp--; e.phase = EN_AGGRO; gb.sound.tone(150, 50);
+  }
+}
+
+// Met a jour les ennemis chaque frame. (fcx,fcy) = repere joueur (centre px).
+// IDLE -> AGGRO quand le joueur approche ; AGGRO : fonce (gros bras) ou tire
+// (gunner) ; renversable a la voiture lancee. EN_DOWN : decompte du splat.
+static void updateEnemies(int fcx, int fcy) {
+  if (seqKind == SEQ_CUT) return;                 // cinematique : ennemis figes (taunt)
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    Enemy &e = enemies[i];
+    if (!e.active) continue;
+    if (e.phase == EN_DOWN) {                       // a terre : despawn en fin de timer
+      if (e.downTimer > 0 && --e.downTimer == 0) e.active = false;
+      continue;
+    }
+    if (!missionRun.active) { e.active = false; continue; }  // mission finie : on nettoie
+    float ddx = (float)fcx - e.x, ddy = (float)fcy - e.y;
+    float d2 = ddx * ddx + ddy * ddy;
+    if (e.phase == EN_IDLE) {
+      if (d2 <= (float)(ENEMY_AGGRO_RANGE * ENEMY_AGGRO_RANGE)) e.phase = EN_AGGRO;
+      else continue;                                // encore endormi : ne bouge pas
+    }
+    if (e.atkTimer > 0) e.atkTimer--;
+    if (e.kind == EK_GUNNER) {
+      // Tireur : se rapproche jusqu'a portee de tir, puis fait feu si ligne de vue.
+      if (d2 > (float)(ENEMY_SHOOT_RANGE * ENEMY_SHOOT_RANGE) * 0.5f)
+        missionChaseStep(cityMap, CITY_W, CITY_H, e.x, e.y, e.dir, e.tgtx, e.tgty,
+                         ENEMY_SPEED, fcx, fcy, aiRng);
+      if (e.atkTimer == 0 && d2 <= (float)(ENEMY_SHOOT_RANGE * ENEMY_SHOOT_RANGE) &&
+          missionLineOfSight(cityMap, CITY_W, CITY_H, (int)e.x, (int)e.y, fcx, fcy, ENEMY_SHOOT_RANGE)) {
+        e.atkTimer = ENEMY_SHOOT_PERIOD;
+        gb.sound.tone(140, 40);
+        fireCopBullet(e.x, e.y, fcx, fcy);          // balle hostile (esquivable)
+      }
+    } else {
+      // Gros bras : fonce et frappe au contact.
+      missionChaseStep(cityMap, CITY_W, CITY_H, e.x, e.y, e.dir, e.tgtx, e.tgty,
+                       ENEMY_SPEED, fcx, fcy, aiRng);
+      if (!driving && e.atkTimer == 0 && d2 < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
+        e.atkTimer = ENEMY_MELEE_PERIOD;
+        gb.sound.tone(90, 70);
+        hurtPlayer(ENEMY_MELEE_DMG, false);
+      }
+    }
+    if (++e.animTimer >= AI_PED_ANIM) { e.animTimer = 0; e.frame ^= 1; }
+    // Renversement par la voiture lancee (compte comme une mise a terre).
+    if (driving) {
+      float spd2 = car.vx * car.vx + car.vy * car.vy;
+      if (spd2 > RUNOVER_SPEED2 && fabsf(car.x - e.x) < TARGET_RUNOVER_DIST &&
+          fabsf(car.y - e.y) < TARGET_RUNOVER_DIST)
+        hitEnemy(e, true);
+    }
+  }
+}
+
+// Dessine les ennemis : splat au sol (EN_DOWN) ou sprite recolore selon le type.
+static void drawEnemies(int camX, int camY) {
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    Enemy &e = enemies[i];
+    if (!e.active) continue;
+    if (e.phase == EN_DOWN) blitSplat(camX, camY, (int)e.x, (int)e.y);
+    else blitPed(camX, camY, (int)e.x, (int)e.y, e.dir, e.frame,
+                 e.kind == EK_GUNNER ? ENEMY_COLOR_GUNNER : ENEMY_COLOR_THUG);
+  }
+}
+
 // Index du POI nomme `name` dans la table exportee, ou -1 si absent.
 static int findPoi(const char *name) {
 #if CITY_NUM_POIS > 0
@@ -2687,20 +2917,46 @@ static void buildMissionRuntime(uint8_t m) {
   curDef.isStory = src.isStory;
 }
 
+// Repliques de provocation jouees en face-a-face avant un combat de boss
+// (CUT_TAUNT). Selon le titre de la mission. Renvoie false si pas de taunt.
+static bool bossTauntLines(const char *title, const char *&l1, const char *&l2) {
+  if (!title) return false;
+  if (strcmp(title, "Rico le Loup") == 0) {
+    l1 = "Rico : Tony t'envoie crever a ma place, gamin ?";
+    l2 = "Rico : approche, que je t'apprenne le respect."; return true;
+  }
+  if (strcmp(title, "Bruno") == 0) {
+    l1 = "Bruno : tu es alle trop loin. Victor veut ta tete.";
+    l2 = "Bruno : et c'est moi qui vais la lui porter."; return true;
+  }
+  if (strcmp(title, "Le dernier appel") == 0) {
+    l1 = "Victor : tu as du cran de venir jusqu'ici.";
+    l2 = "Victor : ca ne te sauvera pas. Comme Marco."; return true;
+  }
+  return false;
+}
+
 // Active l'objectif courant : narration + spawn des entites necessaires.
 static void enterObjective() {
   const MissionDef &def = curDef;
   const Objective &o = def.objectives[missionRun.step];
   narrate(o.text);
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
+  targetAtkTimer = 0; missionCrushDone = false;
+  clearEnemies();                                // pas d'ennemis residuels de l'objectif precedent
+  // Ennemis scenarises AGRESSIFS (gardes, assaillants) poses des l'activation,
+  // de facon deterministe autour du point d'objectif (cf. spawnEnemiesForObjective).
+  if (o.enemyCount > 0) spawnEnemiesForObjective(o);
   if (o.event == EV_MARCO_JOIN) {
     allyColor = (o.count == 1) ? SARAH_COLOR : MARCO_COLOR;  // count==1 -> Sarah
     marcoWaiting = true;                          // l'allie va apparaitre puis etre pris (TALK ou GOTO)
     // Marco reste D'ABORD dans l'immeuble (il vient de dire "j'arrive" via o.text)
-    // puis SORT et marche jusqu'au marqueur apres MARCO_EMERGE_DELAY frames.
-    int bx, by;
-    if (findBuildingTileNear(o.x, o.y, bx, by)) { marcoX = (float)bx; marcoY = (float)by; }
-    else { marcoX = (float)o.x; marcoY = (float)(o.y - 3 * TILE_H); }  // repli : surgit "du nord"
+    // puis SORT et marche jusqu'au marqueur apres MARCO_EMERGE_DELAY frames. On le
+    // pose sur la tuile MARCHABLE la plus proche du marqueur (a l'ecran a l'arrivee),
+    // pas en surplomb du nord (qui pouvait le faire apparaitre hors champ).
+    int wt, ht;
+    if (aiFindWalkTileNear(o.x, o.y, wt, ht)) { marcoX = (float)(wt * 8 + 4); marcoY = (float)(ht * 8 + 4); }
+    else { marcoX = (float)o.x; marcoY = (float)o.y; }
     marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
     marcoEmergeDelay = MARCO_EMERGE_DELAY;        // attend la fin de "j'arrive" avant de sortir
     // (la caisse de mission est deja garee depuis le decrochage du telephone)
@@ -2708,16 +2964,24 @@ static void enterObjective() {
   if (o.type == OBJ_ENTER_CAR) {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
     mCarActive = true;
-  } else if (o.type == OBJ_KILL && !target.active) {
+  } else if (o.type == OBJ_KILL && o.enemyCount == 0 && !target.active) {
+    // KILL "cible nommee" (pas de gardes) : boss (count>1) ou fugitif ordinaire.
     targetHp = o.count > 1 ? o.count : 1;          // o.count>1 -> BOSS qui encaisse plusieurs coups
-    if (killerChase) spawnTargetAt(o.x, o.y);     // tueur (post mort de Marco) : fonce
-    else             spawnTargetWanderNear(o.x, o.y);  // PNJ qui erre/fuit (Joe, debiteur)
+    // AGRESSIF : le tueur (post mort de Marco) ET les boss FONCENT sur le joueur ;
+    // seul le petit fugitif (Joe, count<=1) erre et fuit encore.
+    if (killerChase || o.count > 1) spawnTargetAt(o.x, o.y);
+    else                            spawnTargetWanderNear(o.x, o.y);
+    // Boss a pied : bref face-a-face (joueur fige, deux repliques) avant la baston.
+    const char *l1, *l2;
+    if (o.count > 1 && !killerChase && !driving && bossTauntLines(curDef.title, l1, l2))
+      startTauntCut(l1, l2);
   } else if (o.type == OBJ_SUBDUE && !target.active) {
-    // Le commercant SORT de sa boutique (immeuble voisin) et marche jusqu'a son
-    // poste (le marqueur), ou il se fige -- au lieu de pop sur place.
-    int bx, by;
-    if (findBuildingTileNear(o.x, o.y, bx, by)) { target.x = (float)bx; target.y = (float)by; }
-    else { target.x = (float)o.x; target.y = (float)(o.y - 3 * TILE_H); }
+    // La cible a tabasser est posee de facon DETERMINISTE pres du marqueur (pas
+    // en surplomb hors champ) et se DEFEND : une fois sortie, elle fonce et frappe
+    // (sans mourir) au lieu de rester passive (cf. missionUpdate).
+    int wt, ht;
+    if (aiFindWalkTileNear(o.x, o.y, wt, ht)) { target.x = (float)(wt * 8 + 4); target.y = (float)(ht * 8 + 4); }
+    else { target.x = (float)o.x; target.y = (float)o.y; }
     target.tgtx = o.x; target.tgty = o.y;
     target.dir = DIR_SOUTH; target.frame = 0; target.animTimer = 0;
     target.phase = T_EMERGE; target.loseTimer = 0;
@@ -2737,6 +3001,7 @@ static void startMission(uint8_t m) {
   marcoEmergeDelay = 0;
   mCarActive = false;
   killerChase = false;
+  clearEnemies();
   // Caisse "compagnon" de Marco : si la mission le ramasse A PIED (EV_MARCO_JOIN
   // sans requireCar, ex. M1), sa voiture est garee SUR LE COTE (route a droite du
   // batiment) DES LE DECROCHAGE -- elle ne pop pas en arrivant, et reste la
@@ -2838,6 +3103,7 @@ static void failMission(const char *msg) {
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   mCarActive = false; carIsMission = false;
   killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
+  clearEnemies();
   missionFailedTimer = MISSION_FAIL_FRAMES;
   gb.sound.playCancel();
 }
@@ -2852,10 +3118,96 @@ static void killTarget(int px, int py) {
   gb.sound.playOK();
 }
 
+// --- Cinematiques de mission -----------------------------------------------
+// Marco descend de la caisse, va parler au tueur, se fait abattre (joueur fige).
+// Le KILL est deja l'objectif courant (missionAdvance vient de passer dessus) :
+// on positionne le tueur ICI et on l'arme (chase) seulement a la fin de la scene.
+static void startMarcoDeathCut() {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_CUT; cutKind = CUT_MARCO_DEATH; cutPhase = 0; cutTimer = 0;
+  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
+  marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
+  marcoFollow = true;                                  // pour que drawMarco le dessine
+  int ox, oy;                                          // Marco descend a cote de la caisse
+  if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+  else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  marcoFrame = 0; marcoAnimTimer = 0;
+  // Le tueur ("l'autre gars") attend au point de rendez-vous (= coords du KILL).
+  const Objective &k = curObjs[missionRun.step];
+  int tx, ty;
+  if (aiFindWalkTileNear(k.x, k.y, tx, ty)) { target.x = (float)(tx * 8 + 4); target.y = (float)(ty * 8 + 4); }
+  else { target.x = (float)k.x; target.y = (float)k.y; }
+  target.dir = DIR_SOUTH; target.frame = 0; target.animTimer = 0;
+  target.phase = T_WANDER; target.loseTimer = 0; target.active = true; target.chase = false;
+  targetHp = k.count > 1 ? k.count : 1;
+}
+
+// Bref face-a-face avant baston (boss / embuscade) : deux repliques, puis on rend
+// la main -- les ennemis deja poses chargent des qu'on approche. Joueur fige.
+static void startTauntCut(const char *l1, const char *l2) {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_CUT; cutKind = CUT_TAUNT; cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
+  cutLine1 = l1; cutLine2 = l2;
+  if (l1) narrate(l1);
+}
+
+// Avance la cinematique courante (appelee par updateSequence quand SEQ_CUT).
+static void cutsceneUpdate() {
+  if (cutKind == CUT_TAUNT) {
+    if (cutTimer > 0 && --cutTimer == 0) {
+      if (cutPhase == 1) { cutPhase = 2; cutTimer = CUT_LINE_FRAMES; if (cutLine2) narrate(cutLine2); }
+      else { seqKind = SEQ_NONE; cutKind = CUT_NONE; }   // fin : les ennemis chargent
+    }
+    return;
+  }
+  if (cutKind != CUT_MARCO_DEATH) { seqKind = SEQ_NONE; cutKind = CUT_NONE; return; }
+  switch (cutPhase) {
+    case 0: {                                            // Marco marche vers le tueur
+      float dx = target.x - marcoX, dy = target.y - marcoY;
+      if (dx * dx + dy * dy > 16.0f * 16.0f) {
+        npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
+                      target.x, target.y, MARCO_FOLLOW_SPEED);
+      } else {
+        marcoFrame = 0;
+        marcoDir   = (marcoX < target.x) ? DIR_EAST : DIR_WEST;   // face a face
+        target.dir = (target.x < marcoX) ? DIR_EAST : DIR_WEST;
+        cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
+        narrate("Marco : qu'est-ce que tu fous la, toi ?");
+      }
+      break;
+    }
+    case 1:                                              // replique 1
+      if (cutTimer > 0 && --cutTimer == 0) {
+        cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
+        narrate("L'autre : desole, Marco. Rien de personnel.");
+      }
+      break;
+    case 2:                                              // replique 2 -> il fait feu
+      if (cutTimer > 0 && --cutTimer == 0) {
+        cutPhase = 3; cutTimer = CUT_SHOOT_FRAMES;
+        gb.sound.tone(140, 60); gb.sound.tone(90, 130);  // coup de feu
+        marcoFollow = false; marcoAboard = false;        // Marco tombe comme un PNJ
+        targetDownX = (int)marcoX; targetDownY = (int)marcoY;
+        targetDownTimer = PED_DOWN_FRAMES * 3;           // le corps reste un moment
+        narrate("Marco s'effondre.");
+      }
+      break;
+    case 3:                                              // temps sur le corps -> reprise
+      if (cutTimer > 0 && --cutTimer == 0) {
+        seqKind = SEQ_NONE; cutKind = CUT_NONE;
+        killerChase = true; target.chase = true;         // le tueur prend la fuite : a rattraper
+        objElapsed = 0;
+        narrate("Le tueur file ! Rattrape-le !");
+        gb.sound.playCancel();
+      }
+      break;
+  }
+}
+
 // Teste l'objectif courant ; s'il est rempli, applique l'evenement de
 // transition (Marco monte / meurt) puis active l'objectif suivant, ou termine.
 static void missionProgress() {
-  if (!missionRun.active) return;
+  if (!missionRun.active || seqKind == SEQ_CUT) return;
   // Echec de trame : un TUEUR (KILL en mode poursuite) qui sort des limites monde.
   if (target.active && killerChase && curObjs[missionRun.step].type == OBJ_KILL) {
     const int M = 8;  // marge px
@@ -2875,6 +3227,8 @@ static void missionProgress() {
   s.beatCount = objBeat;
   s.subdueCount = objSubdue;
   s.elapsed = objElapsed;
+  s.enemiesAlive = enemiesAliveCount();
+  s.crushDone = missionCrushDone;
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
   // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
@@ -2896,9 +3250,10 @@ static void missionProgress() {
       marcoFollow = true;                          // reprend sa position courante (deja sorti)
     }
   } else if (ev == EV_MARCO_DIE) {
-    marcoAboard = false; killerChase = true;
-    const Objective &k = def.objectives[missionRun.step];  // KILL : coords chantier
-    targetDownX = k.x; targetDownY = k.y; targetDownTimer = PED_DOWN_FRAMES;
+    // Cinematique : Marco descend, parle au tueur, se fait abattre (joueur fige).
+    // La scene arme elle-meme le KILL (tueur en fuite) a sa fin -> pas d'enterObjective.
+    startMarcoDeathCut();
+    return;
   }
   if (missionRun.active) enterObjective();
   else {                                           // mission terminee : prime en $
@@ -2919,19 +3274,38 @@ static void missionProgress() {
 // Deplace la cible chaque frame : tueur -> poursuite ; Joe -> vue/fuite/flanerie.
 // Plus animation et ecrasement par la voiture lancee. (fcx,fcy) = repere joueur.
 static void missionUpdate(int fcx, int fcy) {
+  if (seqKind == SEQ_CUT) return;                 // cinematique : cutsceneUpdate gere les acteurs
   if (!missionRun.active || !target.active) return;
-  if (curObjs[missionRun.step].type == OBJ_SUBDUE) {             // commercant : sort puis se fige
-    if (target.phase == T_EMERGE &&
-        npcWalkToward(target.x, target.y, target.dir, target.frame,
-                      target.animTimer, (float)target.tgtx, (float)target.tgty,
-                      TARGET_WANDER_SPEED))
-      target.phase = T_WANDER;                                  // arrive a son poste
+  if (targetAtkTimer > 0) targetAtkTimer--;
+  if (curObjs[missionRun.step].type == OBJ_SUBDUE) {             // cible a tabasser : sort puis SE DEFEND
+    if (target.phase == T_EMERGE) {
+      if (npcWalkToward(target.x, target.y, target.dir, target.frame,
+                        target.animTimer, (float)target.tgtx, (float)target.tgty,
+                        TARGET_WANDER_SPEED))
+        target.phase = T_WANDER;                                // sortie : passe a l'attaque
+      return;
+    }
+    // Sortie : elle fonce sur le joueur et frappe (sans mourir : objectif = la mater).
+    missionChaseStep(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
+                     target.tgtx, target.tgty, TARGET_WANDER_SPEED, fcx, fcy, aiRng);
+    if (++target.animTimer >= AI_PED_ANIM) { target.animTimer = 0; target.frame ^= 1; }
+    float sdx = (float)fcx - target.x, sdy = (float)fcy - target.y;
+    if (!driving && targetAtkTimer == 0 &&
+        sdx * sdx + sdy * sdy < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
+      targetAtkTimer = ENEMY_MELEE_PERIOD; gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false);
+    }
     return;
   }
 
   if (target.chase) {
     missionChaseStep(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
                      target.tgtx, target.tgty, TARGET_CHASE_SPEED, fcx, fcy, aiRng);
+    // Tueur / boss AGRESSIF : frappe le joueur au corps-a-corps.
+    float kdx = (float)fcx - target.x, kdy = (float)fcy - target.y;
+    if (!driving && targetAtkTimer == 0 &&
+        kdx * kdx + kdy * kdy < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
+      targetAtkTimer = ENEMY_MELEE_PERIOD; gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false);
+    }
   } else {
     bool sees = missionLineOfSight(cityMap, CITY_W, CITY_H,
                                    (int)target.x, (int)target.y, fcx, fcy,
@@ -2990,7 +3364,7 @@ static bool npcWalkToward(float &x, float &y, uint8_t &dir, uint8_t &frame,
 // marqueur (marcoWaiting), puis nous SUIT a distance de confort (marcoFollow), et
 // EMBARQUE des qu'on prend une voiture. (fcx,fcy) = repere joueur (centre px).
 static void marcoUpdate(int fcx, int fcy) {
-  if (!missionRun.active) return;
+  if (!missionRun.active || seqKind == SEQ_CUT) return;  // cinematique : Marco gere par cutsceneUpdate
   if (marcoWaiting) {                              // encore dans l'immeuble, puis emergence
     if (marcoEmergeDelay > 0) { marcoEmergeDelay--; return; }  // il a dit "j'arrive" : on patiente
     const Objective &o = curObjs[1];              // sort et rejoint le marqueur a pied
@@ -3272,7 +3646,7 @@ static void drawMarco(int camX, int camY) {
 static void drawMarker(int camX, int camY) {
   if (!missionRun.active) return;
   const Objective &o = curObjs[missionRun.step];
-  if (o.type != OBJ_GOTO && o.type != OBJ_ENTER_CAR) return;
+  if (o.type != OBJ_GOTO && o.type != OBJ_ENTER_CAR && o.type != OBJ_CRUSH) return;
   int sx = o.x - camX, sy = o.y - camY;
   bool blink = ((missionAnim >> 2) & 1);
   for (int dy = -5; dy <= 0; dy++) {             // pilier vertical
@@ -3628,6 +4002,7 @@ static void drawBoom(int camX, int camY) {
 // la bombe de peinture. Le monde, lui, continue de tourner autour.
 static void updateSequence() {
   if (seqKind == SEQ_NONE) return;
+  if (seqKind == SEQ_CUT) { cutsceneUpdate(); return; }   // cinematique de mission
   if (seqTimer > 0) {
     if (seqKind == SEQ_SPRAY && seqPhase == PH_SPRAY && (seqTimer % 8) == 0)
       gb.sound.tone(2200, 70);                   // pschitt de la bombe de peinture
@@ -3675,6 +4050,10 @@ static void updateSequence() {
     case PH_CRUSH:                               // broyee : prime (joueur deja a pied)
       addMoney(crushReward);
       carGone = true;
+      // OBJ_CRUSH : c'est la fin du broyage qui valide l'objectif (pas l'arrivee).
+      if (missionRun.active && curObjs[missionRun.step].type == OBJ_CRUSH) {
+        missionCrushDone = true; carIsMission = false;
+      }
       narrate("Epave vendue !");
       gb.sound.tone(988, 60); gb.sound.playOK();  // cha-ching
       seqPhase = PH_EJECT; seqTimer = SEQ_EJECT_FRAMES; break;
@@ -4327,6 +4706,7 @@ void loop() {
   // Mission : chrono de l'objectif, deplacement de la cible, avancement.
   if (missionRun.active && objElapsed < 0xFFFF) objElapsed++;
   missionUpdate(focusX, focusY);
+  updateEnemies(focusX, focusY);
   marcoUpdate(focusX, focusY);
   missionProgress();
   if (targetDownTimer > 0) targetDownTimer--;
@@ -4370,7 +4750,11 @@ void loop() {
   // pendant l'amorcage l'annule (la grue s'arrete).
 #if CITY_HAS_CASSE
   bool casseReady = false;
-  if (seqKind == SEQ_NONE && !carGone && !carIsMission && !driving) {
+  // La voiture de mission est broyable UNIQUEMENT pendant un objectif OBJ_CRUSH
+  // (on doit l'amener au broyeur) ; sinon, seules les caisses "ordinaires" le sont.
+  bool crushObjective = missionRun.active &&
+                        curObjs[missionRun.step].type == OBJ_CRUSH;
+  if (seqKind == SEQ_NONE && !carGone && !driving && (!carIsMission || crushObjective)) {
     long dcx = (int)car.x - CITY_CASSE_TX, dcy = (int)car.y - CITY_CASSE_TY;
     bool carOnZone = (dcx * dcx + dcy * dcy <= (long)CASSE_REACH * CASSE_REACH);
     long dpx = playerX + PLAYER_W / 2 - CITY_CASSE_TX;
@@ -4468,6 +4852,7 @@ void loop() {
   drawMissionCar(camX, camY);
   drawMarco(camX, camY);
   drawTarget(camX, camY);
+  drawEnemies(camX, camY);
   drawPhones(camX, camY);
   drawMarker(camX, camY);
   drawCar(camX, camY);

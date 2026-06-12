@@ -106,7 +106,7 @@ int main() {
     s.inMissionCar = true;
     check("ENTER_CAR dans la voiture -> oui", missionObjectiveDone(o, s));
   }
-  // --- Objectif KILL : valide quand la cible est morte ---
+  // --- Objectif KILL : valide quand la cible est morte ET les gardes a terre ---
   {
     Objective o = { OBJ_KILL, 0, 0, 0, false, EV_NONE, nullptr, "kill" };
     MissionState s = {};
@@ -114,6 +114,38 @@ int main() {
     check("KILL cible vivante -> non", !missionObjectiveDone(o, s));
     s.targetAlive = false;
     check("KILL cible morte -> oui", missionObjectiveDone(o, s));
+  }
+  // --- Objectif KILL a GARDES scenarises : fini quand TOUS sont a terre ---
+  // (les passants ne comptent pas : seul enemiesAlive est lu, pas beatCount).
+  {
+    Objective o = { OBJ_KILL, 0, 0, 0, false, EV_NONE, nullptr, "gardes",
+                    nullptr, 0, 0, 3, EK_THUG, SP_PRESENT };
+    MissionState s = {};
+    s.targetAlive = false; s.enemiesAlive = 3; s.beatCount = 9;  // 9 passants tues : ignore
+    check("KILL gardes 3 debout -> non", !missionObjectiveDone(o, s));
+    s.enemiesAlive = 1;
+    check("KILL gardes 1 debout -> non", !missionObjectiveDone(o, s));
+    s.enemiesAlive = 0;
+    check("KILL gardes tous a terre -> oui", missionObjectiveDone(o, s));
+  }
+  // --- Objectif BEAT a ENNEMIS scenarises : fini quand tous a terre (pas le compteur) ---
+  {
+    Objective o = { OBJ_BEAT, 0, 0, 0, false, EV_NONE, nullptr, "assaut",
+                    nullptr, 0, 0, 4, EK_THUG, SP_AMBUSH };
+    MissionState s = {};
+    s.enemiesAlive = 2; s.beatCount = 99;   // compteur de passants : ignore
+    check("BEAT ennemis 2 debout -> non", !missionObjectiveDone(o, s));
+    s.enemiesAlive = 0;
+    check("BEAT ennemis tous a terre -> oui", missionObjectiveDone(o, s));
+  }
+  // --- Objectif CRUSH : valide quand la voiture de mission est broyee ---
+  {
+    Objective o = { OBJ_CRUSH, 0, 0, 0, true, EV_NONE, "La Casse", "broie" };
+    MissionState s = {};
+    s.crushDone = false;
+    check("CRUSH pas broyee -> non", !missionObjectiveDone(o, s));
+    s.crushDone = true;
+    check("CRUSH broyee -> oui", missionObjectiveDone(o, s));
   }
   // --- Objectif BEAT : valide quand le compteur de KO atteint count ---
   {
@@ -190,6 +222,33 @@ int main() {
     check("M1 a1 TALK->JOIN", missionAdvance(run, def) == EV_MARCO_JOIN && run.step == 2);
     check("M1 a2 GOTO car", missionAdvance(run, def) == EV_NONE && run.step == 3 && run.active);
     check("M1 a3 fin", missionAdvance(run, def) == EV_NONE && run.step == 4 && !run.active);
+  }
+
+  // --- Lint d'authoring : deux DEPLACEMENTS consecutifs au meme POI = redondant ---
+  {
+    // Aller au point A puis au MEME point A en voiture : a proscrire.
+    static const Objective bad[] = {
+      { OBJ_GOTO,      0, 0, 12, false, EV_NONE, "La Casse", "va" },
+      { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse", "embarque" },
+    };
+    MissionDef defBad = { "bad", bad, 2 };
+    check("lint detecte deplacement redondant (meme POI)", missionHasRedundantTravel(defBad));
+
+    // Caisse au point A puis PNJ au point B : lieux differents -> OK.
+    static const Objective good[] = {
+      { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",  "embarque" },
+      { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Les Quais", "livre" },
+    };
+    MissionDef defGood = { "good", good, 2 };
+    check("lint OK lieux differents", !missionHasRedundantTravel(defGood));
+
+    // Arriver puis combattre au meme endroit (GOTO X -> BEAT X) : autorise.
+    static const Objective arrive[] = {
+      { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chantier", "va" },
+      { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chantier", "tabasse", nullptr, 0, 0, 3 },
+    };
+    MissionDef defArrive = { "arrive", arrive, 2 };
+    check("lint autorise arriver-puis-agir", !missionHasRedundantTravel(defArrive));
   }
 
   if (failures == 0) { printf("OK : LOS, fuite, poursuite, objectifs, enchainement, fleche HUD valides\n"); return 0; }

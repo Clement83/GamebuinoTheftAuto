@@ -6,6 +6,7 @@
 #pragma once
 #include <stdint.h>
 #include <math.h>
+#include <string.h>
 #include "ai.h"
 
 // Une tuile bloque la vue si c'est de l'eau ou un immeuble (hors carte = bloque).
@@ -151,6 +152,19 @@ enum ObjType {
   OBJ_SURVIVE   = 4,  // tenir `limit` frames (le temps qui s'ecoule remplit l'objectif)
   OBJ_TALK      = 5,  // s'approcher d'un PNJ nomme (a pied, petit rayon) : auto-dialogue
   OBJ_SUBDUE    = 6,  // frapper une cible nommee `count` fois : elle cede (ne meurt pas)
+  OBJ_CRUSH     = 7,  // amener la voiture de mission au broyeur : fini quand l'epave est broyee
+};
+
+// Type d'ennemi scenarise (pool d'ennemis de gta.ino). Donnee de mission.
+enum EnemyKind {
+  EK_THUG   = 0,  // gros bras au corps-a-corps (fonce et frappe)
+  EK_GUNNER = 1,  // tireur (fonce a distance moyenne puis tire)
+};
+
+// Mode d'apparition d'un groupe d'ennemis scenarises.
+enum SpawnMode {
+  SP_PRESENT = 0,  // poses et VISIBLES des l'activation de l'objectif
+  SP_AMBUSH  = 1,  // poses mais passifs jusqu'a ce que le joueur approche (embuscade)
 };
 
 enum MissionEvent {
@@ -172,9 +186,16 @@ struct Objective {
   const char *doneText;// narration affichee quand l'objectif est ATTEINT (ou nullptr)
   // Champs ajoutes en fin de struct : les anciennes initialisations restent
   // valides (membres absents -> 0 en initialisation aggregat C++).
-  uint8_t  count;      // OBJ_BEAT : nombre de pietons a mettre KO
+  uint8_t  count;      // OBJ_BEAT (sans ennemis) : pietons a mettre KO ;
+                       //   OBJ_SUBDUE : coups a porter ; OBJ_KILL : PV du boss (1 = ordinaire)
   uint16_t limit;      // frames : OBJ_SURVIVE = duree a tenir ; sinon limite de
                        //   temps (0 = aucune ; depassee -> mission echouee)
+  // --- Ennemis scenarises (ajoutes en fin de struct : init aggregat -> 0). ---
+  uint8_t enemyCount;  // >0 : spawn ce nombre d'ennemis AGRESSIFS pour l'objectif.
+                       //   OBJ_KILL/OBJ_BEAT : l'objectif est rempli quand TOUS sont a terre
+                       //   (les passants ne comptent JAMAIS). 0 = ancien comportement.
+  uint8_t enemyKind;   // EnemyKind du groupe (EK_THUG par defaut)
+  uint8_t spawnMode;   // SpawnMode : SP_PRESENT (defaut) ou SP_AMBUSH
 };
 
 struct MissionDef {
@@ -202,6 +223,8 @@ struct MissionState {
   int      beatCount;     // pietons mis KO depuis le debut de l'objectif
   uint16_t elapsed;       // frames ecoulees sur l'objectif courant
   int      subdueCount;   // coups portes a la cible de SUBDUE depuis le debut de l'objectif
+  int      enemiesAlive;  // ennemis scenarises encore debout (objectif a ennemis)
+  bool     crushDone;     // la voiture de mission vient d'etre broyee (OBJ_CRUSH)
 };
 
 // L'objectif o est-il rempli compte tenu de l'etat s ?
@@ -213,8 +236,11 @@ inline bool missionObjectiveDone(const Objective &o, const MissionState &s) {
       return dx * dx + dy * dy <= (long)o.radius * o.radius;
     }
     case OBJ_ENTER_CAR: return s.inMissionCar;
-    case OBJ_KILL:      return !s.targetAlive;
-    case OBJ_BEAT:      return s.beatCount >= (int)o.count;
+    case OBJ_KILL:      // boss/cible morte ET tous les gardes scenarises a terre
+      return !s.targetAlive && s.enemiesAlive == 0;
+    case OBJ_BEAT:      // a ennemis scenarises -> tous a terre ; sinon compteur de KO
+      return o.enemyCount > 0 ? s.enemiesAlive == 0 : s.beatCount >= (int)o.count;
+    case OBJ_CRUSH:     return s.crushDone;
     case OBJ_SURVIVE:   return s.elapsed >= o.limit;
     case OBJ_TALK: {                        // proximite a pied (jamais requireCar)
       long dx = s.actorCx - o.x, dy = s.actorCy - o.y;
@@ -238,6 +264,26 @@ inline uint8_t missionAdvance(MissionRun &run, const MissionDef &def) {
   run.step++;
   if (run.step >= def.count) run.active = false;
   return ev;
+}
+
+// Lint d'authoring (host-test) : un objectif est-il un DEPLACEMENT vers un lieu
+// (on s'y rend, puis on agit) ? GOTO et ENTER_CAR amenent le joueur quelque part.
+inline bool missionIsTravel(const Objective &o) {
+  return o.type == OBJ_GOTO || o.type == OBJ_ENTER_CAR;
+}
+
+// Lint : deux DEPLACEMENTS consecutifs visent-ils le MEME POI ? C'est le cas
+// "deux objectifs au meme endroit" a proscrire (aller chercher la caisse au point
+// A puis un PNJ au point B doivent etre des lieux differents). On compare les noms
+// de POI (les coords sont resolues au lancement). Arriver-puis-agir au meme endroit
+// (GOTO X -> BEAT X) reste autorise : seul le DEPLACEMENT redondant est signale.
+inline bool missionHasRedundantTravel(const MissionDef &def) {
+  for (uint8_t i = 1; i < def.count; i++) {
+    const Objective &a = def.objectives[i - 1], &b = def.objectives[i];
+    if (!missionIsTravel(a) || !missionIsTravel(b)) continue;
+    if (a.poi && b.poi && strcmp(a.poi, b.poi) == 0) return true;
+  }
+  return false;
 }
 
 // Vecteur unitaire focus -> cible (pour orienter la fleche HUD). (0,-1) si
