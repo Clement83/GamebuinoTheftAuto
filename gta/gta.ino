@@ -100,17 +100,20 @@ static const int WEAPON_TOAST_FRAMES = 55;   // ~2.2 s @ ~25 fps
 //     (cf. POI.md). Affiche dans le HUD sous les cœurs. ---
 static int32_t playerMoney = 0;
 
-// --- animation de la cagnotte : un gain (mission, butin au sol, broyage...) ne
-//     saute pas d'un coup. moneyShown rattrape playerMoney en "roulant" dollar
-//     par dollar (~2 s), et un "+$X" flottant remonte depuis sous la cagnotte
-//     vers celle-ci. Generique : tout passe par addMoney(). Les depenses, elles,
-//     sont rattrapees instantanement (pas d'anim a la baisse). ---
+// --- animation de la cagnotte : ni gain ni depense ne saute d'un coup.
+//     moneyShown rattrape playerMoney en "roulant" dollar par dollar, et un
+//     "+$X" flottant remonte vers la cagnotte (gain) tandis qu'un "-$X" rouge
+//     tombe sous elle (depense). Generique : tout passe par addMoney(). Les
+//     depenses roulent plus vite que les gains (l'argent file). ---
 static int32_t moneyShown    = 0;     // $ affiche dans le HUD (suit playerMoney)
 static int32_t moneyRollStep = 1;     // $/frame du compteur qui tourne
 static int32_t moneyGainAmt  = 0;     // montant du dernier "+$X" flottant
 static uint16_t moneyGainTimer = 0;   // >0 : "+$X" en cours de montee
-static const uint16_t MONEY_GAIN_FRAMES = 24;   // ~1 s : duree du "+$X" flottant
-static const int32_t  MONEY_ROLL_FRAMES = 50;   // ~2 s : duree cible du compteur
+static int32_t moneyLossAmt  = 0;     // montant (positif) du dernier "-$X" flottant
+static uint16_t moneyLossTimer = 0;   // >0 : "-$X" en cours de chute
+static const uint16_t MONEY_GAIN_FRAMES = 24;   // ~1 s : duree du "+$X"/"-$X" flottant
+static const int32_t  MONEY_ROLL_FRAMES = 50;   // ~2 s : duree cible du compteur (gain)
+static const int32_t  MONEY_LOSS_FRAMES = 18;   // ~0.7 s : compteur qui chute (depense)
 
 // --- butin au sol : objets laches par un pieton abattu (cf. dropLoot), ramasses
 //     a pied en marchant dessus. Pool tournant : un nouveau drop ecrase le plus
@@ -870,7 +873,7 @@ static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
 static const int NUM_SPRAYS = CITY_NUM_SPRAYS;
 static const int32_t SPRAY_COST = 50;   // $ preleve si on en a (sinon gratuit)
 static const float SPRAY_STOP_SPEED2 = 0.10f;  // (px/frame)^2 : "a l'arret" dans le garage
-static bool sprayInside = false;         // sur une porte de garage a la frame precedente (anti-repeat)
+static bool sprayInside = false;         // repeinture deja lancee durant ce passage sur la porte (anti-repeat ; reset en quittant la porte)
 static int8_t sprayActive = -1;          // index du garage en cours de repeinture (sortie auto)
 
 // --- AMU Nation : armureries accessibles A PIED. Comme les Pay'n'Spray, les
@@ -991,6 +994,10 @@ struct Enemy {
 };
 static const int MAX_ENEMIES = 4;
 static Enemy enemies[MAX_ENEMIES];
+// Videurs du casino : si on se presente arme a la porte, 2 gros bras nous
+// sortent. Ce drapeau garde ces ennemis VIVANTS hors mission (cf. updateEnemies,
+// qui despawn sinon tout ennemi des que missionRun est inactif).
+static bool bouncerBrawl = false;
 static const uint16_t ENEMY_COLOR_THUG   = 0xFA20;  // orange-rouge (gros bras)
 static const uint16_t ENEMY_COLOR_GUNNER = 0xF800;  // rouge vif (tireur arme)
 static const int   ENEMY_AGGRO_RANGE  = 56;   // px : distance d'eveil (IDLE -> AGGRO)
@@ -1227,6 +1234,7 @@ void setup() {
   casinoPoiIdx = findPoi("Le Casino");
   casinoOpen = false; casinoState = CASINO_IDLE; casinoBet = 1;
   casinoWinToast = 0; casinoLastWin = 0;
+  bouncerBrawl = false;
   hospInside = false; commInside = false;
 
   casseArm = 0; carGone = false;
@@ -1260,7 +1268,8 @@ void setup() {
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
   playerMoney = 10;                            // pecule de depart
-  moneyShown = playerMoney; moneyRollStep = 1; moneyGainAmt = 0; moneyGainTimer = 0;
+  moneyShown = playerMoney; moneyRollStep = 1;
+  moneyGainAmt = 0; moneyGainTimer = 0; moneyLossAmt = 0; moneyLossTimer = 0;
   for (int i = 0; i < NUM_LOOT; i++) loots[i].active = false;
   for (int i = 0; i < NUM_BULLETS; i++) bullets[i].active = false;
   for (int i = 0; i < NUM_PROJ; i++) projs[i].active = false;
@@ -1848,7 +1857,7 @@ static void reviveCommon() {
 static void startEndSeq(uint8_t kind, const char *msg, const char *poi, bool fromCar) {
   if (seqKind != SEQ_NONE) return;             // deja en cinematique : on ignore
   seqKind = kind; overlayMsg = msg; seqPoi = poi;
-  playerMoney -= playerMoney / 2;              // on lache la moitie du fric
+  addMoney(-(playerMoney / 2));                // on lache la moitie du fric
   if (fromCar) { seqPhase = PH_EXPLODE; seqTimer = BOOM_FRAMES + 6; }
   else { seqPhase = PH_MSG; seqTimer = SEQ_MSG_FRAMES; gb.sound.playCancel(); }
 }
@@ -1859,7 +1868,7 @@ static void startHealSeq() {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_HEAL; seqPhase = PH_HEAL; seqTimer = SEQ_HEAL_FRAMES;
   int32_t pay = playerMoney < HEAL_COST ? playerMoney : HEAL_COST;
-  playerMoney -= pay;
+  addMoney(-pay);
   narrate("Soigne. -$40");
 }
 
@@ -2801,6 +2810,37 @@ static void spawnEnemiesForObjective(const Objective &o) {
   }
 }
 
+// --- Videurs du casino : entrer ARME a la porte = expulsion musclee ----------
+// Punch lines GTA, ton rigolard. Tirees au hasard a chaque expulsion.
+static const char *BOUNCER_ARMED_LINES[6] = {
+  "Le videur: range ton flingue, ducon, ici on parie pas sa peau!",
+  "Le videur: une arme au casino? La maison aime pas. Dehors!",
+  "Le videur: tu comptes braquer la banque tout seul? Mignon. Sors.",
+  "Le videur: pas d'acier sur le tapis vert. On va t'apprendre les manieres.",
+  "Le videur: le seul pigeon qu'on plume ici, c'est l'arme au poing.",
+  "Le videur: ton calibre reste au vestiaire... ou c'est toi qu'on plie.",
+};
+
+// Deux gros bras (EK_THUG) surgissent autour du joueur, deja AGGRO : ils foncent
+// et cognent. bouncerBrawl les garde vivants hors mission (cf. updateEnemies).
+static void spawnCasinoBouncers(int pcx, int pcy) {
+  clearEnemies();
+  bouncerBrawl = true;
+  static const int OFFX[2] = { -2, 2 };   // un de chaque cote du joueur
+  static const int OFFY[2] = {  1, 1 };
+  for (int i = 0; i < 2; i++) {
+    Enemy &e = enemies[i];
+    int wx = pcx + OFFX[i] * TILE_W, wy = pcy + OFFY[i] * TILE_H;
+    int tx, ty;
+    if (aiFindWalkTileNear(wx, wy, tx, ty)) { e.x = tx * 8 + 4; e.y = ty * 8 + 4; }
+    else { e.x = (float)wx; e.y = (float)wy; }
+    e.tgtx = (int)e.x; e.tgty = (int)e.y;
+    e.dir = DIR_SOUTH; e.frame = 0; e.animTimer = 0;
+    e.hp = ENEMY_HP_THUG; e.kind = EK_THUG; e.phase = EN_AGGRO;  // pas de sommeil : ils chargent
+    e.atkTimer = 0; e.downTimer = 0; e.active = true;
+  }
+}
+
 // Inflige un coup a un ennemi. lethal = balle (mort immediate) ; sinon 3 coups de
 // poing (le frapper l'eveille s'il dormait). A 0 PV : a terre (splat puis despawn).
 static void hitEnemy(Enemy &e, bool lethal) {
@@ -2839,7 +2879,7 @@ static void updateEnemies(int fcx, int fcy) {
       if (e.downTimer == 0 || --e.downTimer == 0) e.phase = EN_AGGRO;
       continue;
     }
-    if (!missionRun.active) { e.active = false; continue; }  // mission finie : on nettoie
+    if (!missionRun.active && !bouncerBrawl) { e.active = false; continue; }  // mission finie : on nettoie (sauf brawl casino)
     float ddx = (float)fcx - e.x, ddy = (float)fcy - e.y;
     float d2 = ddx * ddx + ddy * ddy;
     if (e.phase == EN_IDLE) {
@@ -3041,18 +3081,27 @@ static void startMission(uint8_t m) {
   gb.sound.playOK();
 }
 
-// Point d'entree GENERIQUE de tout gain d'argent (mission, butin au sol, broyage
-// d'epave...) : credite la cagnotte et arme l'animation (compteur qui roule +
-// "+$X" flottant). N'emet pas de son : l'appelant garde le sien, le compteur
-// fait ses petits "tic" en roulant.
+// Point d'entree GENERIQUE de tout mouvement d'argent (mission, butin, broyage,
+// braquage... mais aussi soin, Pay'n'Spray, tournee au bar) : credite/debite la
+// cagnotte et arme l'animation. Gain -> "+$X" qui monte, compteur qui roule en
+// ~2 s. Depense -> "-$X" rouge qui tombe, compteur qui chute plus vite (~0.7 s).
+// N'emet pas de son : l'appelant garde le sien, le compteur fait ses "tic".
 static void addMoney(int32_t amount) {
-  if (amount <= 0) { playerMoney += amount; return; }   // depense/zero : pas d'anim
-  playerMoney  += amount;
-  moneyGainAmt  = amount;
-  moneyGainTimer = MONEY_GAIN_FRAMES;
-  int32_t step = (playerMoney - moneyShown) / MONEY_ROLL_FRAMES;  // pour finir en ~2 s
-  if (step < 1) step = 1;
-  if (step > moneyRollStep) moneyRollStep = step;       // gains cumules : on roule au moins aussi vite
+  if (amount == 0) return;
+  playerMoney += amount;
+  if (amount > 0) {                                      // gain : le compteur monte
+    moneyGainAmt = amount; moneyGainTimer = MONEY_GAIN_FRAMES;
+    moneyLossTimer = 0;                                  // un gain efface un "-$X" en cours
+    int32_t step = (playerMoney - moneyShown) / MONEY_ROLL_FRAMES;  // pour finir en ~2 s
+    if (step < 1) step = 1;
+    if (step > moneyRollStep) moneyRollStep = step;      // mouvements cumules : au moins aussi vite
+  } else {                                               // depense : le compteur chute
+    moneyLossAmt = -amount; moneyLossTimer = MONEY_GAIN_FRAMES;
+    moneyGainTimer = 0;                                  // une depense efface un "+$X" en cours
+    int32_t step = (moneyShown - playerMoney) / MONEY_LOSS_FRAMES;  // chute en ~0.7 s
+    if (step < 1) step = 1;
+    if (step > moneyRollStep) moneyRollStep = step;
+  }
 }
 
 // --- Le Bar : tournee du vieux poivrot --------------------------------------
@@ -3129,20 +3178,24 @@ static void bureauVisit() {
   wanted.decayTimer = WANTED_DECAY_FRAMES;               // pleine duree de vie de l'etoile
 }
 
-// Anime la cagnotte chaque frame : moneyShown rattrape playerMoney en roulant
-// (gain) ou d'un coup (depense). Petit "tic" sonore pendant la montee.
+// Anime la cagnotte chaque frame : moneyShown rattrape playerMoney en roulant,
+// vers le haut (gain) ou vers le bas (depense). Petit "tic" sonore en roulant.
 static void updateMoneyAnim() {
-  if (moneyShown > playerMoney) {                        // depense : rattrapage instantane
-    moneyShown = playerMoney;
-  } else if (moneyShown < playerMoney) {                 // gain : on roule vers le total
+  if (moneyShown < playerMoney) {                        // gain : on roule vers le total
     int32_t diff = playerMoney - moneyShown;
     int32_t s = diff < moneyRollStep ? diff : moneyRollStep;
     moneyShown += s;
+    if ((moneyShown & 3) == 0) gb.sound.playTick();      // tic discret du compteur
+  } else if (moneyShown > playerMoney) {                 // depense : on chute vers le total
+    int32_t diff = moneyShown - playerMoney;
+    int32_t s = diff < moneyRollStep ? diff : moneyRollStep;
+    moneyShown -= s;
     if ((moneyShown & 3) == 0) gb.sound.playTick();      // tic discret du compteur
   } else {
     moneyRollStep = 1;                                   // au repos : vitesse remise a zero
   }
   if (moneyGainTimer > 0) moneyGainTimer--;
+  if (moneyLossTimer > 0) moneyLossTimer--;
 }
 
 // Mission echouee (limite de temps depassee) : message + retour au repos.
@@ -3690,7 +3743,7 @@ static void repaintCar() {
   carHp = CAR_MAX_HP; carFuse = 0; carRunaway = false;   // service complet : reparee, feu eteint
   wantedClear(wanted);
   int32_t pay = playerMoney < SPRAY_COST ? playerMoney : SPRAY_COST;
-  playerMoney -= pay;
+  addMoney(-pay);
   narrate("Repeinte. Plus recherche.");
   gb.sound.playOK();
 }
@@ -3966,14 +4019,22 @@ static void drawTopHud() {
   snprintf(money, sizeof(money), "$%ld", (long)moneyShown);
   gb.display.setColor(BLACK); gb.display.setCursor(2, 9); gb.display.print(money);
   gb.display.setColor((Color)0x07E0); gb.display.setCursor(1, 8); gb.display.print(money);
+  int gx = 2 + (int)strlen(money) * 4 + 2;                  // juste a droite du montant
   // "+$X" flottant qui remonte depuis sous la cagnotte vers celle-ci (a chaque gain).
   if (moneyGainTimer > 0) {
     char g[12]; snprintf(g, sizeof(g), "+$%ld", (long)moneyGainAmt);
     int rise = MONEY_GAIN_FRAMES - moneyGainTimer;          // 0..N : il monte
-    int gx = 2 + (int)strlen(money) * 4 + 2;                // juste a droite du montant
     int gy = 18 - rise / 2;                                 // de y~18 vers la cagnotte (y~8)
     if (!(moneyGainTimer < 4 && (moneyGainTimer & 1)))       // clignote en fin de course
       printShadowCol(gx, gy, g, 0xFFE0);                    // jaune (billets qui filent)
+  }
+  // "-$X" flottant qui tombe depuis la cagnotte vers le bas (a chaque depense).
+  if (moneyLossTimer > 0) {
+    char g[12]; snprintf(g, sizeof(g), "-$%ld", (long)moneyLossAmt);
+    int fall = MONEY_GAIN_FRAMES - moneyLossTimer;          // 0..N : il descend
+    int gy = 8 + fall / 2;                                  // de la cagnotte (y~8) vers y~18
+    if (!(moneyLossTimer < 4 && (moneyLossTimer & 1)))       // clignote en fin de course
+      printShadowCol(gx, gy, g, 0xF800);                    // rouge (le fric qui s'envole)
   }
 }
 
@@ -4278,13 +4339,11 @@ static void drawSequence(int camX, int camY) {
         int x = bxS + (a % 15) - 7, y = byS + ((a >> 2) % 9) - 4;
         if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xC618;
       }
-    } else {                                       // PH_EJECT : prime qui monte
-#endif
-      char r[10]; snprintf(r, sizeof(r), "+$%ld", (long)crushReward);
-      int len = (int)strlen(r), yy = 28 - (SEQ_EJECT_FRAMES - seqTimer);
-      gb.display.setColor(BLACK); gb.display.setCursor((SCREEN_W - len * 4) / 2 + 1, yy + 1); gb.display.print(r);
-      gb.display.setColor((Color)0x07E0); gb.display.setCursor((SCREEN_W - len * 4) / 2, yy); gb.display.print(r);
+    } else {                                       // PH_EJECT : la prime s'affiche
+      // via le compteur HUD generique (addMoney au PH_CRUSH) : pas de "+$X"
+      // centre ici, sinon double affichage avec la cagnotte qui roule.
     }
+#endif
     return;
   }
   if (seqPhase == PH_FADE) {                      // ecran noir plein avant la TP
@@ -4306,7 +4365,7 @@ static void shopBuy() {
   if (shopSel == SHOP_ARMOR) {                  // ligne gilet pare-balles
     if (playerHearts >= PLAYER_HP_MAX) { gb.sound.tone(120, 120); return; }  // deja plein
     if (playerMoney < ARMOR_PRICE)     { gb.sound.tone(120, 120); return; }  // trop cher
-    playerMoney -= ARMOR_PRICE;
+    addMoney(-ARMOR_PRICE);
     giveBodyArmor();
     return;
   }
@@ -4314,7 +4373,7 @@ static void shopBuy() {
   bool owned = weaponOwned[w];
   int32_t cost = owned ? AMMO_PRICE[w] : WEAPON_PRICE[w];
   if (playerMoney < cost) { gb.sound.tone(120, 120); return; }   // trop cher
-  playerMoney -= cost;
+  addMoney(-cost);
   weaponOwned[w] = true;
   weaponAmmo[w] += WEAPONS[w].ammoPickup;
   curWeapon = w; weaponToast = WEAPON_TOAST_FRAMES;              // equipee a l'achat
@@ -4640,14 +4699,22 @@ void loop() {
         }
       }
       // Sur une tuile du POI Casino (la ou le bandeau affiche "Le Casino") ?
-      // Ouvre la machine a sous.
+      // Arme au poing -> les videurs te sortent (punch line + baston). Mains
+      // nues -> on ouvre la machine a sous.
       if (!answered && casinoPoiIdx >= 0
           && poiAtTile(pcx >> 3, pcy >> 3) == casinoPoiIdx) {
-        casinoOpen = true; casinoState = CASINO_IDLE; casinoWinToast = 0;
-        if (casinoBet < 1) casinoBet = 1;
-        casinoRng ^= ((uint32_t)missionAnim << 16) ^ ((uint32_t)playerX << 8)
-                   ^ (uint32_t)playerY ^ 0x9E3779B9u;   // melange un peu d'entropie
-        gb.sound.playOK(); answered = true;
+        if (curWeapon != WEAPON_FIST) {                  // arme visible : expulsion
+          narrate(BOUNCER_ARMED_LINES[aiRngNext(aiRng) % 6]);
+          gb.sound.tone(110, 140); gb.sound.tone(80, 120);  // "dehors!"
+          spawnCasinoBouncers(pcx, pcy);
+        } else {
+          casinoOpen = true; casinoState = CASINO_IDLE; casinoWinToast = 0;
+          if (casinoBet < 1) casinoBet = 1;
+          casinoRng ^= ((uint32_t)missionAnim << 16) ^ ((uint32_t)playerX << 8)
+                     ^ (uint32_t)playerY ^ 0x9E3779B9u;   // melange un peu d'entropie
+          gb.sound.playOK();
+        }
+        answered = true;
       }
       // Autres POI a "porte" (a pied, A sur la bbox) : Planque (dodo), Le Bar
       // (tournee du poivrot), Les Commerces (braquage).
@@ -4803,6 +4870,7 @@ void loop() {
   if (missionRun.active && objElapsed < 0xFFFF) objElapsed++;
   missionUpdate(focusX, focusY);
   updateEnemies(focusX, focusY);
+  if (bouncerBrawl && enemiesAliveCount() == 0) bouncerBrawl = false;  // videurs au tapis : fin du brawl
   marcoUpdate(focusX, focusY);
   missionProgress();
   if (targetDownTimer > 0) targetDownTimer--;
@@ -4829,7 +4897,8 @@ void loop() {
 
   // Pay'n'Spray : entrer en voiture par la porte du garage (case gar_door) et
   // s'Y ARRETER repeint la caisse et efface les etoiles. On ne declenche qu'une
-  // fois par visite (anti-repeat tant qu'on reste sur la porte).
+  // fois par visite : sprayInside reste arme tant qu'on n'a pas quitte la porte
+  // (la caisse ressort d'elle-meme une case au sud, ce qui re-arme la suivante).
   bool onSpray = false;
   if (driving) {
     int ctx = (int)car.x >> 3, cty = (int)car.y >> 3;     // tuile sous le centre de la caisse
@@ -4837,11 +4906,14 @@ void loop() {
       if (ctx == citySprays[i].tx && cty == citySprays[i].ty) {
         onSpray = true;
         bool stopped = (car.vx * car.vx + car.vy * car.vy) <= SPRAY_STOP_SPEED2;
-        if (stopped && !sprayInside && seqKind == SEQ_NONE) startSpraySeq(i);  // arrete dans le garage
+        if (stopped && !sprayInside && seqKind == SEQ_NONE) {
+          startSpraySeq(i);                               // arrete sur la porte -> repeinture
+          sprayInside = true;                             // arme l'anti-repeat pour ce passage
+        }
         break;
       }
   }
-  sprayInside = onSpray;
+  if (!onSpray) sprayInside = false;                      // quitte la porte : re-armable
 
   // La Casse : GARER sa caisse (pas la voiture de mission) sur la zone fixe,
   // DESCENDRE et rester a portee -> la grue s'amorce (~1 s) puis broie l'epave
