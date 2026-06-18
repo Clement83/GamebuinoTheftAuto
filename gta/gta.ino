@@ -1850,6 +1850,13 @@ static void reviveCommon() {
   }
 }
 
+// Arrestation (SEQ_BUSTED) : amende police FIXE selon les etoiles au moment des
+// faits. Index = wanted.level (0..WANTED_MAX).
+static const int32_t BUST_FINE[WANTED_MAX + 1] = { 0, 100, 250, 450, 700, 1000 };
+// Mort (SEQ_WASTED) : facture d'hopital fixe, independante des etoiles (on peut
+// mourir sans flics).
+static const int32_t HOSP_BILL = 100;
+
 // Demarre une sequence de mort/arrestation : on fige le joueur, on prend
 // l'argent tout de suite, et on laisse la cinematique (message -> ecran noir ->
 // TP) se derouler dans updateSequence(). fromCar => on attend d'abord que
@@ -1857,7 +1864,11 @@ static void reviveCommon() {
 static void startEndSeq(uint8_t kind, const char *msg, const char *poi, bool fromCar) {
   if (seqKind != SEQ_NONE) return;             // deja en cinematique : on ignore
   seqKind = kind; overlayMsg = msg; seqPoi = poi;
-  addMoney(-(playerMoney / 2));                // on lache la moitie du fric
+  uint8_t lvl = wanted.level <= WANTED_MAX ? wanted.level : WANTED_MAX;
+  int32_t fine = (kind == SEQ_BUSTED) ? BUST_FINE[lvl]   // arrestation : amende police
+                                      : HOSP_BILL;        // mort : facture hopital fixe
+  if (fine > playerMoney) fine = playerMoney;  // jamais plus que ce qu'on a
+  addMoney(-fine);
   if (fromCar) { seqPhase = PH_EXPLODE; seqTimer = BOOM_FRAMES + 6; }
   else { seqPhase = PH_MSG; seqTimer = SEQ_MSG_FRAMES; gb.sound.playCancel(); }
 }
