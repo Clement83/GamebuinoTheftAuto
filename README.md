@@ -43,6 +43,24 @@ données, tests).
 > Pay'n'Spray (rentrer en voiture et s'arrêter dans le garage). À pied, sans rien
 > à portée, il **change d'arme**.
 
+## Sauvegarde (3 profils)
+
+Au démarrage, un **écran de sélection** propose **3 profils** indépendants
+(`PROFIL 1/2/3`). Chaque ligne montre un aperçu (`$argent` + `Mission n/total`)
+ou `- VIDE -`. **HAUT/BAS** choisit, **A** lance (charge le profil ou démarre
+une partie neuve sur un slot vide), **B** efface le slot (deux appuis pour
+confirmer).
+
+On **sauvegarde en dormant à la Planque** (le « dodo » déjà existant) : l'état
+persistant — **argent, avancement de la campagne, armes & munitions** — est
+écrit dans le profil actif (bandeau « Partie sauvegardee »). Le reste (position,
+trafic, niveau de recherche) est transitoire et régénéré à chaque lancement.
+
+Côté code : `gta/save.h` (struct `SaveProfile` + helpers purs, testés par
+`tools/host_test/test_save_host.cpp`) et la glue `gb.save` dans `gta.ino`
+(`profileRead` / `profileWriteCurrent` / `profileLoadCurrent`, menu
+`updateProfileMenu` / `drawProfileMenu`).
+
 ## Structure du projet
 
 ```
@@ -54,6 +72,7 @@ gta/                  Sketch Arduino + headers C++ "purs" (le firmware)
   combat.h            Coup de poing / dégâts
   weapons.h           Définition des armes + munitions
   mission.h           Couche mission (objectifs, LOS, fuite, flèche HUD)
+  save.h              Profils de sauvegarde (struct + pack/apply purs)
   assets.h / *_data.cpp   Données générées (tileset, sprites, carte) — NE PAS éditer
 tools/                Générateurs Python (PC) -> écrivent les *_data.cpp
   build_assets.py     tileset.csv + PNG -> gta/assets.{h,cpp}
@@ -94,8 +113,9 @@ arduino-cli compile -u -p /dev/ttyACM0 \
 Les `.h` de logique sont compilables en natif (aucune dépendance Gamebuino) :
 
 ```sh
-# Tests autonomes (mission, combat, ai, weapons)
+# Tests autonomes (mission, combat, ai, weapons, save)
 g++ -std=c++11 -I gta tools/host_test/test_mission_host.cpp -o /tmp/t && /tmp/t
+g++ -std=c++11 -I gta tools/host_test/test_save_host.cpp -o /tmp/t && /tmp/t
 
 # engine et ai_city référencent la carte -> lier les données
 g++ -std=c++11 -I gta tools/host_test/test_engine_host.cpp \

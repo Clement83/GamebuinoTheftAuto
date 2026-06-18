@@ -33,6 +33,7 @@
 #include "weapons_gfx.h"
 #include "wanted.h"
 #include "slot.h"
+#include "save.h"
 
 // L'enum WeaponId (weapons.h) et les sprites (weapons_gfx.h) doivent rester
 // alignes : meme nombre, meme ordre (cf. tools/build_weapons.py).
@@ -934,6 +935,39 @@ static uint16_t missionDoneTimer = 0;     // >0 : petit bandeau "MISSION ACCOMPL
 static const uint16_t MISSION_DONE_FRAMES = 60;  // ~2.4 s a 25 fps
 static const int MISSION_DONE_SLIDE = 12;        // frames de glissement (montee / descente)
 static uint16_t missionAnim = 0;          // compteur d'animation (clignotements)
+
+// --- Profils de sauvegarde (3 slots independants) ---------------------------
+// On stocke un blob SaveProfile par slot (indices gb.save 0..2). La logique
+// pure (validite / pack / apply) vit dans save.h ; ici c'est la glue I/O et le
+// petit ecran de selection au boot (cf. updateProfileMenu / drawProfileMenu).
+static const uint8_t NUM_PROFILES = 3;
+static uint8_t currentProfile = 0;        // slot actif (0..2), choisi au menu
+static bool    inMenu = true;             // ecran de selection au boot (modal)
+static uint8_t menuSel = 0;               // curseur du menu (0..NUM_PROFILES-1)
+static bool    menuConfirmDelete = false; // B presse une fois : confirme l'effacement
+
+// Lit un profil depuis la SD. Renvoie false (et p.magic force a 0) si vide.
+static bool profileRead(uint8_t slot, SaveProfile &p) {
+  p.magic = 0;                            // get() zero-remplit un blob absent
+  gb.save.get(slot, p);
+  return profileValid(p);
+}
+
+// Ecrit l'etat de jeu courant dans le profil actif (appel a la Planque).
+static void profileWriteCurrent() {
+  SaveProfile p;
+  profilePack(p, playerMoney, campaignStep, weaponOwned, weaponAmmo);
+  gb.save.set(currentProfile, p);
+}
+
+// Charge le profil actif sur l'etat de jeu courant (s'il existe). Sans profil,
+// les valeurs de depart posees par setup() restent en place (nouvelle partie).
+static void profileLoadCurrent() {
+  SaveProfile p;
+  if (profileRead(currentProfile, p))
+    profileApply(p, playerMoney, campaignStep, weaponOwned, weaponAmmo);
+  moneyShown = playerMoney;               // resync du compteur HUD
+}
 
 // Copie runtime des objectifs de la mission active : les coords des objectifs
 // references par un POI (champ `poi`) sont resolues ici au lancement, car la
@@ -1890,6 +1924,8 @@ static void startSleepSeq() {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_SLEEP; seqPhase = PH_FADE; seqTimer = SEQ_SLEEP_FRAMES;
   gb.sound.tone(330, 120); gb.sound.tone(247, 180);   // petit air de dodo
+  profileWriteCurrent();                               // dormir a la Planque = sauvegarder
+  narrate("Partie sauvegardee.");
 }
 
 // Enfile le gilet pare-balles : +3 PV (les points du dessus, bleus), plafonne a
@@ -4437,6 +4473,62 @@ static void drawShop() {
   }
 }
 
+// --- Ecran de selection de profil (modal, au boot) --------------------------
+
+// Navigation : HAUT/BAS choisit un slot, A le lance (charge le profil ou
+// demarre une partie neuve sur un slot vide), B efface le slot (2 appuis pour
+// confirmer). Le monde a deja ete construit par setup() avec les valeurs de
+// depart ; charger un profil ne fait que les recouvrir.
+static void updateProfileMenu() {
+  if (gb.buttons.pressed(BUTTON_UP)) {
+    menuSel = (uint8_t)((menuSel + NUM_PROFILES - 1) % NUM_PROFILES);
+    menuConfirmDelete = false; gb.sound.playTick();
+  }
+  if (gb.buttons.pressed(BUTTON_DOWN)) {
+    menuSel = (uint8_t)((menuSel + 1) % NUM_PROFILES);
+    menuConfirmDelete = false; gb.sound.playTick();
+  }
+  if (gb.buttons.pressed(BUTTON_B)) {
+    SaveProfile p;
+    if (!profileRead(menuSel, p)) { gb.sound.playCancel(); return; }  // deja vide
+    if (!menuConfirmDelete) { menuConfirmDelete = true; gb.sound.playTick(); return; }
+    gb.save.del(menuSel); menuConfirmDelete = false; gb.sound.playCancel();
+    return;
+  }
+  if (gb.buttons.pressed(BUTTON_A)) {
+    currentProfile = menuSel;
+    profileLoadCurrent();                 // applique le profil s'il existe
+    inMenu = false; menuConfirmDelete = false;
+    gb.sound.playOK();
+  }
+}
+
+static void drawProfileMenu() {
+  fb = gb.display._buffer;
+  for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = 0x0008;       // fond bleu nuit
+  printShadow(1, 1, "GTA DEMAKE");
+  printShadowCol(1, 9, "Choisis un profil", 0xC618);
+
+  for (uint8_t s = 0; s < NUM_PROFILES; s++) {
+    int y = 20 + s * 12;
+    if (s == menuSel)
+      for (int yy = y - 1; yy < y + 9 && yy < SCREEN_H; yy++)
+        for (int xx = 0; xx < SCREEN_W; xx++) fb[yy * SCREEN_W + xx] = 0x2945;
+    SaveProfile p;
+    char line[24];
+    if (profileRead(s, p)) {
+      int done = (p.campaignStep > STORY_LEN) ? STORY_LEN : (int)p.campaignStep;
+      snprintf(line, sizeof(line), "P%d $%ld M%d/%d", s + 1, (long)p.money, done, (int)STORY_LEN);
+    } else {
+      snprintf(line, sizeof(line), "P%d  - VIDE -", s + 1);
+    }
+    printShadow(3, y, line);
+  }
+
+  if (menuConfirmDelete) printShadowCol(1, 57, "B encore = effacer", 0xF800);
+  else                   printShadow(1, 57, "A:jouer  B:effacer");
+}
+
 // --- Casino : machine a sous ---------------------------------------------
 
 // Symboles 11x11 en pixel-art multicolore (vrais fruits/cloche/bar/sept au lieu
@@ -4639,6 +4731,10 @@ static void updateLights() {
 void loop() {
   while (!gb.update());
   updateLights();
+
+  // Ecran de selection de profil au demarrage (modal) : on choisit/charge un
+  // des 3 profils avant que le monde ne tourne. Sortie du menu -> jeu normal.
+  if (inMenu) { updateProfileMenu(); drawProfileMenu(); return; }
 
   // Magasin ouvert (AMU Nation) : UI modale, monde gele. On traite la nav et on
   // dessine le menu, puis on sort de la frame.
