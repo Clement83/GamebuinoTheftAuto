@@ -22,6 +22,27 @@ Pas besoin de compiler : le dépôt fournit le jeu déjà packagé dans le dossi
 La suite de ce README s'adresse au **développement** (build, génération des
 données, tests).
 
+## 🎮 Contrôles
+
+```
+        ▲
+     ◄ ✚ ►        (A)  (B)
+        ▼      [ SELECT ]
+```
+
+| Bouton | À pied | Au volant |
+|:------:|:-------|:----------|
+| **✚ Croix** | Se déplacer | Braquer (◄ ►) |
+| **A** | 👊 Attaquer (poing / arme) | Accélérer |
+| **B** | 🤸 Saut (par-dessus les voitures) | Freiner / marche arrière |
+| **SELECT** | 🚪 Action : entrer/interagir | 🚪 Sortir de la voiture |
+
+> **SELECT = le bouton « action »** : c'est le même pour **entrer** et **sortir**
+> d'une voiture, **entrer** dans un bâtiment (armurerie, casino, Planque, Bar,
+> Commerces, Bureaux), **décrocher** une cabine qui sonne, ou **repeindre** au
+> Pay'n'Spray (rentrer en voiture et s'arrêter dans le garage). À pied, sans rien
+> à portée, il **change d'arme**.
+
 ## Structure du projet
 
 ```
