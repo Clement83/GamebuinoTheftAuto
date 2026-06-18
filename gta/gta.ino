@@ -1844,9 +1844,10 @@ static void reviveCommon() {
   if (missionRun.active) {                  // une mission en cours echoue
     missionRun.active = false; target.active = false;
     marcoWaiting = false; marcoFollow = false; marcoAboard = false;
-    mCarActive = false;
+    mCarActive = false; carIsMission = false;
     storyMissionActive = false; killerChase = false;
     clearEnemies();
+    missionFailedTimer = MISSION_FAIL_FRAMES;   // bandeau "MISSION RATEE" apres la TP
   }
 }
 
