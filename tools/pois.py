@@ -314,6 +314,64 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
     return placed
 
 
+def place_spray_garages(grid, w, h, tile_index, count, avoid_centers,
+                        occupied=None, margin=3):
+    """Tamponne `count` garages Pay'n'Spray, en REUTILISANT l'art du Garage de
+    Marco (blueprint 3x3 -> gar_facade/gar_sign/gar_door, porte carrossable avec
+    route au sud). Memes regles que place_stamps : parcelle 3x3 sans route/eau/
+    quai, route juste au sud de la porte, sans chevaucher un stamp deja pose
+    (`occupied` = cellules des reperes deja tamponnes). Disperses au plus loin
+    des `avoid_centers`. Best-effort. Modifie la grille sur place."""
+    sdef = STAMP_DEFS["garage"]
+    if not all(t in tile_index for t in sdef["tiles"].values()):
+        return
+    blueprint = STAMP_BLUEPRINT
+    sh, sw = len(blueprint), len(blueprint[0])
+    drow, dcol = _door_cell(blueprint)
+    road_ids = {tile_index["road_h"], tile_index["road_v"], tile_index["road_cross"]}
+    blocked = road_ids | {tile_index["water"]}
+    if "dock" in tile_index:
+        blocked = blocked | {tile_index["dock"]}
+    occupied = set(occupied or set())
+    centers = list(avoid_centers)
+    for _ in range(count):
+        cands = []
+        for y in range(margin, h - margin - sh):
+            for x in range(margin, w - margin - sw):
+                cells = [(y + ry) * w + (x + rx)
+                         for ry in range(sh) for rx in range(sw)]
+                if any(grid[c] in blocked or c in occupied for c in cells):
+                    continue
+                if y + drow + 1 >= h or \
+                        grid[(y + drow + 1) * w + (x + dcol)] not in road_ids:
+                    continue                                   # route au sud de la porte
+                cands.append((x, y, cells))
+        if not cands:
+            break
+        def _spread_key(c):
+            cx, cy = c[0] + sw // 2, c[1] + sh // 2
+            dmin = min((cx - px) ** 2 + (cy - py) ** 2 for px, py in centers) \
+                if centers else 0
+            return (-dmin, c[0], c[1])
+        cands.sort(key=_spread_key)
+        x, y, cells = cands[0]
+        for ci, c in enumerate(cells):
+            ry, rx = divmod(ci, sw)
+            grid[c] = tile_index[sdef["tiles"][blueprint[ry][rx]]]
+            occupied.add(c)
+        centers.append((x + sw // 2, y + sh // 2))
+
+
+def collect_gar_doors(grid, tile_index, w, h):
+    """Toutes les cases gar_door de la grille -> [(tx,ty)] (Pay'n'Spray : Garage
+    de Marco + garages supplementaires). C'est l'entree carrossable de chaque
+    garage. Ordre stable (balayage ligne par ligne)."""
+    gd = tile_index.get("gar_door")
+    if gd is None:
+        return []
+    return [(i % w, i // w) for i in range(w * h) if grid[i] == gd]
+
+
 def place_docks(grid, sea, district_id, port_d, tile_index, w, h,
                 jetties=3, max_len=4, gap=4):
     """Pose 2-3 jetees (tuile 'dock') le long de la facade maritime du port.

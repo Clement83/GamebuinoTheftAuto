@@ -518,11 +518,26 @@ def generate_into(city, seed, tile_index, solid_index,
     city.districts = pois.collect_district_labels(district_id, district_names,
                                                   city.grid, tile_index, w, h)
 
-    # 8e. services en bord de route (Pay'n'Spray / AMU Nation) : coordonnees
-    # exportees (sprites procuduraux cote jeu, grille inchangee). Places en
-    # dernier pour profiter de la grille complete (routes + trottoirs + blocs).
-    city.sprays, city.ammus = pois.place_services(city.grid, tile_index,
-                                                  seed, w, h)
+    # 8e. Pay'n'Spray = VRAIS garages (art du Garage de Marco) tamponnes dans la
+    # grille. On en pose qq-uns de plus, disperses loin des stamps deja poses,
+    # puis on exporte TOUTES les portes gar_door (Marco inclus) comme points de
+    # repeinture carrossables. Les AMU Nation restent des reperes en bord de
+    # route (sprites procuduraux, grille inchangee).
+    avoid_centers = [(x + 1, y + 1)
+                     for v in placed_stamps.values() if v for (x, y) in [v]]
+    stamp_cells = set()
+    for v in placed_stamps.values():
+        if not v:
+            continue
+        sx, sy = v
+        for ry in range(3):
+            for rx in range(3):
+                stamp_cells.add((sy + ry) * w + (sx + rx))
+    pois.place_spray_garages(city.grid, w, h, tile_index, count=5,
+                             avoid_centers=avoid_centers, occupied=stamp_cells)
+    city.sprays = pois.collect_gar_doors(city.grid, tile_index, w, h)
+    _unused_sprays, city.ammus = pois.place_services(city.grid, tile_index,
+                                                     seed, w, h)
 
     # 8f. La Casse : on TAMPONNE une enceinte clôturee (grilles + epaves
     # statiques + base de grue + zone de depose) dans le district junkyard. La

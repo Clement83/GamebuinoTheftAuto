@@ -1,14 +1,15 @@
 // GTA demake -- sketch Gamebuino META (M4 + voiture).
 // Pieton qui se deplace a la croix dans la ville scrollante, collision +
 // camera clampee. Une voiture conduisible (physique arcade + drift) est garee
-// a cote du spawn : A pour monter, MENU pour descendre. Rendu pixel par pixel
-// (drawPixel) depuis des tableaux RGB565 en flash ; la voiture est un rectangle
-// oriente (angle continu) trace a la volee, sans sprite.
+// a cote du spawn : MENU pour monter/descendre (meme bouton). Rendu pixel par
+// pixel (drawPixel) depuis des tableaux RGB565 en flash ; la voiture est un
+// rectangle oriente (angle continu) trace a la volee, sans sprite.
 //
-// A pied  : croix = deplacer, A (pres de la voiture) = monter.
+// A pied  : croix = deplacer, MENU = entrer/interagir (voiture, batiment-POI,
+//           telephone ; rien a portee -> change d'arme), A = attaquer, B = saut.
 // Au volant : A = accelerer, B = freiner (puis marche arriere a l'arret),
-//             GAUCHE/DROITE = braquer, MENU = descendre. Drift auto : freiner
-//             en virage a vitesse part en glisse.
+//             GAUCHE/DROITE = braquer, MENU = descendre (meme bouton qu'a pied).
+//             Drift auto : freiner en virage a vitesse part en glisse.
 //
 // Compile-flag DEMO_AUTOWALK : chemin scripte pieton (validation sans boutons).
 // FOLDER_NAME : la lib l'exige (nom de sketch < 4 chars) -> aussi en build flag.
@@ -860,16 +861,17 @@ static const uint16_t PHONE_BODY_MISSION = 0x019F;   // bleu
 static const uint16_t PHONE_BODY_STORY   = 0xC800;   // rouge fonce
 
 
-// --- Pay'n'Spray : garages eparpilles, accessibles EN VOITURE. Positions
-//     GENEREES par tools/pois.py (en bord de route, cote sans trottoir,
-//     disseminees) et exportees dans citymap.h (citySprays[] en TUILES) -- plus
-//     de placement aleatoire ni de snap runtime. Rouler dessus repeint la
-//     voiture (nouvelle couleur) et remet la recherche police a zero (debit $).
+// --- Pay'n'Spray : VRAIS garages (art du Garage de Marco) tamponnes dans la
+//     map par tools/pois.py. citySprays[] = les cases gar_door (porte
+//     carrossable, deja non-solide, route au sud). On entre EN VOITURE par la
+//     porte, on s'ARRETE dans le garage -> repeinture + recherche a zero (debit
+//     $) + la caisse RESSORT seule sur la route. Le Garage de Marco en fait
+//     partie (Pay'n'Spray normal, fixe).
 static const int NUM_SPRAYS = CITY_NUM_SPRAYS;
-static int16_t sprayPx[NUM_SPRAYS], sprayPy[NUM_SPRAYS];   // px monde
-static const int   SPRAY_REACH = 10;    // px : rayon de declenchement (centre voiture)
 static const int32_t SPRAY_COST = 50;   // $ preleve si on en a (sinon gratuit)
-static bool sprayInside = false;         // dans la zone a la frame precedente (detection d'entree)
+static const float SPRAY_STOP_SPEED2 = 0.10f;  // (px/frame)^2 : "a l'arret" dans le garage
+static bool sprayInside = false;         // sur une porte de garage a la frame precedente (anti-repeat)
+static int8_t sprayActive = -1;          // index du garage en cours de repeinture (sortie auto)
 
 // --- AMU Nation : armureries accessibles A PIED. Comme les Pay'n'Spray, les
 //     positions sont GENEREES (cityAmmus[] dans citymap.h : bord de route, cote
@@ -970,12 +972,13 @@ static Target target;
 static uint8_t targetDownTimer = 0;       // >0 : splat (cible/Marco) feedback
 static int targetDownX = 0, targetDownY = 0;
 static uint16_t targetAtkTimer = 0;       // recharge des coups de la cible AGRESSIVE (boss/tueur/SUBDUE)
+static uint16_t targetStunTimer = 0;      // >0 : cible/boss au sol (frappe encaissee), ni poursuite ni attaque
 
 // --- Ennemis scenarises (gardes, assaillants) : pool d'entites AGRESSIVES posees
 //     par un objectif (enemyCount>0). Contrairement aux passants, ils foncent sur
 //     le joueur et le frappent (ou tirent), et SEULS comptent pour l'objectif (un
 //     passant tue n'avance plus jamais une mission). cf. mission.h. ---
-enum { EN_IDLE = 0, EN_AGGRO = 1, EN_DOWN = 2 };   // phase d'un ennemi
+enum { EN_IDLE = 0, EN_AGGRO = 1, EN_DOWN = 2, EN_STAGGER = 3 };   // phase d'un ennemi (EN_STAGGER : au sol, se relevera)
 struct Enemy {
   float x, y; uint8_t dir, frame, animTimer;
   int tgtx, tgty;        // point-cible courant (poursuite par voies)
@@ -995,6 +998,7 @@ static const float ENEMY_SPEED        = 0.45f;// px/frame (un poil < joueur a pi
 static const int   ENEMY_MELEE_DIST   = 8;    // px : portee du coup au corps-a-corps
 static const uint16_t ENEMY_MELEE_PERIOD = 26;// frames entre deux coups (~1 s)
 static const int   ENEMY_MELEE_DMG    = 1;    // coeurs perdus par coup
+static const uint8_t ENEMY_MELEE_MISS_PCT = 50;// % de coups au corps-a-corps qui ratent (cogne dans le vide)
 static const int   ENEMY_SHOOT_RANGE  = 50;   // px : portee de tir (gunner)
 static const uint16_t ENEMY_SHOOT_PERIOD = 42;// frames entre deux tirs
 static const uint8_t ENEMY_HP_THUG    = 3;    // 3 coups de poing pour un gros bras
@@ -1206,13 +1210,10 @@ void setup() {
     storyPx[0] = wx; storyPy[0] = wy;
   }
 
-  // Pay'n'Spray : positions generees (citySprays[]), deja en bord de route cote
-  // sans trottoir -> centre de la tuile, aucun snap necessaire.
-  for (int i = 0; i < NUM_SPRAYS; i++) {
-    sprayPx[i] = citySprays[i].tx * TILE_W + TILE_W / 2;
-    sprayPy[i] = citySprays[i].ty * TILE_H + TILE_H / 2;
-  }
+  // Pay'n'Spray : citySprays[] = cases gar_door (deja dans la grille). Aucune
+  // position runtime a calculer ; le declenchement se fait par la tuile.
   sprayInside = false;
+  sprayActive = -1;
 
   // AMU Nation : positions generees (cityAmmus[]), meme regle de placement.
   for (int i = 0; i < NUM_AMMUS; i++) {
@@ -1269,6 +1270,7 @@ void setup() {
   missionRun.active = false;
   target.active = false;
   targetDownTimer = 0;
+  targetStunTimer = 0;
   mCarActive = false; carIsMission = false;
   marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   killerChase = false;
@@ -2300,7 +2302,7 @@ static void tryAttack() {
     // Ennemis scenarises : frappables au poing comme un pieton (cone), 3 coups.
     for (int i = 0; i < MAX_ENEMIES; i++) {
       Enemy &e = enemies[i];
-      if (e.active && e.phase != EN_DOWN &&
+      if (e.active && e.phase != EN_DOWN && e.phase != EN_STAGGER &&
           combatInCone(e.x, e.y, pcx, pcy, playerDir, wd.reach, wd.side)) {
         hitEnemy(e, false); break;
       }
@@ -2317,13 +2319,15 @@ static void tryAttack() {
     alarmCarsAround(pcx, pcy, GUNSHOT_PANIC_RANGE);   // voitures qui entendent le tir : fuite
   }
   // La cible de mission est frappable comme un pieton (toujours dans le cone).
-  if (missionRun.active && target.active &&
+  if (missionRun.active && target.active && targetStunTimer == 0 &&
       combatInCone(target.x, target.y, pcx, pcy, playerDir, wd.reach, wd.side)) {
     if (curObjs[missionRun.step].type == OBJ_SUBDUE) {
       objSubdue++;                          // elle cede, elle ne meurt pas
+      targetStunTimer = getupFrames();      // tombe au sol comme un passant
       gb.sound.tone(150, 50);
     } else if (targetHp > 1) {
-      targetHp--;                           // BOSS : encaisse le coup, vacille
+      targetHp--;                           // BOSS : encaisse le coup et tombe
+      targetStunTimer = getupFrames();
       gb.sound.tone(150, 50);
     } else {
       killTarget(pcx, pcy);
@@ -2730,7 +2734,7 @@ static bool spawnTargetWander(int pcx, int pcy) {
     aiPlace(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
             target.tgtx, target.tgty, tx, ty, aiIsWalkable, aiRng);
     target.frame = 0; target.animTimer = 0; target.phase = T_WANDER;
-    target.loseTimer = 0; target.active = true; target.chase = false;
+    target.loseTimer = 0; target.active = true; target.chase = false; targetStunTimer = 0;
     return true;
   }
   return false;
@@ -2744,7 +2748,7 @@ static bool spawnTargetWanderNear(int wx, int wy) {
   aiPlace(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
           target.tgtx, target.tgty, tx, ty, aiIsWalkable, aiRng);
   target.frame = 0; target.animTimer = 0; target.phase = T_WANDER;
-  target.loseTimer = 0; target.active = true; target.chase = false;
+  target.loseTimer = 0; target.active = true; target.chase = false; targetStunTimer = 0;
   return true;
 }
 
@@ -2755,7 +2759,7 @@ static void spawnTargetAt(int wx, int wy) {
   aiPlace(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
           target.tgtx, target.tgty, tx, ty, aiIsWalkable, aiRng);
   target.frame = 0; target.animTimer = 0; target.phase = T_WANDER;
-  target.loseTimer = 0; target.active = true; target.chase = true;
+  target.loseTimer = 0; target.active = true; target.chase = true; targetStunTimer = 0;
 }
 
 // --- Pool d'ennemis scenarises ---------------------------------------------
@@ -2806,13 +2810,22 @@ static void hitEnemy(Enemy &e, bool lethal) {
     targetDownX = (int)e.x; targetDownY = (int)e.y; targetDownTimer = ENEMY_DOWN_FRAMES;
     gb.sound.playOK();
   } else {
-    e.hp--; e.phase = EN_AGGRO; gb.sound.tone(150, 50);
+    // Coup encaisse : il tombe au sol (comme un passant), se relevera et re-aggro.
+    e.hp--; e.phase = EN_STAGGER; e.downTimer = (uint8_t)getupFrames();
+    gb.sound.tone(150, 50);
   }
+}
+
+// Un coup au corps-a-corps connecte-t-il ? ENEMY_MELEE_MISS_PCT % de chances de
+// rater (l'ennemi cogne dans le vide). Met a jour le rng. Partage gros bras/boss.
+static bool enemyMeleeHits() {
+  return (aiRngNext(aiRng) % 100) >= ENEMY_MELEE_MISS_PCT;
 }
 
 // Met a jour les ennemis chaque frame. (fcx,fcy) = repere joueur (centre px).
 // IDLE -> AGGRO quand le joueur approche ; AGGRO : fonce (gros bras) ou tire
-// (gunner) ; renversable a la voiture lancee. EN_DOWN : decompte du splat.
+// (gunner) ; renversable a la voiture lancee. EN_DOWN : decompte du splat ;
+// EN_STAGGER : au sol apres un coup, se releve en EN_AGGRO.
 static void updateEnemies(int fcx, int fcy) {
   if (seqKind == SEQ_CUT) return;                 // cinematique : ennemis figes (taunt)
   for (int i = 0; i < MAX_ENEMIES; i++) {
@@ -2820,6 +2833,10 @@ static void updateEnemies(int fcx, int fcy) {
     if (!e.active) continue;
     if (e.phase == EN_DOWN) {                       // a terre : despawn en fin de timer
       if (e.downTimer > 0 && --e.downTimer == 0) e.active = false;
+      continue;
+    }
+    if (e.phase == EN_STAGGER) {                    // sonne : se releve en fin de timer (ni course ni coup)
+      if (e.downTimer == 0 || --e.downTimer == 0) e.phase = EN_AGGRO;
       continue;
     }
     if (!missionRun.active) { e.active = false; continue; }  // mission finie : on nettoie
@@ -2846,9 +2863,9 @@ static void updateEnemies(int fcx, int fcy) {
       missionChaseStep(cityMap, CITY_W, CITY_H, e.x, e.y, e.dir, e.tgtx, e.tgty,
                        ENEMY_SPEED, fcx, fcy, aiRng);
       if (!driving && e.atkTimer == 0 && d2 < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
-        e.atkTimer = ENEMY_MELEE_PERIOD;
-        gb.sound.tone(90, 70);
-        hurtPlayer(ENEMY_MELEE_DMG, false);
+        e.atkTimer = ENEMY_MELEE_PERIOD;            // cooldown meme sur un rate (sinon re-tente chaque frame)
+        if (enemyMeleeHits()) { gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false); }
+        else gb.sound.tone(55, 40);                 // coup dans le vide
       }
     }
     if (++e.animTimer >= AI_PED_ANIM) { e.animTimer = 0; e.frame ^= 1; }
@@ -2862,14 +2879,16 @@ static void updateEnemies(int fcx, int fcy) {
   }
 }
 
-// Dessine les ennemis : splat au sol (EN_DOWN) ou sprite recolore selon le type.
+// Dessine les ennemis : sang (EN_DOWN, mort), corps au sol (EN_STAGGER, assomme)
+// ou sprite recolore selon le type.
 static void drawEnemies(int camX, int camY) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy &e = enemies[i];
     if (!e.active) continue;
+    uint16_t col = e.kind == EK_GUNNER ? ENEMY_COLOR_GUNNER : ENEMY_COLOR_THUG;
     if (e.phase == EN_DOWN) blitSplat(camX, camY, (int)e.x, (int)e.y);
-    else blitPed(camX, camY, (int)e.x, (int)e.y, e.dir, e.frame,
-                 e.kind == EK_GUNNER ? ENEMY_COLOR_GUNNER : ENEMY_COLOR_THUG);
+    else if (e.phase == EN_STAGGER) blitDownBody(camX, camY, (int)e.x, (int)e.y, col);
+    else blitPed(camX, camY, (int)e.x, (int)e.y, e.dir, e.frame, col);
   }
 }
 
@@ -2986,7 +3005,7 @@ static void enterObjective() {
     target.tgtx = o.x; target.tgty = o.y;
     target.dir = DIR_SOUTH; target.frame = 0; target.animTimer = 0;
     target.phase = T_EMERGE; target.loseTimer = 0;
-    target.active = true; target.chase = false;
+    target.active = true; target.chase = false; targetStunTimer = 0;
   } else if (o.type == OBJ_SURVIVE) {
     int pcx = driving ? (int)car.x : playerX + PLAYER_W / 2;
     int pcy = driving ? (int)car.y : playerY + PLAYER_H / 2;
@@ -3185,7 +3204,7 @@ static void startMarcoDeathCut() {
   if (aiFindWalkTileNear(k.x, k.y, tx, ty)) { target.x = (float)(tx * 8 + 4); target.y = (float)(ty * 8 + 4); }
   else { target.x = (float)k.x; target.y = (float)k.y; }
   target.dir = DIR_SOUTH; target.frame = 0; target.animTimer = 0;
-  target.phase = T_WANDER; target.loseTimer = 0; target.active = true; target.chase = false;
+  target.phase = T_WANDER; target.loseTimer = 0; target.active = true; target.chase = false; targetStunTimer = 0;
   targetHp = k.count > 1 ? k.count : 1;
 }
 
@@ -3357,6 +3376,7 @@ static void missionUpdate(int fcx, int fcy) {
   if (seqKind == SEQ_CUT) return;                 // cinematique : cutsceneUpdate gere les acteurs
   if (!missionRun.active || !target.active) return;
   if (targetAtkTimer > 0) targetAtkTimer--;
+  if (targetStunTimer > 0) { targetStunTimer--; return; }   // au sol : ni poursuite ni coup
   if (curObjs[missionRun.step].type == OBJ_SUBDUE) {             // cible a tabasser : sort puis SE DEFEND
     if (target.phase == T_EMERGE) {
       if (npcWalkToward(target.x, target.y, target.dir, target.frame,
@@ -3372,7 +3392,9 @@ static void missionUpdate(int fcx, int fcy) {
     float sdx = (float)fcx - target.x, sdy = (float)fcy - target.y;
     if (!driving && targetAtkTimer == 0 &&
         sdx * sdx + sdy * sdy < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
-      targetAtkTimer = ENEMY_MELEE_PERIOD; gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false);
+      targetAtkTimer = ENEMY_MELEE_PERIOD;
+      if (enemyMeleeHits()) { gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false); }
+      else gb.sound.tone(55, 40);
     }
     return;
   }
@@ -3384,7 +3406,9 @@ static void missionUpdate(int fcx, int fcy) {
     float kdx = (float)fcx - target.x, kdy = (float)fcy - target.y;
     if (!driving && targetAtkTimer == 0 &&
         kdx * kdx + kdy * kdy < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
-      targetAtkTimer = ENEMY_MELEE_PERIOD; gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false);
+      targetAtkTimer = ENEMY_MELEE_PERIOD;
+      if (enemyMeleeHits()) { gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false); }
+      else gb.sound.tone(55, 40);
     }
   } else {
     bool sees = missionLineOfSight(cityMap, CITY_W, CITY_H,
@@ -3587,34 +3611,9 @@ static void tryPickupWeapons(int pcx, int pcy) {
 // des reperes permanents -> toujours visibles. Les cabines de missions
 // secondaires (bleues) ne s'affichent qu'au repos et sonnent (decrochables).
 // Garage Pay'n'Spray 8x8 centre en (px,py) monde : auvent raye jaune/bleu sur un
-// box gris a porte sombre. Repere visuel d'un point de repeinture (sur la route).
-static void drawSprayShop(int camX, int camY, int px, int py) {
-  static const uint8_t MAP[64] = {
-    1,1,1,1,1,1,1,1,
-    2,3,2,3,2,3,2,3,
-    4,4,4,4,4,4,4,4,
-    4,5,5,5,5,5,5,4,
-    4,5,5,5,5,5,5,4,
-    4,5,5,5,5,5,5,4,
-    4,5,5,5,5,5,5,4,
-    4,4,4,4,4,4,4,4,
-  };
-  const uint16_t pal[6] = { 0xF81F, 0x4208, 0xFFE0, 0x001F, 0xAD55, 0x10A2 };
-  int sx = px - camX - 4, sy = py - camY - 4;
-  for (int dy = 0; dy < 8; dy++)
-    for (int dx = 0; dx < 8; dx++) {
-      uint8_t idx = MAP[dy * 8 + dx];
-      uint16_t c = pal[idx];
-      int x = sx + dx, y = sy + dy;
-      if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
-      fb[y * SCREEN_W + x] = c;
-    }
-}
-
-static void drawSprayShops(int camX, int camY) {
-  for (int i = 0; i < NUM_SPRAYS; i++)
-    drawSprayShop(camX, camY, sprayPx[i], sprayPy[i]);
-}
+// Pay'n'Spray : plus d'overlay -- les garages sont desormais de VRAIS stamps
+// (gar_facade/gar_sign/gar_door) tamponnes dans la grille, dessines par le
+// moteur de tuiles. La porte gar_door est l'entree carrossable.
 
 // Devanture AMU Nation 8x8 : facade gris-vert, auvent rouge, enseigne jaune
 // (croix "+ d'armes"), porte sombre. Repere d'armurerie (sur trottoir).
@@ -3665,10 +3664,11 @@ static void drawCasseZone(int camX, int camY) {
 
 // Entree dans un Pay'n'Spray : demarre la cinematique (la caisse rentre, on
 // entend la bombe, elle ressort repeinte). Le joueur attend, fige.
-static void startSpraySeq() {
+static void startSpraySeq(int sprayIdx) {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_SPRAY; seqPhase = PH_IN; seqTimer = SEQ_IN_FRAMES;
-  car.vx = 0.0f; car.vy = 0.0f;                // on coupe l'elan en entrant
+  sprayActive = (int8_t)sprayIdx;              // garage en cours (sortie auto en PH_OUT)
+  car.vx = 0.0f; car.vy = 0.0f;                // on coupe l'elan une fois dans le garage
 }
 
 // Fin d'amorcage de la grue : demarre le broyage. Prime selon les PV restants
@@ -3745,8 +3745,10 @@ static void drawMarker(int camX, int camY) {
 // coexistent quand le tueur vient d'apparaitre sur le splat de Marco.
 static void drawTarget(int camX, int camY) {
   if (targetDownTimer > 0) blitSplat(camX, camY, targetDownX, targetDownY);
-  if (missionRun.active && target.active)
-    blitPed(camX, camY, (int)target.x, (int)target.y, target.dir, target.frame, TARGET_COLOR);
+  if (missionRun.active && target.active) {
+    if (targetStunTimer > 0) blitDownBody(camX, camY, (int)target.x, (int)target.y, TARGET_COLOR);   // au sol apres un coup
+    else blitPed(camX, camY, (int)target.x, (int)target.y, target.dir, target.frame, TARGET_COLOR);
+  }
 }
 
 // Fleche HUD autour du joueur, pointant la destination ou la cible courante.
@@ -4115,9 +4117,17 @@ static void updateSequence() {
     case PH_IN:                                  // la caisse a disparu dans le garage
       seqPhase = PH_SPRAY; seqTimer = SEQ_SPRAY_FRAMES; break;
     case PH_SPRAY:                               // bombe finie : repeinte, elle ressort
-      repaintCar(); seqPhase = PH_OUT; seqTimer = SEQ_OUT_FRAMES; break;
+      repaintCar();
+      if (sprayActive >= 0 && sprayActive < NUM_SPRAYS) {   // ressort SEULE sur la route au sud de la porte
+        int rtx = citySprays[sprayActive].tx, rty = citySprays[sprayActive].ty + 1;
+        car.x = (float)(rtx * TILE_W + TILE_W / 2);
+        car.y = (float)(rty * TILE_H + TILE_H / 2);
+        car.angle = 1.5708f;                     // cap sud (vers l'exterieur du garage)
+        car.vx = 0.0f; car.vy = 0.0f;
+      }
+      seqPhase = PH_OUT; seqTimer = SEQ_OUT_FRAMES; break;
     case PH_OUT:                                 // ressortie : on rend la main au joueur
-      seqKind = SEQ_NONE; seqPhase = 0; break;
+      seqKind = SEQ_NONE; seqPhase = 0; sprayActive = -1; break;
     case PH_HEAL:                                // soin termine : vie au max
       playerHearts = PLAYER_HEARTS_MAX;
       seqKind = SEQ_NONE; seqPhase = 0; break;
@@ -4607,19 +4617,17 @@ void loop() {
     } else {
       playerFrame = 0; animTimer = 0;
     }
-    // Ramassage d'une arme au sol (en marchant dessus) et changement d'arme en
-    // boucle (MENU). MENU ne sert a sortir de la voiture qu'au volant : libre ici.
+    // Ramassage d'une arme au sol (en marchant dessus).
     tryPickupWeapons(playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);
     tryPickupLoot(playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);
-    if (gb.buttons.pressed(BUTTON_MENU)) {
-      uint8_t w = weaponCycleNext(weaponOwned, curWeapon);
-      if (w != curWeapon) { curWeapon = w; weaponToast = WEAPON_TOAST_FRAMES; }
-    }
-    // A : decrocher un telephone fixe qui sonne (demarre sa mission), sinon
-    // monter dans la voiture la plus proche a portee (voiture de mission garee,
-    // voiture du joueur, ou voiture IA volee), sinon coup de poing.
+    // A : attaquer (poing / arme courante).
+    if (gb.buttons.pressed(BUTTON_A)) tryAttack();
+    // MENU ("select") : ENTRER / interagir -- MEME bouton que pour SORTIR de la
+    // voiture. Decroche un telephone qui sonne, ouvre un batiment-POI
+    // (armurerie, casino, Planque, Bar, Commerces, Bureaux) ou monte dans la
+    // voiture la plus proche a portee. Rien a portee -> change d'arme (boucle).
     // best : -3 voiture de mission, -2 aucune, -1 voiture joueur, >=0 IA.
-    if (gb.buttons.pressed(BUTTON_A)) {
+    if (gb.buttons.pressed(BUTTON_MENU)) {
       int pcx = playerX + PLAYER_W / 2, pcy = playerY + PLAYER_H / 2;
       bool answered = false;
       // Armurerie a portee ? Ouvre le magasin (prioritaire sur le coup de poing).
@@ -4732,9 +4740,12 @@ void loop() {
           }
           c.active = false;                  // la voiture quitte le pool IA
           driving = true; carGone = false;
-        } else {
-          tryAttack();                       // aucune voiture a portee -> arme courante
         }
+        if (best != -2) answered = true;     // monte dans une caisse -> interaction faite
+      }
+      if (!answered) {                        // rien a portee : changer d'arme (boucle)
+        uint8_t w = weaponCycleNext(weaponOwned, curWeapon);
+        if (w != curWeapon) { curWeapon = w; weaponToast = WEAPON_TOAST_FRAMES; }
       }
     }
   } else {
@@ -4816,17 +4827,20 @@ void loop() {
   updateSmoke();                               // panaches de fumee d'explosion (~5 s)
   updateSequence();                            // avance la cinematique mort/arret/spray
 
-  // Pay'n'Spray : entrer en voiture dans un garage repeint la caisse et efface
-  // les etoiles. Detection d'entree (declenche une fois par passage, pas en
-  // boucle si on reste sur place).
+  // Pay'n'Spray : entrer en voiture par la porte du garage (case gar_door) et
+  // s'Y ARRETER repeint la caisse et efface les etoiles. On ne declenche qu'une
+  // fois par visite (anti-repeat tant qu'on reste sur la porte).
   bool onSpray = false;
   if (driving) {
-    for (int i = 0; i < NUM_SPRAYS; i++) {
-      long ddx = (int)car.x - sprayPx[i], ddy = (int)car.y - sprayPy[i];
-      if (ddx * ddx + ddy * ddy <= (long)SPRAY_REACH * SPRAY_REACH) { onSpray = true; break; }
-    }
+    int ctx = (int)car.x >> 3, cty = (int)car.y >> 3;     // tuile sous le centre de la caisse
+    for (int i = 0; i < NUM_SPRAYS; i++)
+      if (ctx == citySprays[i].tx && cty == citySprays[i].ty) {
+        onSpray = true;
+        bool stopped = (car.vx * car.vx + car.vy * car.vy) <= SPRAY_STOP_SPEED2;
+        if (stopped && !sprayInside && seqKind == SEQ_NONE) startSpraySeq(i);  // arrete dans le garage
+        break;
+      }
   }
-  if (onSpray && !sprayInside && seqKind == SEQ_NONE) startSpraySeq();  // on entre : cinematique
   sprayInside = onSpray;
 
   // La Casse : GARER sa caisse (pas la voiture de mission) sur la zone fixe,
@@ -4924,7 +4938,7 @@ void loop() {
   }
 
   // Trafic IA (sous le joueur), entites de mission, puis voiture joueur, perso.
-  drawSprayShops(camX, camY);                  // garages (marquage au sol, sur route)
+  // (Pay'n'Spray : plus d'overlay -- garages dessines comme tuiles de la map.)
   drawAmmuShops(camX, camY);                    // armureries (devanture, sur trottoir)
 #if CITY_HAS_CASSE
   drawJunkyardRig(camX, camY);                  // grue + broyeur permanents (La Casse)

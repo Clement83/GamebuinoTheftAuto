@@ -161,13 +161,14 @@ def test_each_stamp_placed_once_in_full_gen():
     assert sum(n[d] for d in STAMP_DOORS) == 3
 
 
-STORY_STAMP_SIGNS = ("plan_sign", "gar_sign", "bar_sign", "bur_sign",
-                     "cas_sign", "com_sign")
+# Le garage est EXCLU : il sert aussi de Pay'n'Spray -> plusieurs gar_sign sur
+# la carte (Marco + garages de service). Les autres reperes restent uniques.
+STORY_STAMP_SIGNS = ("plan_sign", "bar_sign", "bur_sign", "cas_sign", "com_sign")
 
 
 def test_story_stamps_present_on_roomy_map():
-    # sur une carte avec de la place, les 6 batiments-reperes de la campagne
-    # sont tamponnes une fois chacun (seed 11 : tous les stamps tiennent).
+    # sur une carte avec de la place, les reperes UNIQUES de la campagne sont
+    # tamponnes une fois chacun (seed 11 : tous les stamps tiennent).
     n = Counter(_gen(seed=11).grid)
     for sign in STORY_STAMP_SIGNS:
         assert n[TI[sign]] == 1, "stamp campagne %s : %d enseignes" % (sign, n[TI[sign]])
@@ -213,11 +214,23 @@ def _is_road_edge_block(grid, w, x, y):
 
 
 def test_place_services_count_rule_and_no_overlap():
+    # Pay'n'Spray = VRAIS garages : chaque spray est une case gar_door (porte
+    # carrossable) avec une route juste au sud (acces + orientation). AMU Nation
+    # reste un repere en bord de route. Les deux ne se chevauchent jamais.
     c = _gen()
-    assert len(c.sprays) == pois.SPRAY_COUNT
     assert len(c.ammus) == pois.AMMU_COUNT
-    for x, y in c.sprays + c.ammus:
-        assert _is_road_edge_block(c.grid, c.w, x, y), "service hors bord-de-route"
+    rh, rv, rx = TI["road_h"], TI["road_v"], TI["road_cross"]
+    roads = (rh, rv, rx)
+    assert len(c.sprays) >= 1, "aucun Pay'n'Spray (Garage de Marco attendu)"
+    # toutes les portes gar_door de la grille sont exportees comme sprays
+    gar_doors = {(i % c.w, i // c.w) for i in range(c.w * c.h)
+                 if c.grid[i] == TI["gar_door"]}
+    assert set(c.sprays) == gar_doors, "spray != cases gar_door"
+    for x, y in c.sprays:
+        assert c.grid[y * c.w + x] == TI["gar_door"], "spray hors gar_door"
+        assert y + 1 < c.h and c.grid[(y + 1) * c.w + x] in roads, "porte sans route au sud"
+    for x, y in c.ammus:
+        assert _is_road_edge_block(c.grid, c.w, x, y), "ammu hors bord-de-route"
     assert set(c.sprays).isdisjoint(c.ammus), "spray et ammu sur la meme case"
 
 
