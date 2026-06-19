@@ -8,6 +8,22 @@
 > Référence de l'état actuel (fidèle au code) : `campagne/` et ses fiches
 > `m*.md`. Ce document décrit les **améliorations** à apporter par-dessus.
 
+## État d'implémentation (live)
+
+Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.bin`).
+
+- ✅ **Compagnon physique — descend/monte avec toi** (`gta.ino` sortie MENU). Base
+  des missions à allié (M1/M4/M13).
+- ✅ **Échec sélectif — véhicule de mission détruit** (`failOnCarLoss` +
+  `missionCarLossFail`, testé host ; câblé `missionProgress`). Actif sur **M7**.
+- ⏳ **Échec sélectif — PNJ requis tué** (PV d'allié + ciblage par les ennemis +
+  détection de mort). Pour M8 (Tony), M13/M14 (Sarah).
+- ⏳ **Règle racket — tuer un client coopératif = échec** (M2, M9).
+- ⏳ **Scènes scriptées à destination** (contact qui attend, beat autonome du
+  compagnon) — outil le plus lourd, déroulé par mission.
+- ⏳ **Death-beats de boss** (Rico/Bruno/Victor), subversion M4, M16 (caisses de
+  luxe marquées + nuance broyage), épilogue habité.
+
 ## Boîte à outils transverse
 
 Mécaniques réutilisées dans (presque) toutes les missions. Elles définissent le
