@@ -268,10 +268,12 @@ inline bool missionTimedOut(const Objective &o, uint16_t elapsed) {
 }
 
 // Invariant d'echec selectif : la mission exige un vehicule SPECIFIQUE et celui-ci
-// a ete detruit -> mission ratee. Le broyage volontaire (OBJ_CRUSH) ne compte pas.
-inline bool missionCarLossFail(const MissionDef &def, const Objective &cur,
-                               const MissionState &s) {
-  return def.failOnCarLoss && s.missionCarLost && cur.type != OBJ_CRUSH;
+// a ete DETRUIT -> mission ratee. Le broyage VOLONTAIRE ne compte pas : il pose
+// crushDone (et efface carIsMission), donc missionCarLost reste faux dans ce cas ;
+// le garde !crushDone est une ceinture-bretelles. Couvre aussi M16 (caisse de luxe
+// a amener entiere au broyeur : explosion en route avant le broyage = echec).
+inline bool missionCarLossFail(const MissionDef &def, const MissionState &s) {
+  return def.failOnCarLoss && s.missionCarLost && !s.crushDone;
 }
 
 // Invariant d'echec selectif : la mission exige qu'un PNJ allie reste en vie et

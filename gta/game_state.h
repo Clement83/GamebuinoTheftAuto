@@ -782,7 +782,7 @@ static const MissionDef MISSIONS[] = {
   { "Le temoin",        OBJS_M13,3, 400, true },   // index 27 = M13 (trame, escorte)
   { "Embuscade",        OBJS_M14,3, 450, true, false, true },   // index 28 = M14 (trame ; Sarah defendue)
   { "Les dossiers",     OBJS_M15,3, 500, true },   // index 29 = M15 (trame)
-  { "Sabotage",         OBJS_M16,4, 550, true },   // index 30 = M16 (trame)
+  { "Sabotage",         OBJS_M16,4, 550, true, true },   // index 30 = M16 (caisses de luxe = vehicules requis)
   { "Bruno",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
   { "Le dernier appel", OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
 };

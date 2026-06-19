@@ -8,7 +8,12 @@
 - **Entrée** — `MISSIONS[30]`, `STORY_SEQ[15]`. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 15`).
 - **Prime** — **550 $**.
-- **Échec** — aucun.
+- **Échec sélectif** — chaque **voiture de luxe est un véhicule requis**
+  (`failOnCarLoss`, `MISSIONS[30]`) : si elle **explose avant le broyeur** (prise
+  de feu, puis bail → épave qui pète sur la route), → **MISSION RATÉE** (*« La
+  caisse est détruite ! »*). Le **broyage volontaire** ne déclenche rien : il pose
+  `crushDone` et efface `carIsMission` (cf. `missionCarLossFail`, `mission.h`).
+  Exploser **au volant** te tue (échec par la séquence MORT).
 
 ## Objectifs (séquence moteur)
 

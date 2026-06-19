@@ -258,13 +258,13 @@ int main() {
     };
     MissionDef def   = { "M7", objs, 1, 350, true, true };   // failOnCarLoss = true
     MissionDef defNo = { "X",  objs, 1, 100, false, false }; // failOnCarLoss = false
-    MissionState s = {}; s.missionCarLost = true;
-    check("car loss -> fail (flag on)",        missionCarLossFail(def,   objs[0], s));
-    check("car loss -> pas de fail (flag off)", !missionCarLossFail(defNo, objs[0], s));
+    MissionState s = {}; s.missionCarLost = true;            // detruite, pas (encore) broyee
+    check("car loss -> fail (flag on)",        missionCarLossFail(def,   s));
+    check("car loss -> pas de fail (flag off)", !missionCarLossFail(defNo, s));
     MissionState s2 = {}; s2.missionCarLost = false;
-    check("car intacte -> pas de fail",        !missionCarLossFail(def, objs[0], s2));
-    static const Objective crush = { OBJ_CRUSH, 0, 0, 14, true, EV_NONE, "Casse", "broie" };
-    check("broyage volontaire -> pas de fail", !missionCarLossFail(def, crush, s));
+    check("car intacte -> pas de fail",        !missionCarLossFail(def, s2));
+    MissionState s3 = {}; s3.missionCarLost = true; s3.crushDone = true;  // broyage VOLONTAIRE (M16)
+    check("broyage volontaire -> pas de fail", !missionCarLossFail(def, s3));
   }
 
   // --- Echec selectif : PNJ allie REQUIS tue (missionAllyDeathFail) ---

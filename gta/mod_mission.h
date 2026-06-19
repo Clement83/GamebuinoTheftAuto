@@ -725,7 +725,7 @@ static void missionProgress() {
   s.allyDead = allyDead;
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
-  if (missionCarLossFail(def, cur, s)) { failMission("La caisse est detruite ! Mission ratee."); return; }
+  if (missionCarLossFail(def, s)) { failMission("La caisse est detruite ! Mission ratee."); return; }
   if (missionAllyDeathFail(def, s)) {
     failMission(def.title && strcmp(def.title, "Embuscade") == 0
                 ? "Sarah est morte ! Mission ratee." : "Tony est mort ! Mission ratee.");
