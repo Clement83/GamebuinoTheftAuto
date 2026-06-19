@@ -49,9 +49,12 @@ sera posée à son activation (pas en avance). Bandeau *« Le dernier trajet »*
 (l'objectif KILL suivant est **déjà actif** ; la scène l'arme elle-même) :
 
 1. La caisse s'arrête net. Le tueur est posé au point de RDV (coords du KILL).
-   Marco descend et **marche vers lui** (`npcWalkToward`).
-2. Face-à-face : *« Marco : qu'est-ce que tu fous là, toi ? »*
-3. *« L'autre : désolé, Marco. Rien de personnel. »*
+   Marco descend et **marche vers lui** (`npcWalkToward`) — exactement comme la
+   scène de remise de M1 : le joueur croit à **un deal normal**.
+2. Face-à-face, ton de transaction : *« Marco : t'es l'acheteur ? Bon, montre-moi
+   le fric, on échange. »*
+3. La trahison : *« L'acheteur sort un flingue. Désolé, Marco. Rien de
+   personnel. »* — le rituel rassurant de M1 retourné contre le joueur.
 4. **Coup de feu** : Marco s'effondre comme un PNJ (splat), *« Marco
    s'effondre. »*, le corps reste un moment.
 5. Reprise de la main : `killerChase = true`, `target.chase = true`,

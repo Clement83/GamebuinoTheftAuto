@@ -661,14 +661,14 @@ static void cutsceneUpdate() {
         marcoDir   = (marcoX < target.x) ? DIR_EAST : DIR_WEST;   // face a face
         target.dir = (target.x < marcoX) ? DIR_EAST : DIR_WEST;
         cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
-        narrate("Marco : qu'est-ce que tu fous la, toi ?");
+        narrate("Marco : t'es l'acheteur ? Bon, montre-moi le fric, on echange.");
       }
       break;
     }
-    case 1:                                              // replique 1
+    case 1:                                              // replique 1 : le deal vire a l'execution
       if (cutTimer > 0 && --cutTimer == 0) {
         cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
-        narrate("L'autre : desole, Marco. Rien de personnel.");
+        narrate("L'acheteur sort un flingue. Desole, Marco. Rien de personnel.");
       }
       break;
     case 2:                                              // replique 2 -> il fait feu

@@ -39,9 +39,14 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   posé aux stops (Chinatown/Bar en M2 ; Commerces/Bar en M9) ; le tuer (poing,
   balle ou voiture) → MISSION RATÉE. Détection du coup *du joueur* ajoutée dans
   `mod_combat.h` (cône + balle). Actif **M2** et **M9**.
-- ⏳ **M4** subversion (deal → trahison), **M16** caisses de luxe marquées.
-  *(Scènes de tournée M2 avec Marco collecteur : non faites — demanderait Marco
-  compagnon à pied sur M2 ; le fail racket est en place sans la cinématique.)*
+- ✅ **M4 subversion** : la cinématique de mort `CUT_MARCO_DEATH` est reframée en
+  **deal qui vire à l'exécution** (Marco approche l'« acheteur » comme une remise
+  M1 → trahison), via les répliques. Le tueur file ensuite (poursuite + fail).
+- ⏳ **M16** caisses de luxe marquées (laissé en l'état : l'objectif `OBJ_CRUSH`
+  *est* la destruction voulue ; un fail « détruite avant le broyeur » entrerait en
+  conflit et demande une nuance dédiée). M16 fonctionne (voler → broyer).
+- ⏳ *Scènes de tournée M2 avec Marco collecteur* : non faites (demanderait Marco
+  compagnon à pied sur M2 ; le fail racket est en place sans la cinématique).
 
 ## Boîte à outils transverse
 
