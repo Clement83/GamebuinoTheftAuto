@@ -773,7 +773,7 @@ static const MissionDef MISSIONS[] = {
   { "Mauvaise dette",   OBJS_M3, 3, 180, true },   // index 18 = M3 (trame)
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
   { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
-  { "Voiture volee",    OBJS_M7, 4, 350, true },   // index 21 = M7 (trame)
+  { "Voiture volee",    OBJS_M7, 4, 350, true, true },   // index 21 = M7 (trame ; caisse des Loups = vehicule requis)
   { "Represailles",     OBJS_M8, 3, 350, true },   // index 22 = M8 (trame)
   { "Tournee de Marco", OBJS_M9, 3, 300, true },   // index 23 = M9 (trame)
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)

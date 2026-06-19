@@ -221,6 +221,7 @@ static void buildMissionRuntime(uint8_t m) {
   curDef.count = n;
   curDef.reward = src.reward;
   curDef.isStory = src.isStory;
+  curDef.failOnCarLoss = src.failOnCarLoss;
 }
 
 
@@ -528,8 +529,12 @@ static void missionProgress() {
   s.elapsed = objElapsed;
   s.enemiesAlive = enemiesAliveCount();
   s.crushDone = missionCrushDone;
+  // Vehicule SPECIFIQUE detruit alors qu'on est A PIED (bail + explosion) : la
+  // mort au volant est deja geree par startEndSeq -> on ne couvre que !driving.
+  s.missionCarLost = carIsMission && carGone && !driving;
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
+  if (missionCarLossFail(def, cur, s)) { failMission("La caisse est detruite ! Mission ratee."); return; }
   // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
   // de SORTIR et de rejoindre son poste, pour qu'on le voie arriver ("j'arrive !").
   if (cur.type == OBJ_TALK && cur.event == EV_MARCO_JOIN && marcoWaiting) {

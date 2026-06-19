@@ -8,7 +8,11 @@
 - **Entrée** — `MISSIONS[21]`, `STORY_SEQ[6]`. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 6`).
 - **Prime** — **350 $**.
-- **Échec** — aucun (pas de chrono, pas de cible qui s'échappe).
+- **Échec sélectif** — la **caisse des Loups est un véhicule requis**
+  (`failOnCarLoss`, `MISSIONS[21]`). Si elle est **détruite** (explosée alors
+  qu'on est à pied après un bail) → **MISSION RATÉE** (*« La caisse est détruite !
+  Mission ratée. »*). La mort au volant est gérée à part (séquence MORT). Détecté
+  dans `missionProgress` via `missionCarLossFail` (`mission.h`).
 
 ## Objectifs (séquence moteur)
 

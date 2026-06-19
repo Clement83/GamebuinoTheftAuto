@@ -207,6 +207,8 @@ struct MissionDef {
   // valides (membre absent -> 0 en initialisation aggregat C++).
   int16_t reward;  // $ credites a la completion de la mission (0 = aucune prime)
   bool isStory;    // mission de trame principale (telephone rouge) ? (false = secondaire)
+  bool failOnCarLoss; // vehicule SPECIFIQUE requis : sa destruction echoue la mission
+                      //   (ex. caisse des Loups en M7). Hors objectif OBJ_CRUSH (broyage voulu).
 };
 
 struct MissionRun {
@@ -226,6 +228,7 @@ struct MissionState {
   int      subdueCount;   // coups portes a la cible de SUBDUE depuis le debut de l'objectif
   int      enemiesAlive;  // ennemis scenarises encore debout (objectif a ennemis)
   bool     crushDone;     // la voiture de mission vient d'etre broyee (OBJ_CRUSH)
+  bool     missionCarLost;// le vehicule SPECIFIQUE de la mission a ete detruit (hors broyage)
 };
 
 // L'objectif o est-il rempli compte tenu de l'etat s ?
@@ -256,6 +259,13 @@ inline bool missionObjectiveDone(const Objective &o, const MissionState &s) {
 // temps qui passe le REMPLIT, cf. missionObjectiveDone.)
 inline bool missionTimedOut(const Objective &o, uint16_t elapsed) {
   return o.limit > 0 && o.type != OBJ_SURVIVE && elapsed > o.limit;
+}
+
+// Invariant d'echec selectif : la mission exige un vehicule SPECIFIQUE et celui-ci
+// a ete detruit -> mission ratee. Le broyage volontaire (OBJ_CRUSH) ne compte pas.
+inline bool missionCarLossFail(const MissionDef &def, const Objective &cur,
+                               const MissionState &s) {
+  return def.failOnCarLoss && s.missionCarLost && cur.type != OBJ_CRUSH;
 }
 
 // Passe a l'objectif suivant. Renvoie l'evenement scripte de l'objectif qui

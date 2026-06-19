@@ -251,6 +251,22 @@ int main() {
     check("lint autorise arriver-puis-agir", !missionHasRedundantTravel(defArrive));
   }
 
+  // --- Echec selectif : vehicule SPECIFIQUE detruit (missionCarLossFail) ---
+  {
+    static const Objective objs[] = {
+      { OBJ_GOTO, 0, 0, 16, true, EV_NONE, "Quais", "livre" },
+    };
+    MissionDef def   = { "M7", objs, 1, 350, true, true };   // failOnCarLoss = true
+    MissionDef defNo = { "X",  objs, 1, 100, false, false }; // failOnCarLoss = false
+    MissionState s = {}; s.missionCarLost = true;
+    check("car loss -> fail (flag on)",        missionCarLossFail(def,   objs[0], s));
+    check("car loss -> pas de fail (flag off)", !missionCarLossFail(defNo, objs[0], s));
+    MissionState s2 = {}; s2.missionCarLost = false;
+    check("car intacte -> pas de fail",        !missionCarLossFail(def, objs[0], s2));
+    static const Objective crush = { OBJ_CRUSH, 0, 0, 14, true, EV_NONE, "Casse", "broie" };
+    check("broyage volontaire -> pas de fail", !missionCarLossFail(def, crush, s));
+  }
+
   if (failures == 0) { printf("OK : LOS, fuite, poursuite, objectifs, enchainement, fleche HUD valides\n"); return 0; }
   printf("%d echec(s)\n", failures);
   return 1;
