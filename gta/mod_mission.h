@@ -279,6 +279,9 @@ static void enterObjective() {
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
   targetAtkTimer = 0; missionCrushDone = false;
   sceneNpcActive = false; sceneNpcDead = false;  // contact/client du stop precedent : retire
+  // Cible residuelle (ex. recalcitrant SUBDUE mate) : on la retire si le nouvel
+  // objectif ne l'utilise pas, sinon elle errerait, hostile, dans la suite.
+  if (o.type != OBJ_KILL && o.type != OBJ_SUBDUE && o.type != OBJ_SURVIVE) target.active = false;
   clearEnemies();                                // pas d'ennemis residuels de l'objectif precedent
   // Ennemis scenarises AGRESSIFS (gardes, assaillants) poses des l'activation,
   // de facon deterministe autour du point d'objectif (cf. spawnEnemiesForObjective).
@@ -1003,10 +1006,14 @@ static void drawMissionArrow(int camX, int camY, int fcx, int fcy) {
   if (!missionRun.active) return;
   const Objective &o = curObjs[missionRun.step];
   int tx, ty; uint16_t col;
-  if (o.type == OBJ_BEAT || o.type == OBJ_SURVIVE) return;   // pas de destination
-  if (o.type == OBJ_KILL) {
-    if (!target.active) return;
-    tx = (int)target.x; ty = (int)target.y; col = TARGET_COLOR;
+  if (o.type == OBJ_SURVIVE) return;                         // pas de destination
+  if (o.type == OBJ_BEAT) {
+    if (o.enemyCount == 0) return;                           // BEAT classique (pietons au hasard) : pas de lieu
+    tx = o.x; ty = o.y; col = MARKER_COLOR;                  // embuscade/defense scenarisee : guide vers le lieu
+  } else if (o.type == OBJ_KILL) {
+    if (target.active) { tx = (int)target.x; ty = (int)target.y; col = TARGET_COLOR; }
+    else if (o.enemyCount > 0) { tx = o.x; ty = o.y; col = MARKER_COLOR; }  // gardes a abattre sur place
+    else return;
   } else {
     tx = o.x; ty = o.y; col = MARKER_COLOR;
   }
