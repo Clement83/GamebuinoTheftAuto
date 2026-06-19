@@ -18,9 +18,10 @@
   `failOnAllyDeath`) : les assaillants ne ciblent que le joueur.
 
 ## Setup au décrochage
-Coords POI résolues. Comme M1 (`EV_MARCO_JOIN` à pied), la **caisse de Marco**
-est garée près du Garage dès le décrochage — optionnelle (la tournée se fait à
-pied ou en voiture, les scènes s'adaptent). Bandeau *« Les assurances »*.
+Coords POI résolues. **Pas de caisse** posée : M2 n'a aucun objectif
+`requireCar`, donc la tournée se fait **à pied** (le `startMission` ne pose la
+caisse-compagnon que si la mission demande de conduire — sinon le `SUBDUE` au
+poing et les scènes à pied seraient cassés). Bandeau *« Les assurances »*.
 
 ## Objectifs (séquence moteur)
 
@@ -30,18 +31,20 @@ pied ou en voiture, les scènes s'adaptent). Bandeau *« Les assurances »*.
 
 ### 2. `OBJ_TALK` → Marco *(rayon 8)* — `EV_MARCO_JOIN`
 - **Narration** — *« Marco : deux secondes petit, j'arrive ! »*
-- **Script** — Marco (cyan) émerge du Garage et te rejoint, puis **te suit**
-  (`marcoFollow`). Monte/descend avec toi si tu prends une caisse.
+- **Script** — Marco (cyan) émerge du Garage et te rejoint, puis **te suit à
+  pied** (`marcoFollow`). S'il prend une caisse volée il monte/descend avec toi.
 - **Atteint** — *« Marco : la tournée du loyer. Tu regardes et t'apprends.
   Suis-moi. »*
 
-### 3. `OBJ_GOTO` → Les Commerces *(rayon 14)*
-- **Narration** — *« Premier client : les Commerces. »*
-- **Atteint** — *« Marco : ce commerçant fait le difficile. Regarde et apprends,
-  petit. »*
+### 3. `OBJ_GOTO` → Les Commerces *(rayon 14)* — `EV_DELIVERY` (collecte démo)
+- **Narration** — *« Premier client : les Commerces. Regarde Marco faire. »*
+- **Scène de collecte** (`CUT_DELIVERY`, compagnon à pied) — Marco s'approche du
+  commerçant, encaisse sans heurt.
+- **Atteint** — *« Marco : tu vois ? Facile. ...Le suivant, lui, fait le
+  difficile. »* (annonce le récalcitrant)
 
 ### 4. `OBJ_SUBDUE` → le commerçant récalcitrant *(count 3)*
-- **Narration** — *« Le commerçant refuse et te saute dessus. Mate-le, mais le
+- **Narration** — *« Ce commerçant-là refuse et te saute dessus. Mate-le, mais le
   tue pas. »*
 - **Script** — cible nommée posée (`T_EMERGE`), sort, **fonce et frappe** sans
   mourir.

@@ -368,17 +368,23 @@ static void startMission(uint8_t m) {
   killerChase = false;
   clearEnemies();
   // Caisse "compagnon" de Marco : si la mission le ramasse A PIED (EV_MARCO_JOIN
-  // sans requireCar, ex. M1), sa voiture est garee SUR LE COTE (route a droite du
-  // batiment) DES LE DECROCHAGE -- elle ne pop pas en arrivant, et reste la
-  // jusqu'a ce qu'on l'utilise (elle devient alors la caisse du joueur).
-  for (uint8_t i = 0; i < curDef.count; i++) {
-    const Objective &o = curObjs[i];
-    if (o.event == EV_MARCO_JOIN && !o.requireCar) {
-      int cx, cy;
-      if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
-      mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
-      mCarActive = true;
-      break;
+  // sans requireCar, ex. M1), sa voiture est garee SUR LE COTE DES LE DECROCHAGE.
+  // Mais SEULEMENT si la mission demande de conduire quelque part (un objectif
+  // requireCar existe) : une tournee 100% a pied (M2) ne pose pas de caisse,
+  // sinon le joueur conduit et ne peut plus faire les SUBDUE (coups au poing) ni
+  // les scenes a pied.
+  bool missionDrives = false;
+  for (uint8_t i = 0; i < curDef.count; i++) if (curObjs[i].requireCar) { missionDrives = true; break; }
+  if (missionDrives) {
+    for (uint8_t i = 0; i < curDef.count; i++) {
+      const Objective &o = curObjs[i];
+      if (o.event == EV_MARCO_JOIN && !o.requireCar) {
+        int cx, cy;
+        if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
+        mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
+        mCarActive = true;
+        break;
+      }
     }
   }
   narrate(curDef.title);                  // annonce le nom de la mission
