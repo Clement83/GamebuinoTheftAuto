@@ -30,8 +30,15 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   contact vient à la caisse puisque Marco est mort)**. Répliques data-driven
   (`deliveryLines`). Reste à dérouler sur M2/M9 (clients de racket) et M4 (deal
   subverti).
-- ⏳ **Death-beats de boss** (Rico/Bruno/Victor), subversion M4, M16 (caisses de
-  luxe marquées + nuance broyage), épilogue habité.
+- ✅ **Death-beats de boss** (`CUT_BOSS_DOWN`) : à la mort d'un boss (`OBJ_KILL`
+  `count >= 5`), joueur figé sur le corps pendant la réplique de révélation, avant
+  la bannière. Actif M11 (Rico), M17 (Bruno), M18 (Victor).
+- ✅ **Épilogue habité** : le dernier décrochage donne la **voix de Sarah** (la
+  journaliste sauvée) au lieu du silence (`gta.ino`).
+- ⏳ **Fail « client de racket tué »** (M2/M9) + **scènes de tournée M2** (Marco
+  collecteur) — nécessite Marco compagnon à pied en M2 + détection du coup *du
+  joueur* sur un PNJ de scène (à pied, pas seulement à la voiture).
+- ⏳ **M4** subversion (deal → trahison), **M16** caisses de luxe.
 
 ## Boîte à outils transverse
 

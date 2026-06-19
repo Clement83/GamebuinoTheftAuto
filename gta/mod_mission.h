@@ -491,6 +491,19 @@ static void startDeliveryCut(const char *l1, const char *l2, const char *endText
 }
 
 
+// Death-beat de boss : a la mort d'un boss (KILL count>=5), on FIGE un instant
+// sur son corps pendant que defile sa replique de revelation (endText), avant la
+// banniere de fin. Joueur fige (SEQ_CUT). La scene enchaine sur la suite/fin.
+static void startBossDownCut(const char *endText) {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_CUT; cutKind = CUT_BOSS_DOWN; cutPhase = 0;
+  cutTimer = CUT_LINE_FRAMES + CUT_LINE_FRAMES / 2;   // ~4.5 s sur le corps
+  cutEndText = endText;
+  car.vx = 0.0f; car.vy = 0.0f;
+  if (endText) narrate(endText);                       // "Rico, a terre : ..." / "Bruno, mourant : ..."
+}
+
+
 // Repliques de la scene de livraison (EV_DELIVERY) selon la mission. l1 = la
 // replique du livreur (compagnon) ou du contact, l2 = la reponse.
 static void deliveryLines(const char *title, const char *&l1, const char *&l2) {
@@ -544,6 +557,14 @@ static void cutsceneUpdate() {
           finishMission();                               // prime + bandeau "MISSION ACCOMPLIE"
         }
         break;
+    }
+    return;
+  }
+  if (cutKind == CUT_BOSS_DOWN) {                        // figer sur le boss a terre
+    if (cutTimer > 0 && --cutTimer == 0) {
+      seqKind = SEQ_NONE; cutKind = CUT_NONE;
+      if (missionRun.active) enterObjective();
+      else                   finishMission();
     }
     return;
   }
@@ -716,9 +737,12 @@ static void missionProgress() {
   if (!missionObjectiveDone(cur, s)) return;
 
   const Objective &done = def.objectives[missionRun.step];  // objectif accompli
+  // Boss vaincu (KILL coriace, count>=5 : Rico/Bruno/Victor) -> death-beat fige.
+  bool bossKill = (done.type == OBJ_KILL && done.count >= 5);
   uint8_t ev = missionAdvance(missionRun, def);   // step++ (active=false si fini)
-  // EV_DELIVERY : le doneText est narre PAR la scene a sa fin (pas tout de suite).
-  if (done.doneText && ev != EV_DELIVERY) narrate(done.doneText);  // message "objectif atteint"
+  // EV_DELIVERY et death-beat : le doneText est narre PAR la scene (pas tout de suite).
+  if (done.doneText && ev != EV_DELIVERY && !bossKill) narrate(done.doneText);  // message "objectif atteint"
+  if (bossKill) { startBossDownCut(done.doneText); return; }   // fige sur le corps + revelation
   if (ev == EV_DELIVERY) {
     // Scene scriptee a destination. Avec compagnon (marcoAboard) il descend
     // livrer puis remonte ; solo (Acte II+, Marco mort) c'est le contact qui

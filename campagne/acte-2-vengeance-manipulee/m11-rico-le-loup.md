@@ -37,9 +37,11 @@
 - **Narration (objectif)** — *« Rico est coriace. Acharne-toi. »*
 - **Action joueur** — lui porter **5 coups** (encaisse plusieurs frappes avant de
   tomber).
-- **Complétion** — Rico mort.
-- **Atteint** — *« Rico, à terre : tu crois qu'on a tué Marco ? Tu bosses pour le
-  vrai coupable... »* (le retournement : la vengeance était manipulée)
+- **Complétion** — Rico mort → **death-beat** (`CUT_BOSS_DOWN`, joueur figé sur
+  le corps ~4,5 s) pendant que défile la révélation, avant la bannière de fin.
+- **Atteint (death-beat)** — *« Rico, à terre : tu crois qu'on a tué Marco ? Tu
+  bosses pour le vrai coupable... »* (le retournement : la vengeance était
+  manipulée). Déclenché car `OBJ_KILL` `count >= 5`.
 
 ## Clôture
 → `finishMission()` : **+450 $**, **MISSION ACCOMPLIE**, `campaignStep → 11`

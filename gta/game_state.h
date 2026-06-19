@@ -935,7 +935,7 @@ static bool     missionCrushDone = false; // OBJ_CRUSH : la voiture de mission v
 // le controle revient. cutsceneUpdate() pilote tout. CUT_MARCO_DEATH = Marco
 // descend, parle au tueur, se fait abattre. CUT_TAUNT = bref face-a-face (boss/
 // embuscade) : deux repliques puis les ennemis (deja poses) chargent.
-enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2, CUT_MARCO_LEAVE = 3, CUT_DELIVERY = 4 };
+enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2, CUT_MARCO_LEAVE = 3, CUT_DELIVERY = 4, CUT_BOSS_DOWN = 5 };
 static uint8_t  cutKind  = CUT_NONE;
 static uint8_t  cutPhase = 0;
 static uint16_t cutTimer = 0;

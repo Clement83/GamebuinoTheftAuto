@@ -37,8 +37,10 @@
   Fin du taunt → Victor charge.
 - **Narration (objectif)** — *« Victor est coriace et bien protégé. Acharne-toi. »*
 - **Action joueur** — lui porter **7 coups** (le boss le plus résistant).
-- **Complétion** — Victor mort.
-- **Atteint** — *« Tout ça... pour un ami. C'est fini, Victor. »*
+- **Complétion** — Victor mort → **death-beat** final (`CUT_BOSS_DOWN`, joueur
+  figé sur le corps) avant la bannière de victoire et l'épilogue.
+- **Atteint (death-beat)** — *« Tout ça... pour un ami. C'est fini, Victor. »*
+  (`OBJ_KILL` `count >= 5`).
 
 ## Clôture
 → `finishMission()` : **+800 $**, **MISSION ACCOMPLIE**, `campaignStep → 18`

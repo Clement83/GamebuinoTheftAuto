@@ -15,8 +15,10 @@
 
 1. Joueur à portée (`PHONE_REACH`) de la cabine rouge → presser **A**.
 2. `campaignStep == STORY_LEN` → branche épilogue (pas de `startMission`) :
-   - **Narration** — *« Tu décroches. Silence au bout du fil... puis la ligne
-     coupe. FIN. »*
+   - **Narration** — la **voix de Sarah**, la journaliste sauvée :
+     *« Sarah : c'est sorti ce matin. Tout le monde sait, pour Victor. Pour
+     Marco. »* puis *« Sarah : t'aurais pu finir comme lui. Prends soin de toi,
+     petit. *clic* FIN. »*
    - Son : `playCancel`.
    - `campaignStep` passe à **19** (`> STORY_LEN`).
 3. Désormais `campaignStep > STORY_LEN` : la cabine rouge **ne sonne plus** et,

@@ -284,9 +284,10 @@ void loop() {
             storyMissionActive = true;
             startMission(STORY_SEQ[campaignStep]);
           } else if (campaignStep == STORY_LEN) {
-            // Epilogue : on decroche une derniere fois. Silence... puis la ligne
-            // coupe. Le telephone se tait ensuite pour de bon.
-            narrate("Tu decroches. Silence au bout du fil... puis la ligne coupe. FIN.");
+            // Epilogue : on decroche une derniere fois -- la voix de Sarah, la
+            // journaliste sauvee, qui remercie. Puis la ligne coupe pour de bon.
+            narrate("Sarah : c'est sorti ce matin. Tout le monde sait, pour Victor. Pour Marco.");
+            narrate("Sarah : t'aurais pu finir comme lui. Prends soin de toi, petit. *clic* FIN.");
             campaignStep++;
             gb.sound.playCancel();
           } else {

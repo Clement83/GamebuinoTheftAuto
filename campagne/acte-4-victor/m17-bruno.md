@@ -33,8 +33,10 @@
   Fin du taunt → Bruno charge.
 - **Narration (objectif)** — *« Bruno encaisse. Ne le lâche pas. »*
 - **Action joueur** — lui porter **5 coups**.
-- **Complétion** — Bruno mort.
-- **Atteint** — *« Bruno, mourant : le vieux casino... Victor t'y attend. »*
+- **Complétion** — Bruno mort → **death-beat** (`CUT_BOSS_DOWN`, joueur figé sur
+  le corps) pendant la réplique d'indice, avant la bannière de fin.
+- **Atteint (death-beat)** — *« Bruno, mourant : le vieux casino... Victor t'y
+  attend. »* (`OBJ_KILL` `count >= 5`).
 
 ## Clôture
 → `finishMission()` : **+600 $**, **MISSION ACCOMPLIE**, `campaignStep → 17`
