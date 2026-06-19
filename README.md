@@ -65,7 +65,13 @@ Côté code : `gta/save.h` (struct `SaveProfile` + helpers purs, testés par
 
 ```
 gta/                  Sketch Arduino + headers C++ "purs" (le firmware)
-  gta.ino             Boucle de jeu, rendu, entrées, orchestration
+  gta.ino             Point d'entrée : includes, setup(), loop(), inclusion des modules
+  game_state.h        Types, données et état global (une seule unité de compilation)
+  game_decls.h        Prototypes de toutes les fonctions libres (appels croisés)
+  mod_*.h             Corps de fonctions par domaine, #include depuis gta.ino :
+                      world / render / ai / combat / mission / economy /
+                      player / hud / sequence / save. Tout reste 'static' dans
+                      une seule TU — ce ne sont PAS des unités compilées à part.
   engine.h            Caméra + collision (portage de tools/engine.py)
   ai.h                IA d'errance sur grille (portage de tools/ai.py)
   car.h               Physique voiture arcade (drift)
