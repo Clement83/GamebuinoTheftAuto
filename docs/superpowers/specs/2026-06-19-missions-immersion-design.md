@@ -26,8 +26,10 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
 - 🔨 **Scènes scriptées à destination** — système posé : `EV_DELIVERY` +
   entité contact (`sceneNpc*`) + cinématique `CUT_DELIVERY` (le compagnon descend,
   marche vers le contact, dialogue, remonte) + échec si on écrase le contact.
-  **Livré sur M1 (docks)**. Réutilisable pour M7 (receleur), M2/M9 (clients), M4
-  (deal subverti). Reste à dérouler sur ces missions.
+  **Livré sur M1 (docks, avec Marco)** et **M7 (receleur, variante SOLO : le
+  contact vient à la caisse puisque Marco est mort)**. Répliques data-driven
+  (`deliveryLines`). Reste à dérouler sur M2/M9 (clients de racket) et M4 (deal
+  subverti).
 - ⏳ **Death-beats de boss** (Rico/Bruno/Victor), subversion M4, M16 (caisses de
   luxe marquées + nuance broyage), épilogue habité.
 

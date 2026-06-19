@@ -38,11 +38,17 @@
 - **Action joueur** — **monter dans la caisse de mission**.
 - **Complétion** — `inMissionCar`.
 
-### 4. `OBJ_GOTO` → Commissariat *(`requireCar`, rayon 18)*
+### 4. `OBJ_GOTO` → Commissariat *(`requireCar`, rayon 18)* — `EV_DELIVERY` (solo)
 - **Narration** — *« Planque-la derrière le Commissariat. Roule peinard. »*
+- **Script (activation)** — un **receleur** (PNJ tan) attend derrière le
+  Commissariat (`sceneNpcActive`).
 - **Action joueur** — conduire la caisse jusqu'aux abords du Commissariat.
-- **Complétion** — voiture dans les 18 px du Commissariat.
-- **Atteint** — *« Tony : parfait. Tu montes en grade, petit. »*
+- **Complétion** — voiture dans les 18 px du Commissariat → **scène scriptée**.
+- **Scène de remise** (`CUT_DELIVERY`, variante **solo** : Marco est mort, donc
+  c'est le **contact qui vient à la caisse**) : le receleur s'approche →
+  *« Le receleur : la caisse des Loups... beau bébé. Tony sera content. »* →
+  *« Le receleur : file, petit. Je m'occupe d'elle. »* → clôture
+  *« Tony : parfait. Tu montes en grade, petit. »* → fin de mission.
 
 ## Clôture
 → `finishMission()` : **+350 $**, **MISSION ACCOMPLIE**, `campaignStep → 7`.

@@ -468,21 +468,39 @@ static void startMarcoLeaveCut(int doorX, int doorY) {
 }
 
 
-// Scene scriptee a destination (EV_DELIVERY) : la caisse s'arrete, le compagnon
-// descend a cote, marche jusqu'au contact (sceneNpc) qui attend, echange deux
-// repliques, puis revient et REMONTE. endText = narration de cloture (doneText de
-// l'objectif). Le contact disparait a la fin. Joueur fige (SEQ_CUT).
-static void startDeliveryCut(const char *endText) {
+// Scene scriptee a destination (EV_DELIVERY). Deux variantes :
+//  - AVEC compagnon (solo=false, ex. M1) : la caisse s'arrete, le compagnon
+//    descend, marche jusqu'au contact, echange l1/l2, puis revient et REMONTE.
+//  - SOLO (solo=true, ex. M7 : Marco mort) : c'est le CONTACT qui vient a la
+//    caisse, echange l1/l2, puis la scene se cloture.
+// endText = narration de cloture (doneText). Le contact disparait a la fin.
+// Joueur fige (SEQ_CUT).
+static void startDeliveryCut(const char *l1, const char *l2, const char *endText, bool solo) {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_CUT; cutKind = CUT_DELIVERY; cutPhase = 0; cutTimer = 0;
-  cutEndText = endText;
+  cutLine1 = l1; cutLine2 = l2; cutEndText = endText; sceneSolo = solo;
   car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
-  marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
-  marcoFollow = true;                                  // pour que drawMarco le dessine
-  int ox, oy;                                          // le compagnon descend a cote de la caisse
-  if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
-  else { marcoX = car.x; marcoY = car.y + TILE_H; }
-  marcoFrame = 0; marcoAnimTimer = 0;
+  if (!solo) {
+    marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
+    marcoFollow = true;                                // pour que drawMarco le dessine
+    int ox, oy;                                        // le compagnon descend a cote de la caisse
+    if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+    else { marcoX = car.x; marcoY = car.y + TILE_H; }
+    marcoFrame = 0; marcoAnimTimer = 0;
+  }
+}
+
+
+// Repliques de la scene de livraison (EV_DELIVERY) selon la mission. l1 = la
+// replique du livreur (compagnon) ou du contact, l2 = la reponse.
+static void deliveryLines(const char *title, const char *&l1, const char *&l2) {
+  if (title && strcmp(title, "Voiture volee") == 0) {      // M7 : receleur (solo)
+    l1 = "Le receleur : la caisse des Loups... beau bebe. Tony sera content.";
+    l2 = "Le receleur : file, petit. Je m'occupe d'elle.";
+    return;
+  }
+  l1 = "Marco : tiens, le paquet. C'est tout bon.";        // defaut : M1 (colis aux Quais)
+  l2 = "Le contact : nickel. Filez avant que les flics rappliquent.";
 }
 
 
@@ -530,6 +548,39 @@ static void cutsceneUpdate() {
     return;
   }
   if (cutKind == CUT_DELIVERY) {
+    if (sceneSolo) {                                     // SANS compagnon : le contact vient a la caisse
+      switch (cutPhase) {
+        case 0: {                                        // le contact s'approche du vehicule
+          float dx = car.x - sceneNpcX, dy = car.y - sceneNpcY;
+          if (dx * dx + dy * dy > 14.0f * 14.0f) {
+            npcWalkToward(sceneNpcX, sceneNpcY, sceneNpcDir, sceneNpcFrame, sceneNpcAnimTimer,
+                          car.x, car.y, MARCO_FOLLOW_SPEED);
+          } else {
+            sceneNpcFrame = 0;
+            sceneNpcDir = (sceneNpcX < car.x) ? DIR_EAST : DIR_WEST;
+            cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
+            if (cutLine1) narrate(cutLine1);
+          }
+          break;
+        }
+        case 1:
+          if (cutTimer > 0 && --cutTimer == 0) {
+            cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
+            if (cutLine2) narrate(cutLine2);
+          }
+          break;
+        case 2:
+          if (cutTimer > 0 && --cutTimer == 0) {
+            sceneNpcActive = false;
+            seqKind = SEQ_NONE; cutKind = CUT_NONE;
+            if (cutEndText) narrate(cutEndText);
+            if (missionRun.active) enterObjective();
+            else                   finishMission();
+          }
+          break;
+      }
+      return;
+    }
     switch (cutPhase) {
       case 0: {                                          // le compagnon marche vers le contact
         float dx = sceneNpcX - marcoX, dy = sceneNpcY - marcoY;
@@ -541,14 +592,14 @@ static void cutsceneUpdate() {
           marcoDir    = (marcoX < sceneNpcX) ? DIR_EAST : DIR_WEST;   // face a face
           sceneNpcDir = (sceneNpcX < marcoX) ? DIR_EAST : DIR_WEST;
           cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
-          narrate("Marco : tiens, le paquet. C'est tout bon.");
+          if (cutLine1) narrate(cutLine1);
         }
         break;
       }
       case 1:                                            // replique du contact
         if (cutTimer > 0 && --cutTimer == 0) {
           cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
-          narrate("Le contact : nickel. Filez avant que les flics rappliquent.");
+          if (cutLine2) narrate(cutLine2);
         }
         break;
       case 2:                                            // -> le compagnon repart
@@ -669,9 +720,11 @@ static void missionProgress() {
   // EV_DELIVERY : le doneText est narre PAR la scene a sa fin (pas tout de suite).
   if (done.doneText && ev != EV_DELIVERY) narrate(done.doneText);  // message "objectif atteint"
   if (ev == EV_DELIVERY) {
-    // Scene scriptee a destination : le compagnon descend livrer le contact puis
-    // remonte. La cinematique enchaine elle-meme sur l'objectif suivant.
-    startDeliveryCut(done.doneText);
+    // Scene scriptee a destination. Avec compagnon (marcoAboard) il descend
+    // livrer puis remonte ; solo (Acte II+, Marco mort) c'est le contact qui
+    // vient. La cinematique enchaine elle-meme sur l'objectif suivant.
+    const char *l1, *l2; deliveryLines(def.title, l1, l2);
+    startDeliveryCut(l1, l2, done.doneText, !marcoAboard);
     return;
   }
   if (ev == EV_MARCO_JOIN) {

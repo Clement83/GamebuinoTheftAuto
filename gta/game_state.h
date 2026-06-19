@@ -612,7 +612,7 @@ static const Objective OBJS_M7[] = {
     0, 0, 2, EK_GUNNER, SP_PRESENT },
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Les Quais",
     "Embarque la caisse des Loups.", nullptr },
-  { OBJ_GOTO,      0, 0, 18, true,  EV_NONE, "Commissariat",
+  { OBJ_GOTO,      0, 0, 18, true,  EV_DELIVERY, "Commissariat",
     "Planque-la derriere le Commissariat. Roule peinard.",
     "Tony : parfait. Tu montes en grade, petit." },
 };
@@ -952,6 +952,7 @@ static const uint16_t CUT_SHOOT_FRAMES = 26;   // temps sur le corps de Marco
 //     target/marco). ---
 static bool    sceneNpcActive = false;
 static bool    sceneNpcDead   = false;   // ecrase par le joueur -> echec
+static bool    sceneSolo      = false;   // scene SANS compagnon (Acte II+) : c'est le contact qui vient au vehicule
 static float   sceneNpcX = 0.0f, sceneNpcY = 0.0f;
 static uint8_t sceneNpcDir = DIR_SOUTH, sceneNpcFrame = 0, sceneNpcAnimTimer = 0;
 static const uint16_t SCENE_NPC_COLOR = 0xCE59;  // tan : PNJ contact neutre
