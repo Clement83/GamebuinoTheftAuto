@@ -5,68 +5,78 @@
 > Script fidèle à l'implémentation (`OBJS_M2`, `game_state.h` ; glue
 > `mod_mission.h`).
 
-- **Entrée** — `MISSIONS[17]`, `STORY_SEQ[1]`. `isStory`.
+- **Entrée** — `MISSIONS[17]`, `STORY_SEQ[1]`, **8 objectifs**. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 1`).
-  Décrocher → `startMission(17)`.
 - **Prime** — **150 $**.
 - **Échec sélectif (règle racket)** — les stops coopératifs (Chinatown, Le Bar)
-  posent un **client** (`EV_CLIENT`, PNJ tan). **Le tuer** (poing, balle ou
-  voiture) → **MISSION RATÉE** (*« On rackette, on ne tue pas les clients ! »*).
-  `sceneNpcDead` capté par `missionProgress` ; coup du joueur détecté dans
-  `mod_combat.h` (cône + balle).
-- **Note** — Marco n'est ici **que narratif** : aucun PNJ allié n'est posé (seuls
-  M1/M4/M13 spawnent un compagnon). Ses répliques passent par le bandeau.
+  posent un **client**. **Le tuer** (poing, balle ou voiture) → **MISSION RATÉE**
+  (*« On rackette, on ne tue pas les clients ! »*) — `sceneNpcDead` capté par
+  `missionProgress`, coup du joueur détecté dans `mod_combat.h`.
+- **Marco compagnon physique** — Marco est désormais une **vraie entité** : on
+  **va le chercher** au Garage, il **te suit à pied** toute la tournée, et on le
+  **redépose** au Garage à la fin. Il est **invulnérable** ici (pas de
+  `failOnAllyDeath`) : les assaillants ne ciblent que le joueur.
 
 ## Setup au décrochage
-
-- Coords POI résolues. Pas de caisse de mission (aucun `OBJ_ENTER_CAR`, aucun
-  `EV_MARCO_JOIN` à pied). Tout se joue **à pied**.
-- Bandeau *« Les assurances »* puis narration de l'objectif 1.
+Coords POI résolues. Comme M1 (`EV_MARCO_JOIN` à pied), la **caisse de Marco**
+est garée près du Garage dès le décrochage — optionnelle (la tournée se fait à
+pied ou en voiture, les scènes s'adaptent). Bandeau *« Les assurances »*.
 
 ## Objectifs (séquence moteur)
 
-### 1. `OBJ_GOTO` → Les Commerces *(à pied, rayon 14)*
-- **Narration** — *« Jour de tournée. Marco t'emmène encaisser le loyer aux
-  Commerces. »*
-- **Action joueur** — rejoindre le marqueur aux Commerces.
+### 1. `OBJ_GOTO` → Le Garage *(à pied, rayon 12)*
+- **Narration** — *« Jour de tournée. Marco t'attend au Garage. Vas-y à pied le
+  chercher. »*
+
+### 2. `OBJ_TALK` → Marco *(rayon 8)* — `EV_MARCO_JOIN`
+- **Narration** — *« Marco : deux secondes petit, j'arrive ! »*
+- **Script** — Marco (cyan) émerge du Garage et te rejoint, puis **te suit**
+  (`marcoFollow`). Monte/descend avec toi si tu prends une caisse.
+- **Atteint** — *« Marco : la tournée du loyer. Tu regardes et t'apprends.
+  Suis-moi. »*
+
+### 3. `OBJ_GOTO` → Les Commerces *(rayon 14)*
+- **Narration** — *« Premier client : les Commerces. »*
 - **Atteint** — *« Marco : ce commerçant fait le difficile. Regarde et apprends,
   petit. »*
 
-### 2. `OBJ_SUBDUE` → le commerçant *(count 3)*
+### 4. `OBJ_SUBDUE` → le commerçant récalcitrant *(count 3)*
 - **Narration** — *« Le commerçant refuse et te saute dessus. Mate-le, mais le
   tue pas. »*
-- **Script** — une cible nommée (rouge) est posée de façon déterministe près du
-  marqueur (`T_EMERGE`), **sort**, puis **fonce et frappe le joueur** sans jamais
-  mourir (`missionUpdate`, branche `OBJ_SUBDUE`).
-- **Action joueur** — la **tabasser au poing** (à pied uniquement : le coup en
-  voiture ne compte pas). Chaque coup porté incrémente `objSubdue`.
-- **Complétion** — `objSubdue >= 3` : elle **cède** (ne meurt pas).
+- **Script** — cible nommée posée (`T_EMERGE`), sort, **fonce et frappe** sans
+  mourir.
+- **Action joueur** — le **tabasser au poing** (3 coups, `objSubdue`).
+- **Complétion** — `objSubdue >= 3` : il cède.
 - **Atteint** — *« Il crache l'argent. Marco : voilà comment on fait. »*
 
-### 3. `OBJ_GOTO` → Chinatown *(rayon 14)* — `EV_CLIENT`
+### 5. `OBJ_GOTO` → Chinatown *(rayon 14)* — `EV_DELIVERY` (collecte)
 - **Narration** — *« Client suivant : une échoppe de Chinatown. »*
+- **Scène de collecte** (`CUT_DELIVERY`, variante **compagnon à pied** : Marco
+  part de ta position, marche jusqu'au client, échange, **revient vers toi**) :
+  *« Marco : tu connais la chanson. Le loyer. »* → *« Le commerçant : ...tiens.
+  C'est tout ce que j'ai. »*
 - **Atteint** — *« Encaisse. Sans histoire, celui-là. »*
+- **Fail racket** — frapper/tuer ce client avant la scène → MISSION RATÉE.
 
-### 4. `OBJ_GOTO` → Le Bar *(rayon 14)* — `EV_CLIENT`
+### 6. `OBJ_GOTO` → Le Bar *(rayon 14)* — `EV_DELIVERY` (collecte)
 - **Narration** — *« Encore un : le vieux du Bar paie toujours rubis sur
   l'ongle. »*
+- **Scène de collecte** — mêmes répliques de collecte, le vieux paie.
 - **Atteint** — *« Le vieux paie, et t'offre même un verre. »*
 
-### 5. `OBJ_GOTO` → Le Chantier *(rayon 16)*
-- **Narration** — *« Dernier client, au Chantier. Marco : celui-là... je le sens
-  pas. »*
-- **Atteint** — *« Personne en vue. Trop calme. »* (amorce de l'embuscade)
-
-### 6. `OBJ_BEAT` → embuscade au Chantier *(3 × `EK_THUG`, `SP_AMBUSH`)*
-- **Narration** — *« Embuscade ! Ils t'attendaient. Défends-toi ! »*
-- **Script** — 3 gros bras posés en anneau déterministe autour du point
-  (`spawnEnemiesForObjective`), **passifs** (`EN_IDLE`) jusqu'à ce que le joueur
-  entre dans `ENEMY_AGGRO_RANGE` ; réveillés, ils **foncent et cognent** au
-  corps-à-corps.
-- **Action joueur** — mettre les **3** au tapis (poing, arme, ou voiture lancée).
-- **Complétion** — `enemiesAlive == 0` (les passants ne comptent jamais).
+### 7. `OBJ_BEAT` → embuscade au Chantier *(3 × `EK_THUG`, `SP_AMBUSH`)*
+- **Narration** — *« Dernier client, au Chantier. Marco : celui-là, je le sens
+  pas... Embuscade ! »*
+- **Script** — 3 gros bras passifs (`SP_AMBUSH`) jusqu'à l'approche, puis foncent.
+  Marco présent mais **invulnérable** (ennemis ciblent le joueur).
+- **Complétion** — `enemiesAlive == 0`.
 - **Atteint** — *« Marco : quelqu'un nous a vendus. On réglera ça. »*
 
+### 8. `OBJ_GOTO` → Le Garage *(rayon 14)* — `EV_MARCO_LEAVE`
+- **Narration** — *« Tournée finie. Ramène Marco au Garage. »*
+- **Cinématique** (`CUT_MARCO_LEAVE`, variante **à pied** : Marco part de sa
+  position de filature) : il marche jusqu'à sa porte, *« Marco : bon boulot,
+  petit. On remet ça bientôt. »*, disparaît → fin.
+
 ## Clôture
-Dernier objectif franchi → `finishMission()` : **+150 $**, bandeau **MISSION
-ACCOMPLIE**, `campaignStep → 2`.
+→ `finishMission()` : **+150 $**, **MISSION ACCOMPLIE**, `campaignStep → 2`.

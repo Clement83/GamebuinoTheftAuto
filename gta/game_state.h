@@ -554,24 +554,33 @@ static const Objective OBJS_M1[] = {
     "Ramene Marco au Garage.",
     nullptr },
 };
+// M2 : tournee de racket AVEC Marco compagnon a pied. On va le chercher au
+// Garage (TALK -> il suit), on encaisse (collecte scriptee EV_DELIVERY aux stops
+// cooperatifs ; tuer un client = echec), puis on le RAMENE au Garage
+// (EV_MARCO_LEAVE). Marco invulnerable (pas de failOnAllyDeath) : il ne meurt
+// qu'en M4.
 static const Objective OBJS_M2[] = {
-  { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Commerces",
-    "Jour de tournee. Marco t'emmene encaisser le loyer aux Commerces.",
+  { OBJ_GOTO,   0, 0, 12, false, EV_NONE,       "Le Garage",
+    "Jour de tournee. Marco t'attend au Garage. Vas-y a pied le chercher.", nullptr },
+  { OBJ_TALK,   0, 0,  8, false, EV_MARCO_JOIN, "Le Garage",
+    "Marco : deux secondes petit, j'arrive !",
+    "Marco : la tournee du loyer. Tu regardes et t'apprends. Suis-moi." },
+  { OBJ_GOTO,   0, 0, 14, false, EV_NONE,       "Commerces",
+    "Premier client : les Commerces.",
     "Marco : ce commercant fait le difficile. Regarde et apprends, petit." },
-  { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Commerces",
+  { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE,       "Commerces",
     "Le commercant refuse et te saute dessus. Mate-le, mais le tue pas.",
     "Il crache l'argent. Marco : voila comment on fait.", 3, 0 },
-  { OBJ_GOTO,   0, 0, 14, false, EV_CLIENT, "Chinatown",
+  { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Chinatown",
     "Client suivant : une echoppe de Chinatown.", "Encaisse. Sans histoire, celui-la." },
-  { OBJ_GOTO,   0, 0, 14, false, EV_CLIENT, "Le Bar",
+  { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Le Bar",
     "Encore un : le vieux du Bar paie toujours rubis sur l'ongle.",
     "Le vieux paie, et t'offre meme un verre." },
-  { OBJ_GOTO,   0, 0, 16, false, EV_NONE, "Chantier",
-    "Dernier client, au Chantier. Marco : celui-la... je le sens pas.",
-    "Personne en vue. Trop calme." },
-  { OBJ_BEAT,   0, 0,  0, false, EV_NONE, "Chantier",
-    "Embuscade ! Ils t'attendaient. Defends-toi !",
+  { OBJ_BEAT,   0, 0,  0, false, EV_NONE,       "Chantier",
+    "Dernier client, au Chantier. Marco : celui-la, je le sens pas... Embuscade !",
     "Marco : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_AMBUSH },
+  { OBJ_GOTO,   0, 0, 14, false, EV_MARCO_LEAVE,"Le Garage",
+    "Tournee finie. Ramene Marco au Garage.", nullptr },
 };
 static const Objective OBJS_M3[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chinatown",
@@ -769,7 +778,7 @@ static const MissionDef MISSIONS[] = {
   // (cf. campagne.md, mission M4).
   { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
   { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
-  { "Les assurances",   OBJS_M2, 6, 150, true },   // index 17 = M2 (trame)
+  { "Les assurances",   OBJS_M2, 8, 150, true },   // index 17 = M2 (trame ; Marco compagnon a pied)
   { "Mauvaise dette",   OBJS_M3, 3, 180, true },   // index 18 = M3 (trame)
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
   { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
@@ -953,6 +962,7 @@ static const uint16_t CUT_SHOOT_FRAMES = 26;   // temps sur le corps de Marco
 static bool    sceneNpcActive = false;
 static bool    sceneNpcDead   = false;   // ecrase par le joueur -> echec
 static bool    sceneSolo      = false;   // scene SANS compagnon (Acte II+) : c'est le contact qui vient au vehicule
+static float   sceneHomeX = 0.0f, sceneHomeY = 0.0f;  // point de retour du compagnon (voiture si au volant, sinon joueur)
 static float   sceneNpcX = 0.0f, sceneNpcY = 0.0f;
 static uint8_t sceneNpcDir = DIR_SOUTH, sceneNpcFrame = 0, sceneNpcAnimTimer = 0;
 static const uint16_t SCENE_NPC_COLOR = 0xCE59;  // tan : PNJ contact neutre

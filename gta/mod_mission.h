@@ -455,18 +455,21 @@ static void startMarcoDeathCut() {
 }
 
 
-// Fin amicale de M1 : la caisse s'arrete, Marco descend a cote, marche vers la
-// porte (doorX,doorY = position du POI cible) en remerciant le joueur, puis
-// disparait dans le batiment -> finishMission(). Joueur fige (SEQ_CUT).
+// Fin amicale : Marco rejoint sa porte (doorX,doorY = POI cible) en remerciant le
+// joueur, puis disparait dans le batiment -> finishMission(). Joueur fige.
+// Au volant (M1) il descend a cote de la caisse ; A PIED (M2) il part de sa
+// position de filature courante.
 static void startMarcoLeaveCut(int doorX, int doorY) {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_CUT; cutKind = CUT_MARCO_LEAVE; cutPhase = 0; cutTimer = 0;
-  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
+  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net (si au volant)
   marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
   marcoFollow = true;                                  // pour que drawMarco le dessine
-  int ox, oy;                                          // Marco descend a cote de la caisse
-  if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
-  else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  if (driving) {                                       // descend a cote de la caisse
+    int ox, oy;
+    if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+    else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  }                                                    // a pied : on garde marcoX/Y (filature)
   marcoFrame = 0; marcoAnimTimer = 0;
   marcoLeaveX = (int16_t)doorX; marcoLeaveY = (int16_t)doorY;
 }
@@ -483,14 +486,21 @@ static void startDeliveryCut(const char *l1, const char *l2, const char *endText
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_CUT; cutKind = CUT_DELIVERY; cutPhase = 0; cutTimer = 0;
   cutLine1 = l1; cutLine2 = l2; cutEndText = endText; sceneSolo = solo;
-  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
+  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net (si au volant)
   if (!solo) {
-    marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
-    marcoFollow = true;                                // pour que drawMarco le dessine
-    int ox, oy;                                        // le compagnon descend a cote de la caisse
-    if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
-    else { marcoX = car.x; marcoY = car.y + TILE_H; }
+    marcoWaiting = false; marcoEmergeDelay = 0;
     marcoFrame = 0; marcoAnimTimer = 0;
+    if (driving) {                                     // au volant : le compagnon DESCEND a cote
+      marcoAboard = false; marcoFollow = true;
+      int ox, oy;
+      if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+      else { marcoX = car.x; marcoY = car.y + TILE_H; }
+      sceneHomeX = car.x; sceneHomeY = car.y;          // il reviendra a la caisse
+    } else {                                           // a pied : il est deja en filature pres du joueur
+      marcoFollow = true;
+      sceneHomeX = (float)(playerX + PLAYER_W / 2);    // il reviendra vers le joueur
+      sceneHomeY = (float)(playerY + PLAYER_H / 2);
+    }
   }
 }
 
@@ -514,6 +524,11 @@ static void deliveryLines(const char *title, const char *&l1, const char *&l2) {
   if (title && strcmp(title, "Voiture volee") == 0) {      // M7 : receleur (solo)
     l1 = "Le receleur : la caisse des Loups... beau bebe. Tony sera content.";
     l2 = "Le receleur : file, petit. Je m'occupe d'elle.";
+    return;
+  }
+  if (title && strcmp(title, "Les assurances") == 0) {     // M2 : Marco collecte le loyer
+    l1 = "Marco : tu connais la chanson. Le loyer.";
+    l2 = "Le commercant : ...tiens. C'est tout ce que j'ai.";
     return;
   }
   l1 = "Marco : tiens, le paquet. C'est tout bon.";        // defaut : M1 (colis aux Quais)
@@ -550,7 +565,9 @@ static void cutsceneUpdate() {
         } else {
           marcoFrame = 0;
           cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
-          narrate("Marco : bon boulot pour un premier jour. Repose-toi, petit.");
+          narrate(curDef.title && strcmp(curDef.title, "Premier jour") == 0
+                  ? "Marco : bon boulot pour un premier jour. Repose-toi, petit."
+                  : "Marco : bon boulot, petit. On remet ca bientot.");
         }
         break;
       }
@@ -630,17 +647,18 @@ static void cutsceneUpdate() {
       case 2:                                            // -> le compagnon repart
         if (cutTimer > 0 && --cutTimer == 0) cutPhase = 3;
         break;
-      case 3: {                                          // retour a la caisse puis remontee
-        float dx = car.x - marcoX, dy = car.y - marcoY;
+      case 3: {                                          // retour au point de depart (caisse ou joueur)
+        float dx = sceneHomeX - marcoX, dy = sceneHomeY - marcoY;
         if (dx * dx + dy * dy > 12.0f * 12.0f) {
           npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
-                        car.x, car.y, MARCO_FOLLOW_SPEED);
+                        sceneHomeX, sceneHomeY, MARCO_FOLLOW_SPEED);
         } else {
           marcoFrame = 0;
-          marcoFollow = false; marcoAboard = true;       // le compagnon remonte
-          sceneNpcActive = false;                        // le contact s'en va
+          if (driving) { marcoFollow = false; marcoAboard = true; }  // remonte en caisse
+          else         { marcoFollow = true; }                        // reprend la filature a pied
+          sceneNpcActive = false;                        // le contact/client s'en va
           seqKind = SEQ_NONE; cutKind = CUT_NONE;
-          if (cutEndText) narrate(cutEndText);           // "Colis livre..."
+          if (cutEndText) narrate(cutEndText);
           if (missionRun.active) enterObjective();       // active l'objectif suivant (deja avance)
           else                   finishMission();
         }
@@ -758,7 +776,8 @@ static void missionProgress() {
     // livrer puis remonte ; solo (Acte II+, Marco mort) c'est le contact qui
     // vient. La cinematique enchaine elle-meme sur l'objectif suivant.
     const char *l1, *l2; deliveryLines(def.title, l1, l2);
-    startDeliveryCut(l1, l2, done.doneText, !marcoAboard);
+    bool hasCompanion = marcoFollow || marcoAboard;     // Marco a pied OU a bord
+    startDeliveryCut(l1, l2, done.doneText, !hasCompanion);
     return;
   }
   if (ev == EV_MARCO_JOIN) {

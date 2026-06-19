@@ -46,8 +46,16 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   conflit avec `OBJ_CRUSH` est résolu par `!s.crushDone` (le broyage volontaire
   pose `crushDone` + efface `carIsMission`, donc n'échoue pas) ; une explosion en
   route avant le broyeur → MISSION RATÉE.
-- ⏳ *Scènes de tournée M2 avec Marco collecteur* : non faites (demanderait Marco
-  compagnon à pied sur M2 ; le fail racket est en place sans la cinématique).
+- ✅ **Scènes de tournée M2 + Marco compagnon à pied** : M2 restructurée (8
+  objectifs) — on va chercher Marco au Garage (`TALK`/`EV_MARCO_JOIN`), il suit à
+  pied, **collecte scriptée** aux stops coopératifs (`CUT_DELIVERY` ancré sur le
+  **joueur** quand on est à pied, pas seulement sur la voiture), puis on le
+  **ramène** au Garage (`EV_MARCO_LEAVE`, variante à pied). La scène de livraison
+  et l'adieu de Marco fonctionnent désormais **à pied comme en voiture**
+  (`sceneHomeX/Y` = voiture si au volant, sinon joueur).
+
+**Tous les items de la spec sont implémentés** (build OK, host tests verts).
+Reste : **validation sur device** (timings de cutscene, équilibrage).
 
 ## Boîte à outils transverse
 
