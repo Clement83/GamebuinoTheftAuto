@@ -2,8 +2,28 @@
 
 *ACTE IV — Victor (M16–M18 + épilogue)*
 
-- À la Planque, le **téléphone rouge sonne une dernière fois**. On décroche.
-  **Silence.** Puis la ligne coupe. **FIN.**
-- Mécanique : `campaignStep` atteint le terminal → le tél rouge déclenche une
-  **séquence de fin** (pas d'objectif), puis se tait définitivement (ou
-  propose un mode « ville ouverte » : seules les cabines bleues sonnent encore).
+> Script fidèle à l'implémentation (glue téléphone rouge, `gta.ino` ;
+> `drawPhones` pour la sonnerie). Pas de mission : une simple séquence de
+> décrochage terminal.
+
+- **État** — après M18, `campaignStep == 18` (`== STORY_LEN`).
+- **Sonnerie** — `drawPhones` : la cabine rouge sonne tant que
+  `campaignStep <= STORY_LEN` **et** qu'aucune mission n'est active. Elle sonne
+  donc **une dernière fois** pour l'épilogue.
+
+## Déroulé (décrochage de la cabine rouge)
+
+1. Joueur à portée (`PHONE_REACH`) de la cabine rouge → presser **A**.
+2. `campaignStep == STORY_LEN` → branche épilogue (pas de `startMission`) :
+   - **Narration** — *« Tu décroches. Silence au bout du fil... puis la ligne
+     coupe. FIN. »*
+   - Son : `playCancel`.
+   - `campaignStep` passe à **19** (`> STORY_LEN`).
+3. Désormais `campaignStep > STORY_LEN` : la cabine rouge **ne sonne plus** et,
+   si on la redécroche, *« Le téléphone reste muet. »*
+
+## Après la fin
+- Le monde reste **ouvert** : les **15 cabines bleues** (missions secondaires)
+  continuent de sonner et restent rejouables.
+- Tous les services (Hôpital, AMU Nation, Pay'n'Spray, La Casse, Casino, Bar,
+  Commerces) restent actifs.

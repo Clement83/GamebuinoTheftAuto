@@ -1,14 +1,12 @@
 # Campagne — scénario de la trame principale
 
-Ce dossier décrit la **trame principale scénarisée** du demake (18 missions +
-épilogue), pilotée par un **téléphone rouge unique** à la planque du joueur. Il
-sert de feuille de route : ce qui se branche sur le moteur existant, et les
-**nouvelles mécaniques à implémenter** (clairement balisées `🆕 À IMPLÉMENTER`).
+Trame principale scénarisée du demake : **18 missions + épilogue**, pilotées par
+un **téléphone rouge unique** à la Planque. Ce dossier documente la campagne
+**telle qu'implémentée** : chaque fiche `m*.md` est un script fidèle au code
+(`OBJS_M*` dans `gta/game_state.h`, glue et cinématiques dans `gta/mod_mission.h`,
+décrochage dans `gta/gta.ino`).
 
-Lis d'abord, pour le contexte :
-- [docs/superpowers/specs/2026-06-09-missions-modulaires-design.md](../docs/superpowers/specs/2026-06-09-missions-modulaires-design.md)
-  — moteur de missions modulaire (types d'objectifs, événements, narration).
-- [POI.md](../POI.md) — points d'intérêt, économie, services interactifs.
+Contexte moteur d'origine : [docs/superpowers/specs/2026-06-09-missions-modulaires-design.md](../docs/superpowers/specs/2026-06-09-missions-modulaires-design.md).
 
 ## Sommaire des missions
 
@@ -41,204 +39,116 @@ Lis d'abord, pour le contexte :
 
 ---
 
-## 1. Téléphones : ce qui change
+## 1. Boucle de la campagne
 
-Deux familles de cabines coexistent déjà dans `gta.ino` :
+Deux familles de cabines coexistent :
 
-| Cabine | Couleur | Rôle | Changement demandé |
-|---|---|---|---|
-| `PHONES[]` (missions secondaires) | **bleu** `0x019F` | 15 missions **rejouables**, réparties sur la carte, indépendantes | **Inchangé**, sauf : on **supprime « Mauvaise affaire » (Marco, slot 1)** et on la **remplace par une livraison de pizza** (cf. §9). Marco quitte les missions secondaires : il devient le pivot de la trame principale. |
-| `STORY_PHONES[]` (trame) | **rouge** `0xC800` | 4 cabines d'ancrage qui **ne sonnent pas** encore | **Refonte** : on n'en garde **qu'une seule**, ancrée à un **nouveau POI « Planque »** (la base du joueur). Elle **sonne au lancement** (Mission 1), puis **se réarme après chaque mission** pour appeler la suivante. Les 3 autres anchors rouges sont retirés. |
-
-### Boucle de la campagne
-
-```
-Lancement du jeu
-   └─> Planque : le téléphone rouge SONNE
-        └─> on décroche -> dialogue -> Mission N démarre
-             └─> objectifs… (réussite | échec)
-                  ├─ Réussite -> prime $, narration de clôture,
-                  │              campaignStep++ ; retour à la Planque,
-                  │              le tél rouge re-sonne pour Mission N+1
-                  └─ Échec   -> overlay « MISSION ÉCHOUÉE » plein écran ;
-                               campaignStep inchangé ; revenir au tél de la
-                               Planque relance la même mission
-```
-
-Pendant qu'une mission de trame est active, les cabines **bleues** restent
-décrochables comme aujourd'hui (le joueur peut faire des missions secondaires
-entre deux missions d'histoire), mais le **téléphone rouge ne propose que la
-mission de trame courante**.
-
----
-
-## 2. Modèle moteur
-
-### 2.1 Ce qui existe déjà (réutilisé tel quel)
-
-- **Types d'objectifs** : `OBJ_GOTO` (atteindre un point/POI, option `requireCar`
-  + `limit` chrono), `OBJ_ENTER_CAR` (être au volant de la caisse de mission),
-  `OBJ_KILL` (cible morte ; peut être un **tueur qui fonce** via
-  `missionChaseStep`), `OBJ_BEAT` (mettre KO `count` PNJ), `OBJ_SURVIVE` (tenir
-  `limit` frames).
-- **Événements** : `EV_MARCO_JOIN` (un PNJ monte passager), `EV_MARCO_DIE` (le
-  passager meurt, un tueur apparaît).
-- **Ancrage POI** : un objectif référence un POI par nom (`findPoi`), résolu au
-  lancement ; `x,y` sert de repli.
-- **IA** : flânerie + fuite en ligne de vue, poursuite (`missionChase*`).
-- **Économie** : prime `reward` créditée à la complétion ; HUD $, butin.
-- **Services** : Hôpital (soin), AMU Nation (armes), Pay'n'Spray (effacer les
-  étoiles), La Casse (broyeur → $). La campagne s'appuie dessus (se soigner,
-  s'armer, blanchir entre deux missions).
-- **Recherche police** (`wanted.h`) : les crimes montent les étoiles.
-
-### 2.2 Nouvelles mécaniques `🆕 À IMPLÉMENTER`
-
-Réparties par ordre de priorité (un sous-ensemble suffit pour l'Acte 1) :
-
-| Mécanique | Description | Utilisée par |
+| Cabine | Couleur | Rôle |
 |---|---|---|
-| **Progression persistante** | `campaignStep` (uint8) = index de mission de trame atteint, sauvegardé (`gb.save`/EEPROM) pour survivre à l'extinction. `MissionDef` reçoit un flag `isStory`. | toute la campagne |
-| **État d'échec + overlay** | Si une condition d'échec est remplie (allié mort, chrono écoulé, objet perdu), gros texte **« MISSION ÉCHOUÉE »** centré ~2 s, mission désarmée ; on relance en revenant au tél rouge. Champ `failLimit`/`failOn` sur l'objectif. | escortes, chronos, défenses |
-| **`OBJ_TALK`** | S'approcher d'un PNJ nommé (immobile) et presser **A** → dialogue, objectif validé. (Version simple : `OBJ_GOTO` à petit rayon + auto-message.) | M1, M4, M11, M12, M13, M18 |
-| **`OBJ_SUBDUE`** | Frapper une **cible nommée** jusqu'à `count` coups : elle ne **meurt pas**, elle **cède** (dialogue), objectif validé. Variante non-létale d'`OBJ_BEAT` ciblée. | M2 (commerçant), M3 (débiteur), M5 (Nico) |
-| **`OBJ_PICKUP`** | Ramasser un **objet scénarisé** au sol (mallette, dossiers) — loot marqué, ramassé à pied. | M12, M15 |
-| **`OBJ_ESCORT`** | Un **allié** monte (passager) ou suit ; l'amener à destination. L'allié a des PV ; **s'il meurt → échec**. Généralise `EV_MARCO_JOIN`. | M1, M4, M13 |
-| **`OBJ_DEFEND`** | Protéger un **allié/lieu** : éliminer toutes les vagues d'ennemis. Si l'allié tombe → échec. | M8, M14 |
-| **`OBJ_STEAL_CAR`** | Voler un **véhicule précis** (marqué, gardé) puis le ramener — `OBJ_ENTER_CAR` ciblé sur une caisse spécifique + `OBJ_GOTO requireCar`. | M7, M16 |
+| `PHONES[]` (secondaires) | **bleu** `0x019F` | 15 missions **rejouables**, réparties sur la carte, indépendantes de la trame |
+| Cabine de trame | **rouge** `0xC800` | **une seule**, ancrée à la **Planque**. Sonne au lancement, puis se réarme après chaque mission de trame |
 
-Généralisation d'événements (renommage propre, rétro-compatible) :
-`EV_ALLY_JOIN`/`EV_ALLY_LEAVE`/`EV_ALLY_DIE` (ex-`EV_MARCO_*`), plus
-`EV_AMBUSH` (spawn de voitures/ennemis hostiles), `EV_REVEAL` (apparition d'un
-PNJ scénarisé : tueur, boss), `EV_CALL` (fin de mission → le tél rouge re-sonne,
-ou « appel d'un inconnu »).
+`campaignStep` (sauvegardé, persiste à l'extinction) indexe `STORY_SEQ[]` :
+l'ordre des missions de trame dans `MISSIONS[]`.
 
-> **Note YAGNI** : on n'implémente pas tout d'un coup. L'Acte 1 (M1–M4) ne
-> demande que `OBJ_TALK`, `OBJ_SUBDUE`, `OBJ_ESCORT` + progression + échec. Le
-> reste arrive par actes (cf. §7).
+```
+Lancement / retour à la Planque
+   └─> la cabine ROUGE sonne (tant que campaignStep <= STORY_LEN)
+        └─> décrocher (A à portée) -> startMission(STORY_SEQ[campaignStep])
+             └─> objectifs…
+                  ├─ Réussite -> prime $, bandeau MISSION ACCOMPLIE,
+                  │              campaignStep++ ; la cabine re-sonne pour la suivante
+                  └─ Échec   -> bandeau MISSION RATÉE ; campaignStep inchangé ;
+                               revenir à la cabine relance la même mission
+   └─> campaignStep == STORY_LEN -> un dernier décrochage = épilogue (FIN)
+```
+
+Pendant qu'une mission de trame est active, la cabine rouge ne propose que la
+mission courante ; les cabines bleues ne se décrochent qu'**hors mission**.
 
 ---
 
-## 3. Cartographie des lieux
+## 2. Types d'objectifs du moteur (réels)
 
-### POI existants réutilisés
+Une mission = un tableau d'`Objective` enchaînés (`mission.h`). Types existants :
 
-| Lieu du scénario | POI existant |
+| Type | Comportement |
 |---|---|
-| Les docks | **Les Quais** |
-| La casse / broyeur | **La Casse** |
-| Le chantier (mort de Marco) | **Chantier** |
-| Planque derrière le Commissariat (M7) | **Commissariat** (abords) |
-| Se soigner / mourir | **Hôpital** |
-| Quartier des Loups | un **district nommé** existant (ex. *St. Mark's*) + repères fixes |
+| `OBJ_GOTO` | atteindre un point/POI dans un rayon. Option `requireCar` (« conduis jusqu'à »), option `limit` chrono (dépassé → échec) |
+| `OBJ_ENTER_CAR` | monter dans la **caisse de mission** (orange), posée à l'activation ou au décrochage |
+| `OBJ_KILL` | soit une **cible nommée** (fugitif `count=1` qui erre/fuit ; **boss** `count>1` à `targetHp` coups qui fonce), soit « tous les ennemis scénarisés à terre » (`enemyCount>0`, aucune cible nommée) |
+| `OBJ_BEAT` | mettre KO `count` passants, **ou** abattre tous les ennemis scénarisés (`enemyCount>0`) |
+| `OBJ_SUBDUE` | frapper une cible nommée `count` fois : elle **cède** sans mourir (elle se défend entre-temps) |
+| `OBJ_TALK` | s'approcher (petit rayon, à pied) d'un PNJ nommé qui émerge d'un bâtiment |
+| `OBJ_CRUSH` | amener la caisse de mission au broyeur de La Casse et la faire écraser |
+| `OBJ_SURVIVE` | tenir `limit` frames *(non utilisé par la trame)* |
 
-### Nouveaux POI proposés `🆕`
+**Ennemis scénarisés** : `EK_THUG` (gros bras, fonce et cogne) ou `EK_GUNNER`
+(tireur). Mode `SP_PRESENT` (visibles d'emblée) ou `SP_AMBUSH` (passifs jusqu'à
+l'approche). Posés en anneau déterministe (`spawnEnemiesForObjective`), max
+`MAX_ENEMIES == 4`. `MAX_OBJS == 8` objectifs par mission.
 
-Générés par `tools/pois.py` (comme les quartiers thématiques), bandeau HUD,
-ancrage de missions. Pas forcément de nouvelles tuiles (dessin procédural
-possible, comme Pay'n'Spray/AMU) :
+**Événements & cinématiques** (`EV_*` / `CUT_*`, joueur figé) :
+- `EV_MARCO_JOIN` — un allié émerge puis monte passager. `count==1` → l'allié est
+  **Sarah** (magenta) au lieu de Marco (cyan). Utilisé en **M1, M4, M13**.
+- `EV_MARCO_DIE` — `CUT_MARCO_DEATH` : Marco descend, parle au tueur, se fait
+  abattre ; le tueur prend la fuite (à rattraper). **M4 uniquement.**
+- `EV_MARCO_LEAVE` — `CUT_MARCO_LEAVE` : Marco descend, remercie, rentre chez lui,
+  clôt la mission. **M1 uniquement.**
+- `CUT_TAUNT` — bref face-à-face de boss (deux répliques) avant la baston, pour
+  **Rico (M11)**, **Bruno (M17)**, **Victor (M18)** (`bossTauntLines`).
 
-| Nouveau POI | Rôle | Missions |
+**Échec** : seule **M4** peut échouer dans la trame (le tueur en fuite sort des
+limites du monde). Les chronos `limit` existent pour les missions secondaires
+(Taxi, Course…) mais aucune mission de trame n'en pose.
+
+**Économie** : prime `reward` créditée à la complétion (`finishMission`), de
+**120 $** (M1) à **800 $** (M18).
+
+---
+
+## 3. Lieux (POI) utilisés par la trame
+
+Ancrés par nom de POI (`findPoi`), résolus en coords au lancement.
+
+| POI | Rôle | Missions |
 |---|---|---|
-| **Planque** | base du joueur, **téléphone rouge** de trame | toutes |
-| **Le Garage** | garage de Marco puis de Tony (QG criminel) | M1, M7, M8 |
-| **Le Bar** | Nico traîne devant | M5 |
+| **Planque** | base du joueur, **téléphone rouge** | toutes |
+| **Le Garage** | Marco puis Tony | M1, M4, M8 |
+| **Les Commerces** | tournée / racket | M2, M9 |
+| **Le Bar** | Nico (M5), Sarah (M13), le vieux | M5, M13 |
+| **Chinatown** | quartier des Loups, parking de la mallette | M3, M6, M12, M16 |
+| **Les Quais** | docks, caisse des Loups, entrepôt | M7, M10 |
+| **Le Chantier** | mort de Marco, repaire de Rico | M4, M11 |
+| **Commissariat** | planque arrière | M7 |
 | **Les Bureaux** | bureaux de Victor (dossiers) | M15 |
-| **Le Casino** | repaire final de Victor | M18 |
-| **Les Commerces** | rangée de 3 supérettes (repères fixes) pour le racket | M2, M9 |
-
-L'« ancienne usine » de Rico (M11) réutilise le **Chantier** ou un repère fixe
-dans un district industriel — pas de nouveau POI dédié nécessaire.
+| **Le Casino** | repaire final de Victor | M16, M18 |
+| **La Casse** | broyeur (sabotage), repaire de Bruno | M16, M17 |
 
 ---
 
 ## 4. Personnages
 
 - **Le joueur** — sans nom, exécutant.
-- **Marco** — petite frappe sympathique, mentor du joueur (Actes 1). Tué en M4.
-  Couleur cyan déjà définie (`MARCO_COLOR 0x07FF`).
-- **L'Inconnu** — voix au téléphone qui « venge » Marco et téléguide le joueur
-  (M5–M11). Se révèle être **Tony**.
-- **Tony** — vrai commanditaire, patron du Garage. Manipule le joueur contre
-  les Loups (M7–M11, M16–M17).
-- **Les Loups** — gang rival, fausse piste. Rico en est le lieutenant.
-- **Rico** — Loup, révèle que le joueur sert le vrai coupable (M11).
-- **Sarah** — journaliste/témoin, détient les preuves contre Victor (M12–M15).
-- **Victor** — antagoniste final, commanditaire de l'assassinat de Marco (M18).
-- **Bruno** — homme de main de Victor (M17).
+- **Marco** — petite frappe sympathique, mentor du joueur. Allié cyan
+  (`MARCO_COLOR`). Tué en M4.
+- **L'Inconnu / Tony** — voix au téléphone qui « venge » Marco (M5–M6), se révèle
+  être **Tony**, patron du Garage, vrai manipulateur (M7–M11, M16–M17).
+- **Les Loups** — gang rival, fausse piste. **Rico**, leur lieutenant (boss M11),
+  révèle que le joueur sert le vrai coupable.
+- **Sarah** — journaliste/témoin, détient les preuves contre Victor. Alliée
+  magenta (`SARAH_COLOR`), escortée en M13.
+- **Victor** — commanditaire de l'assassinat de Marco, boss final (M18).
+- **Bruno** — homme de main de Victor, boss (M17).
 
 ---
 
-## 5. Conventions des fiches de mission
+## 5. Convention des fiches
 
-Chaque mission précise : **Appel** (dialogue tél), **Lieu(x)**, **Objectifs**
-(séquence de types moteur), **Événements**, **Échec**, **Prime**, et
-**Améliorations** (ajouts/précisions par rapport à ton brouillon).
-
-Primes indicatives : croissantes le long de l'arc (120 → 800 $), réutilisant le
-barème des missions secondaires.
-
----
-
-## 7. Phasage d'implémentation recommandé
-
-Chaque phase est jouable de bout en bout et testable en host.
-
-1. **Socle campagne** — POI **Planque** + tél rouge unique séquentiel,
-   `campaignStep` persistant, **état d'échec + overlay**, `EV_CALL`
-   (re-sonnerie). Porter l'Acte I sur ce socle.
-2. **Acte I (M1–M4)** — `OBJ_TALK`, `OBJ_SUBDUE`, `OBJ_ESCORT` + nouveaux POI
-   Garage et repères Commerces. Recycle la mécanique Marco existante en M4.
-3. **Acte II (M5–M11)** — `OBJ_STEAL_CAR`, `OBJ_DEFEND`, boss (PV élevés),
-   POI Bar. Branche le racket-callback (M9) sur les repères Commerces.
-4. **Acte III (M12–M15)** — `OBJ_PICKUP`, `EV_AMBUSH`, POI Bureaux.
-5. **Acte IV (M16–M18 + épilogue)** — réutilise le broyeur de La Casse (M16),
-   boss final, POI Casino, séquence de fin.
-
-> Pour itérer vite : implémenter d'abord **Phase 1 + M1** seules, valider la
-> boucle (sonnerie → mission → réussite/échec → re-sonnerie + persistance),
-> puis dérouler les actes.
-
----
-
-## 8. Vigilance flash / RAM
-
-La flash est à **~47 %** (README). 18 missions + épilogue, c'est surtout des
-**chaînes de narration** (en flash). Mesures :
-
-- Garder les textes **courts** (le bandeau défile déjà). Réutiliser des
-  formulations communes.
-- Les `Objective`/`MissionDef` de trame sont des tableaux **`const` en flash**
-  (comme les missions secondaires actuelles), coût RAM négligeable.
-- **RAM ajoutée** marginale : `campaignStep` (1 o, sauvegardé), flags d'allié,
-  PV d'allié/boss, état d'échec.
-- **Surveiller la taille à chaque acte** ; si la flash sature, fusionner des
-  beats ou raccourcir les dialogues. Le phasage permet de s'arrêter à un acte
-  propre.
-- **Parité .h/.py & host tests** : toute logique pure ajoutée
-  (`OBJ_SUBDUE`, échec, `campaignStep`, IA d'allié) doit être **testée en host**
-  et restée en parité `mission.h` ↔ `ai.h`/`tools/*.py`.
-
----
-
-## 9. Remplacement côté téléphones bleus : « Livraison de pizza »
-
-On retire `MISSION_DEAL` (Marco) de `PHONES[]` et on branche à sa place une
-mission secondaire **rejouable** légère, sans lien avec la trame :
-
-- **Titre** — « Livraison de pizza ».
-- **Objectifs** (types existants uniquement, **0 nouveau code**) :
-  1. `OBJ_ENTER_CAR` → scooter/caisse de livraison (ex. à La Casse).
-     *« Pizza Express : prends la caisse. »*
-  2. `OBJ_GOTO requireCar` `limit≈1100` → client (ex. **Chinatown**).
-     *« Livre la pizza avant qu'elle refroidisse ! »* — *« Pizza livrée,
-     pourboire empoché ! »*
-- **Échec/chrono** — réutilise le `limit` chrono déjà géré (comme Taxi/Course).
-- **Prime** — ~200 $.
-- **Note** — très proche de `OBJS_DELIVERY`/`OBJS_TAXI` existants : c'est
-  volontaire (mission secondaire jetable, pas un morceau d'histoire).
-
----
-
-*Document de conception. L'implémentation suivra via un plan dédié
-(writing-plans), acte par acte, après validation de ce scénario.*
+Chaque fiche `m*.md` est un **script fidèle au code**, dans l'ordre :
+**Entrée** (index `MISSIONS[]`/`STORY_SEQ[]`), **Déclencheur**, **Prime**,
+**Échec**, **Setup au décrochage** si pertinent, puis pour **chaque objectif** :
+type moteur · narration exacte (activation/atteint) · action joueur · script
+déclenché · condition de complétion ; enfin les **cinématiques** et la
+**clôture**. Pas de duplication entre fiches : le détail vit dans la fiche, ce
+README ne donne que la vue d'ensemble.
