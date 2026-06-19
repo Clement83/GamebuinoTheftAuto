@@ -172,6 +172,8 @@ enum MissionEvent {
   EV_MARCO_JOIN  = 1,  // Marco monte dans la voiture (passager + message)
   EV_MARCO_DIE   = 2,  // Marco meurt, le tueur (chasseur) apparait
   EV_MARCO_LEAVE = 3,  // Marco descend, remercie le joueur et rentre chez lui (fin amicale)
+  EV_DELIVERY    = 4,  // scene scriptee a destination : un contact attend, le compagnon
+                       //   descend, lui parle/livre, puis remonte (CUT_DELIVERY). Non letal.
 };
 
 struct Objective {

@@ -547,7 +547,7 @@ static const Objective OBJS_M1[] = {
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Garage",
     "Marco : deux secondes petit, j'arrive !",
     "Marco : la caisse est garee a cote. Embarque, on a un colis a livrer." },
-  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,         "Les Quais",
+  { OBJ_GOTO, 0, 0, 16, true,  EV_DELIVERY,     "Les Quais",
     "En route pour les Quais. Roule peinard, attire pas les flics.",
     "Colis livre. Marco : nickel. Maintenant ramene-moi chez moi, petit." },
   { OBJ_GOTO, 0, 0, 14, true,  EV_MARCO_LEAVE,  "Le Garage",
@@ -935,14 +935,26 @@ static bool     missionCrushDone = false; // OBJ_CRUSH : la voiture de mission v
 // le controle revient. cutsceneUpdate() pilote tout. CUT_MARCO_DEATH = Marco
 // descend, parle au tueur, se fait abattre. CUT_TAUNT = bref face-a-face (boss/
 // embuscade) : deux repliques puis les ennemis (deja poses) chargent.
-enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2, CUT_MARCO_LEAVE = 3 };
+enum { CUT_NONE = 0, CUT_MARCO_DEATH = 1, CUT_TAUNT = 2, CUT_MARCO_LEAVE = 3, CUT_DELIVERY = 4 };
 static uint8_t  cutKind  = CUT_NONE;
 static uint8_t  cutPhase = 0;
 static uint16_t cutTimer = 0;
-static const char *cutLine1 = nullptr, *cutLine2 = nullptr;  // repliques du TAUNT
+static const char *cutLine1 = nullptr, *cutLine2 = nullptr;  // repliques (TAUNT, contact de scene)
+static const char *cutEndText = nullptr;                     // narration jouee a la fin d'un CUT_DELIVERY
 static int16_t marcoLeaveX = 0, marcoLeaveY = 0;             // porte vers laquelle Marco rentre (CUT_MARCO_LEAVE)
 static const uint16_t CUT_LINE_FRAMES  = 80;   // ~3 s par replique
 static const uint16_t CUT_SHOOT_FRAMES = 26;   // temps sur le corps de Marco
+
+// --- PNJ de SCENE scriptee : un contact qui ATTEND a une destination (le docker
+//     des Quais en M1, un receleur, un commercant...). Pose a l'activation de
+//     l'objectif EV_DELIVERY ; le compagnon va lui parler (CUT_DELIVERY). Le tuer
+//     (l'ecraser) echoue la mission. Entite dediee (n'entre pas en conflit avec
+//     target/marco). ---
+static bool    sceneNpcActive = false;
+static bool    sceneNpcDead   = false;   // ecrase par le joueur -> echec
+static float   sceneNpcX = 0.0f, sceneNpcY = 0.0f;
+static uint8_t sceneNpcDir = DIR_SOUTH, sceneNpcFrame = 0, sceneNpcAnimTimer = 0;
+static const uint16_t SCENE_NPC_COLOR = 0xCE59;  // tan : PNJ contact neutre
 
 // Cible de mission (Joe : erre + fuit ; tueur : fonce sur le joueur).
 enum { T_WANDER = 0, T_FLEE = 1, T_EMERGE = 2 };  // T_EMERGE : sort du batiment vers son poste

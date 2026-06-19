@@ -27,6 +27,7 @@ static void reviveCommon() {
     missionRun.active = false; target.active = false;
     marcoWaiting = false; marcoFollow = false; marcoAboard = false;
     allyStands = false; allyDead = false;
+    sceneNpcActive = false; sceneNpcDead = false;
     mCarActive = false; carIsMission = false;
     storyMissionActive = false; killerChase = false;
     clearEnemies();

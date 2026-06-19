@@ -52,16 +52,28 @@
   au prochain embarquement. Comportement générique des missions à allié (M1, M4,
   M13).
 
-### 3. `OBJ_GOTO` → Les Quais *(`requireCar`, rayon 16)*
+### 3. `OBJ_GOTO` → Les Quais *(`requireCar`, rayon 16)* — `EV_DELIVERY`
 - **Narration** — *« En route pour les Quais. Roule peinard, attire pas les
   flics. »*
+- **Script (activation)** — un **contact** (PNJ tan, `SCENE_NPC_COLOR`) est posé
+  et **attend** sur les docks (`sceneNpcActive`).
 - **Action joueur** — monter dans la **caisse de mission** garée à côté
   (devient la voiture du joueur, `carIsMission`). À l'embarquement Marco monte
   passager (`marcoAboard`), narration *« Marco : roule, je monte derrière. »*
   Conduire jusqu'aux Quais.
-- **Complétion** — voiture dans les **16 px** des Quais **en conduisant**.
-- **Narration (atteint)** — *« Colis livré. Marco : nickel. Maintenant ramène-moi
-  chez moi, petit. »*
+- **Complétion** — voiture dans les **16 px** des Quais **en conduisant** →
+  déclenche la **scène scriptée**.
+- **Scène de livraison** (`CUT_DELIVERY`, joueur figé, `startDeliveryCut`) :
+  1. la caisse s'arrête, **Marco descend seul** ;
+  2. il marche jusqu'au contact (`npcWalkToward`), face-à-face ;
+  3. échange : *« Marco : tiens, le paquet. C'est tout bon. »* →
+     *« Le contact : nickel. Filez avant que les flics rappliquent. »* ;
+  4. Marco **revient et remonte** (`marcoAboard`), le contact s'en va ;
+  5. narration de clôture *« Colis livré. Marco : nickel. Maintenant ramène-moi
+     chez moi, petit. »* puis l'objectif suivant s'active.
+- **Échec sélectif** — **écraser le contact** (voiture lancée) avant la scène →
+  **MISSION RATÉE** (*« Marco : t'as écrasé notre contact, abruti ! »*),
+  `sceneNpcDead` capté dans `missionProgress`.
 
 ### 4. `OBJ_GOTO` → Le Garage *(`requireCar`, rayon 14)* — `EV_MARCO_LEAVE`
 - **Narration** — *« Ramène Marco au Garage. »*

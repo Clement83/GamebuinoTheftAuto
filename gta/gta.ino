@@ -564,6 +564,7 @@ void loop() {
   drawWeaponPickups(camX, camY);
   drawLoot(camX, camY);
   drawMissionCar(camX, camY);
+  drawSceneNpc(camX, camY);
   drawMarco(camX, camY);
   drawTarget(camX, camY);
   drawEnemies(camX, camY);

@@ -23,8 +23,11 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   est aboard en voiture, donc non blessable tant qu'il ne descend pas — couvert par
   l'ambush en route, à venir avec les scènes scriptées.)*
 - ⏳ **Règle racket — tuer un client coopératif = échec** (M2, M9).
-- ⏳ **Scènes scriptées à destination** (contact qui attend, beat autonome du
-  compagnon) — outil le plus lourd, déroulé par mission.
+- 🔨 **Scènes scriptées à destination** — système posé : `EV_DELIVERY` +
+  entité contact (`sceneNpc*`) + cinématique `CUT_DELIVERY` (le compagnon descend,
+  marche vers le contact, dialogue, remonte) + échec si on écrase le contact.
+  **Livré sur M1 (docks)**. Réutilisable pour M7 (receleur), M2/M9 (clients), M4
+  (deal subverti). Reste à dérouler sur ces missions.
 - ⏳ **Death-beats de boss** (Rico/Bruno/Victor), subversion M4, M16 (caisses de
   luxe marquées + nuance broyage), épilogue habité.
 

@@ -292,6 +292,16 @@ static void enterObjective() {
     allyStands = true; allyDead = false; allyHp = ALLY_HP;
     allyColor = (curDef.title && strcmp(curDef.title, "Embuscade") == 0) ? SARAH_COLOR : TONY_COLOR;
   }
+  // Contact de scene scriptee (EV_DELIVERY) : pose un PNJ qui ATTEND a destination.
+  // La scene (CUT_DELIVERY) se joue a la completion de l'objectif ; l'ecraser avant
+  // echoue la mission (sceneNpcDead, cf. missionProgress).
+  if (o.event == EV_DELIVERY) {
+    int wt, ht;
+    if (aiFindWalkTileNear(o.x, o.y, wt, ht)) { sceneNpcX = (float)(wt * 8 + 4); sceneNpcY = (float)(ht * 8 + 4); }
+    else { sceneNpcX = (float)o.x; sceneNpcY = (float)o.y; }
+    sceneNpcDir = DIR_SOUTH; sceneNpcFrame = 0; sceneNpcAnimTimer = 0;
+    sceneNpcActive = true; sceneNpcDead = false;
+  }
   if (o.event == EV_MARCO_JOIN) {
     allyColor = (o.count == 1) ? SARAH_COLOR : MARCO_COLOR;  // count==1 -> Sarah
     marcoWaiting = true;                          // l'allie va apparaitre puis etre pris (TALK ou GOTO)
@@ -346,6 +356,7 @@ static void startMission(uint8_t m) {
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   marcoEmergeDelay = 0;
   allyStands = false; allyDead = false; allyHp = 0;   // allie defendu : remis a zero
+  sceneNpcActive = false; sceneNpcDead = false;       // contact de scene : remis a zero
   mCarActive = false;
   killerChase = false;
   clearEnemies();
@@ -376,6 +387,7 @@ static void failMission(const char *msg) {
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   mCarActive = false; carIsMission = false;
   allyStands = false; allyDead = false;
+  sceneNpcActive = false; sceneNpcDead = false;
   killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
   clearEnemies();
   missionFailedTimer = MISSION_FAIL_FRAMES;
@@ -406,6 +418,7 @@ static void finishMission() {
   const MissionDef &def = curDef;
   marcoWaiting = false; marcoFollow = false; marcoAboard = false; marcoEmergeDelay = 0;
   allyStands = false; allyDead = false;          // allie defendu : fin de mission
+  sceneNpcActive = false; sceneNpcDead = false;  // contact de scene : fin de mission
   if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
   addMoney(def.reward);
   missionDoneTimer = MISSION_DONE_FRAMES;
@@ -455,6 +468,24 @@ static void startMarcoLeaveCut(int doorX, int doorY) {
 }
 
 
+// Scene scriptee a destination (EV_DELIVERY) : la caisse s'arrete, le compagnon
+// descend a cote, marche jusqu'au contact (sceneNpc) qui attend, echange deux
+// repliques, puis revient et REMONTE. endText = narration de cloture (doneText de
+// l'objectif). Le contact disparait a la fin. Joueur fige (SEQ_CUT).
+static void startDeliveryCut(const char *endText) {
+  if (seqKind != SEQ_NONE) return;
+  seqKind = SEQ_CUT; cutKind = CUT_DELIVERY; cutPhase = 0; cutTimer = 0;
+  cutEndText = endText;
+  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
+  marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
+  marcoFollow = true;                                  // pour que drawMarco le dessine
+  int ox, oy;                                          // le compagnon descend a cote de la caisse
+  if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+  else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  marcoFrame = 0; marcoAnimTimer = 0;
+}
+
+
 // Bref face-a-face avant baston (boss / embuscade) : deux repliques, puis on rend
 // la main -- les ennemis deja poses chargent des qu'on approche. Joueur fige.
 static void startTauntCut(const char *l1, const char *l2) {
@@ -495,6 +526,50 @@ static void cutsceneUpdate() {
           finishMission();                               // prime + bandeau "MISSION ACCOMPLIE"
         }
         break;
+    }
+    return;
+  }
+  if (cutKind == CUT_DELIVERY) {
+    switch (cutPhase) {
+      case 0: {                                          // le compagnon marche vers le contact
+        float dx = sceneNpcX - marcoX, dy = sceneNpcY - marcoY;
+        if (dx * dx + dy * dy > 12.0f * 12.0f) {
+          npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
+                        sceneNpcX, sceneNpcY, MARCO_FOLLOW_SPEED);
+        } else {
+          marcoFrame = 0;
+          marcoDir    = (marcoX < sceneNpcX) ? DIR_EAST : DIR_WEST;   // face a face
+          sceneNpcDir = (sceneNpcX < marcoX) ? DIR_EAST : DIR_WEST;
+          cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
+          narrate("Marco : tiens, le paquet. C'est tout bon.");
+        }
+        break;
+      }
+      case 1:                                            // replique du contact
+        if (cutTimer > 0 && --cutTimer == 0) {
+          cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
+          narrate("Le contact : nickel. Filez avant que les flics rappliquent.");
+        }
+        break;
+      case 2:                                            // -> le compagnon repart
+        if (cutTimer > 0 && --cutTimer == 0) cutPhase = 3;
+        break;
+      case 3: {                                          // retour a la caisse puis remontee
+        float dx = car.x - marcoX, dy = car.y - marcoY;
+        if (dx * dx + dy * dy > 12.0f * 12.0f) {
+          npcWalkToward(marcoX, marcoY, marcoDir, marcoFrame, marcoAnimTimer,
+                        car.x, car.y, MARCO_FOLLOW_SPEED);
+        } else {
+          marcoFrame = 0;
+          marcoFollow = false; marcoAboard = true;       // le compagnon remonte
+          sceneNpcActive = false;                        // le contact s'en va
+          seqKind = SEQ_NONE; cutKind = CUT_NONE;
+          if (cutEndText) narrate(cutEndText);           // "Colis livre..."
+          if (missionRun.active) enterObjective();       // active l'objectif suivant (deja avance)
+          else                   finishMission();
+        }
+        break;
+      }
     }
     return;
   }
@@ -580,6 +655,7 @@ static void missionProgress() {
                 ? "Sarah est morte ! Mission ratee." : "Tony est mort ! Mission ratee.");
     return;
   }
+  if (sceneNpcDead) { failMission("Marco : t'as ecrase notre contact, abruti ! Mission ratee."); return; }
   // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
   // de SORTIR et de rejoindre son poste, pour qu'on le voie arriver ("j'arrive !").
   if (cur.type == OBJ_TALK && cur.event == EV_MARCO_JOIN && marcoWaiting) {
@@ -590,7 +666,14 @@ static void missionProgress() {
 
   const Objective &done = def.objectives[missionRun.step];  // objectif accompli
   uint8_t ev = missionAdvance(missionRun, def);   // step++ (active=false si fini)
-  if (done.doneText) narrate(done.doneText);      // message "objectif atteint"
+  // EV_DELIVERY : le doneText est narre PAR la scene a sa fin (pas tout de suite).
+  if (done.doneText && ev != EV_DELIVERY) narrate(done.doneText);  // message "objectif atteint"
+  if (ev == EV_DELIVERY) {
+    // Scene scriptee a destination : le compagnon descend livrer le contact puis
+    // remonte. La cinematique enchaine elle-meme sur l'objectif suivant.
+    startDeliveryCut(done.doneText);
+    return;
+  }
   if (ev == EV_MARCO_JOIN) {
     marcoWaiting = false;
     if (driving) {                                // deja au volant (M4) : Marco monte direct
@@ -618,6 +701,17 @@ static void missionProgress() {
 // Plus animation et ecrasement par la voiture lancee. (fcx,fcy) = repere joueur.
 static void missionUpdate(int fcx, int fcy) {
   if (seqKind == SEQ_CUT) return;                 // cinematique : cutsceneUpdate gere les acteurs
+  // PNJ de scene (contact qui attend) : ecrasable a la voiture -> echec (capte
+  // ensuite par missionProgress via sceneNpcDead).
+  if (sceneNpcActive && !sceneNpcDead && driving) {
+    float spd2 = car.vx * car.vx + car.vy * car.vy;
+    if (spd2 > RUNOVER_SPEED2 && fabsf(car.x - sceneNpcX) < TARGET_RUNOVER_DIST &&
+        fabsf(car.y - sceneNpcY) < TARGET_RUNOVER_DIST) {
+      sceneNpcDead = true;
+      targetDownX = (int)sceneNpcX; targetDownY = (int)sceneNpcY; targetDownTimer = PED_DOWN_FRAMES;
+      gb.sound.tone(90, 120);
+    }
+  }
   if (!missionRun.active || !target.active) return;
   if (targetAtkTimer > 0) targetAtkTimer--;
   if (targetStunTimer > 0) { targetStunTimer--; return; }   // au sol : ni poursuite ni coup
@@ -756,6 +850,14 @@ static void drawMarco(int camX, int camY) {
   if (marcoWaiting && marcoEmergeDelay > 0) return;   // encore dans l'immeuble (pas encore sorti)
   if (marcoWaiting || marcoFollow || allyStands)  // sort / attend / suit / allie defendu stationnaire
     blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, allyColor);
+}
+
+
+// PNJ de scene scriptee (contact qui attend a destination). Dessine tant qu'il
+// est vivant ; une fois ecrase, c'est le splat (targetDownTimer) qui s'affiche.
+static void drawSceneNpc(int camX, int camY) {
+  if (!missionRun.active || !sceneNpcActive || sceneNpcDead) return;
+  blitPed(camX, camY, (int)sceneNpcX, (int)sceneNpcY, sceneNpcDir, sceneNpcFrame, SCENE_NPC_COLOR);
 }
 
 

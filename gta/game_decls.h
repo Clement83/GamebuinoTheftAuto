@@ -108,6 +108,7 @@ static void marcoUpdate(int fcx, int fcy);
 static void drawPhones(int camX, int camY);
 static void drawMissionCar(int camX, int camY);
 static void drawMarco(int camX, int camY);
+static void drawSceneNpc(int camX, int camY);
 static void drawMarker(int camX, int camY);
 static void drawTarget(int camX, int camY);
 static void drawMissionArrow(int camX, int camY, int fcx, int fcy);
