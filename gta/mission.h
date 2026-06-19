@@ -174,6 +174,8 @@ enum MissionEvent {
   EV_MARCO_LEAVE = 3,  // Marco descend, remercie le joueur et rentre chez lui (fin amicale)
   EV_DELIVERY    = 4,  // scene scriptee a destination : un contact attend, le compagnon
                        //   descend, lui parle/livre, puis remonte (CUT_DELIVERY). Non letal.
+  EV_CLIENT      = 5,  // un CLIENT cooperatif (racket) attend au stop, SANS cinematique.
+                       //   Le tuer (poing/balle/voiture) echoue la mission (regle racket).
 };
 
 struct Objective {

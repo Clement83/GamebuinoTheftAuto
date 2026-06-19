@@ -561,9 +561,9 @@ static const Objective OBJS_M2[] = {
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Commerces",
     "Le commercant refuse et te saute dessus. Mate-le, mais le tue pas.",
     "Il crache l'argent. Marco : voila comment on fait.", 3, 0 },
-  { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Chinatown",
+  { OBJ_GOTO,   0, 0, 14, false, EV_CLIENT, "Chinatown",
     "Client suivant : une echoppe de Chinatown.", "Encaisse. Sans histoire, celui-la." },
-  { OBJ_GOTO,   0, 0, 14, false, EV_NONE, "Le Bar",
+  { OBJ_GOTO,   0, 0, 14, false, EV_CLIENT, "Le Bar",
     "Encore un : le vieux du Bar paie toujours rubis sur l'ongle.",
     "Le vieux paie, et t'offre meme un verre." },
   { OBJ_GOTO,   0, 0, 16, false, EV_NONE, "Chantier",
@@ -628,13 +628,13 @@ static const Objective OBJS_M8[] = {
     "Tony : ils deviennent nerveux. Merci, petit.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
 };
 static const Objective OBJS_M9[] = {
-  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Commerces",
+  { OBJ_GOTO, 0, 0, 14, false, EV_CLIENT, "Commerces",
     "Tony : reprends la tournee de Marco aux Commerces. C'est toi, le patron, maintenant.",
     "Un commercant : c'est toi qui passes, desormais ? ...Desole, pour Marco." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Commerces",
     "Des Loups sont venus se servir. Renvoie-les chez eux.",
     "Pour toi, Marco.", 0, 0, 3, EK_THUG, SP_PRESENT },
-  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Le Bar",
+  { OBJ_GOTO, 0, 0, 14, false, EV_CLIENT, "Le Bar",
     "Le vieux du Bar a vu quelque chose. Va l'ecouter.",
     "Le vieux : un type chic donnait des ordres aux Loups... Va savoir qui." },
 };

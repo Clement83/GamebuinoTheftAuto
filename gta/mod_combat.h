@@ -167,6 +167,13 @@ static void updateBullets() {
         }
       }
       if (consumed) continue;
+      // PNJ de scene (contact/client) : une balle le tue -> echec de mission.
+      if (missionRun.active && sceneNpcActive && !sceneNpcDead &&
+          fabsf(b.x - sceneNpcX) < 4.0f && fabsf(b.y - sceneNpcY) < 4.0f) {
+        sceneNpcDead = true; b.active = false;
+        targetDownX = (int)sceneNpcX; targetDownY = (int)sceneNpcY; targetDownTimer = PED_DOWN_FRAMES;
+        gb.sound.tone(90, 120); continue;
+      }
     }
     // 3) Ma propre caisse (garee : a pied elle est un obstacle plein) : tirable.
     if (!driving && !carGone &&
@@ -356,6 +363,14 @@ static void tryAttack() {
     } else {
       killTarget(pcx, pcy);
     }
+  }
+  // PNJ de scene (contact de livraison / client de racket) : le frapper ou le
+  // toucher le met a terre -> echec (capte par missionProgress via sceneNpcDead).
+  if (missionRun.active && sceneNpcActive && !sceneNpcDead &&
+      combatInCone(sceneNpcX, sceneNpcY, pcx, pcy, playerDir, wd.reach, wd.side)) {
+    sceneNpcDead = true;
+    targetDownX = (int)sceneNpcX; targetDownY = (int)sceneNpcY; targetDownTimer = PED_DOWN_FRAMES;
+    gb.sound.tone(90, 120);
   }
 
   // Decompte des munitions ; arme videe -> retiree, retour au poing.

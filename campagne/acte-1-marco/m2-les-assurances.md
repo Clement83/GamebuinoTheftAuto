@@ -9,7 +9,11 @@
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 1`).
   Décrocher → `startMission(17)`.
 - **Prime** — **150 $**.
-- **Échec** — aucun.
+- **Échec sélectif (règle racket)** — les stops coopératifs (Chinatown, Le Bar)
+  posent un **client** (`EV_CLIENT`, PNJ tan). **Le tuer** (poing, balle ou
+  voiture) → **MISSION RATÉE** (*« On rackette, on ne tue pas les clients ! »*).
+  `sceneNpcDead` capté par `missionProgress` ; coup du joueur détecté dans
+  `mod_combat.h` (cône + balle).
 - **Note** — Marco n'est ici **que narratif** : aucun PNJ allié n'est posé (seuls
   M1/M4/M13 spawnent un compagnon). Ses répliques passent par le bandeau.
 
@@ -39,11 +43,11 @@
 - **Complétion** — `objSubdue >= 3` : elle **cède** (ne meurt pas).
 - **Atteint** — *« Il crache l'argent. Marco : voilà comment on fait. »*
 
-### 3. `OBJ_GOTO` → Chinatown *(rayon 14)*
+### 3. `OBJ_GOTO` → Chinatown *(rayon 14)* — `EV_CLIENT`
 - **Narration** — *« Client suivant : une échoppe de Chinatown. »*
 - **Atteint** — *« Encaisse. Sans histoire, celui-là. »*
 
-### 4. `OBJ_GOTO` → Le Bar *(rayon 14)*
+### 4. `OBJ_GOTO` → Le Bar *(rayon 14)* — `EV_CLIENT`
 - **Narration** — *« Encore un : le vieux du Bar paie toujours rubis sur
   l'ongle. »*
 - **Atteint** — *« Le vieux paie, et t'offre même un verre. »*

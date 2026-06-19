@@ -278,6 +278,7 @@ static void enterObjective() {
   narrate(o.text);
   objBeat = 0; objElapsed = 0; objSubdue = 0;   // compteurs propres a cet objectif
   targetAtkTimer = 0; missionCrushDone = false;
+  sceneNpcActive = false; sceneNpcDead = false;  // contact/client du stop precedent : retire
   clearEnemies();                                // pas d'ennemis residuels de l'objectif precedent
   // Ennemis scenarises AGRESSIFS (gardes, assaillants) poses des l'activation,
   // de facon deterministe autour du point d'objectif (cf. spawnEnemiesForObjective).
@@ -295,7 +296,10 @@ static void enterObjective() {
   // Contact de scene scriptee (EV_DELIVERY) : pose un PNJ qui ATTEND a destination.
   // La scene (CUT_DELIVERY) se joue a la completion de l'objectif ; l'ecraser avant
   // echoue la mission (sceneNpcDead, cf. missionProgress).
-  if (o.event == EV_DELIVERY) {
+  // Contact de scene (EV_DELIVERY : livraison avec cinematique) ou CLIENT
+  // cooperatif (EV_CLIENT : racket, sans cinematique) : meme entite posee a
+  // destination. Dans les deux cas, le TUER echoue la mission.
+  if (o.event == EV_DELIVERY || o.event == EV_CLIENT) {
     int wt, ht;
     if (aiFindWalkTileNear(o.x, o.y, wt, ht)) { sceneNpcX = (float)(wt * 8 + 4); sceneNpcY = (float)(ht * 8 + 4); }
     else { sceneNpcX = (float)o.x; sceneNpcY = (float)o.y; }
@@ -727,7 +731,13 @@ static void missionProgress() {
                 ? "Sarah est morte ! Mission ratee." : "Tony est mort ! Mission ratee.");
     return;
   }
-  if (sceneNpcDead) { failMission("Marco : t'as ecrase notre contact, abruti ! Mission ratee."); return; }
+  if (sceneNpcDead) {
+    bool racket = def.title && (strcmp(def.title, "Les assurances") == 0 ||
+                                strcmp(def.title, "Tournee de Marco") == 0);
+    failMission(racket ? "On rackette, on ne tue pas les clients ! Mission ratee."
+                       : "Marco : t'as tue notre contact, abruti ! Mission ratee.");
+    return;
+  }
   // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
   // de SORTIR et de rejoindre son poste, pour qu'on le voie arriver ("j'arrive !").
   if (cur.type == OBJ_TALK && cur.event == EV_MARCO_JOIN && marcoWaiting) {

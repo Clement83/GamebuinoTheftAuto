@@ -8,7 +8,9 @@
 - **Entrée** — `MISSIONS[23]`, `STORY_SEQ[8]`. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 8`).
 - **Prime** — **300 $**.
-- **Échec** — aucun.
+- **Échec sélectif (règle racket)** — les stops coopératifs (Commerces, Le Bar)
+  posent un **client** (`EV_CLIENT`). **Le tuer** → **MISSION RATÉE**
+  (*« On rackette, on ne tue pas les clients ! »*). Même mécanique qu'en M2.
 
 ## Objectifs (séquence moteur)
 

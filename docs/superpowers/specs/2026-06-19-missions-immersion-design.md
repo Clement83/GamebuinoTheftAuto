@@ -35,10 +35,13 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   la bannière. Actif M11 (Rico), M17 (Bruno), M18 (Victor).
 - ✅ **Épilogue habité** : le dernier décrochage donne la **voix de Sarah** (la
   journaliste sauvée) au lieu du silence (`gta.ino`).
-- ⏳ **Fail « client de racket tué »** (M2/M9) + **scènes de tournée M2** (Marco
-  collecteur) — nécessite Marco compagnon à pied en M2 + détection du coup *du
-  joueur* sur un PNJ de scène (à pied, pas seulement à la voiture).
-- ⏳ **M4** subversion (deal → trahison), **M16** caisses de luxe.
+- ✅ **Fail « client de racket tué »** (`EV_CLIENT`) : un client coopératif est
+  posé aux stops (Chinatown/Bar en M2 ; Commerces/Bar en M9) ; le tuer (poing,
+  balle ou voiture) → MISSION RATÉE. Détection du coup *du joueur* ajoutée dans
+  `mod_combat.h` (cône + balle). Actif **M2** et **M9**.
+- ⏳ **M4** subversion (deal → trahison), **M16** caisses de luxe marquées.
+  *(Scènes de tournée M2 avec Marco collecteur : non faites — demanderait Marco
+  compagnon à pied sur M2 ; le fail racket est en place sans la cinématique.)*
 
 ## Boîte à outils transverse
 
