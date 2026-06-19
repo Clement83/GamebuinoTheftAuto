@@ -18,10 +18,10 @@
   `failOnAllyDeath`) : les assaillants ne ciblent que le joueur.
 
 ## Setup au décrochage
-Coords POI résolues. **Pas de caisse** posée : M2 n'a aucun objectif
-`requireCar`, donc la tournée se fait **à pied** (le `startMission` ne pose la
-caisse-compagnon que si la mission demande de conduire — sinon le `SUBDUE` au
-poing et les scènes à pied seraient cassés). Bandeau *« Les assurances »*.
+Coords POI résolues. La **caisse de Marco** est garée près du Garage dès le
+décrochage (comme M1) : la tournée se fait **à pied ou en voiture**, au choix —
+les scènes s'adaptent (`sceneHomeX/Y`). Seul le `SUBDUE` impose de **descendre**
+(coup de poing → à pied ; Marco descend avec toi). Bandeau *« Les assurances »*.
 
 ## Objectifs (séquence moteur)
 
@@ -65,7 +65,11 @@ poing et les scènes à pied seraient cassés). Bandeau *« Les assurances »*.
 - **Narration** — *« Encore un : le vieux du Bar paie toujours rubis sur
   l'ongle. »*
 - **Scène de collecte** — mêmes répliques de collecte, le vieux paie.
-- **Atteint** — *« Le vieux paie, et t'offre même un verre. »*
+- **Soin** — le **verre offert te rend toute ta vie** (`playerHearts` →
+  `PLAYER_HEARTS_MAX`, sans toucher au gilet ; glouglou). Détecté dans
+  `missionProgress` quand l'objectif `EV_DELIVERY` est au POI « Le Bar ».
+- **Atteint** — *« Le vieux paie et t'offre un verre. Ça requinque : pleine
+  forme ! »*
 
 ### 7. `OBJ_BEAT` → embuscade au Chantier *(3 × `EK_THUG`, `SP_AMBUSH`)*
 - **Narration** — *« Dernier client, au Chantier. Marco : celui-là, je le sens

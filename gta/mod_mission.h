@@ -368,23 +368,18 @@ static void startMission(uint8_t m) {
   killerChase = false;
   clearEnemies();
   // Caisse "compagnon" de Marco : si la mission le ramasse A PIED (EV_MARCO_JOIN
-  // sans requireCar, ex. M1), sa voiture est garee SUR LE COTE DES LE DECROCHAGE.
-  // Mais SEULEMENT si la mission demande de conduire quelque part (un objectif
-  // requireCar existe) : une tournee 100% a pied (M2) ne pose pas de caisse,
-  // sinon le joueur conduit et ne peut plus faire les SUBDUE (coups au poing) ni
-  // les scenes a pied.
-  bool missionDrives = false;
-  for (uint8_t i = 0; i < curDef.count; i++) if (curObjs[i].requireCar) { missionDrives = true; break; }
-  if (missionDrives) {
-    for (uint8_t i = 0; i < curDef.count; i++) {
-      const Objective &o = curObjs[i];
-      if (o.event == EV_MARCO_JOIN && !o.requireCar) {
-        int cx, cy;
-        if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
-        mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
-        mCarActive = true;
-        break;
-      }
+  // sans requireCar, ex. M1, M2), sa voiture est garee SUR LE COTE DES LE
+  // DECROCHAGE -- OPTIONNELLE : on peut faire la tournee a pied ou en caisse (les
+  // scenes s'adaptent). Note : un SUBDUE se fait au poing, donc A PIED -> il faut
+  // descendre (le compagnon descend avec toi) pour mater le recalcitrant.
+  for (uint8_t i = 0; i < curDef.count; i++) {
+    const Objective &o = curObjs[i];
+    if (o.event == EV_MARCO_JOIN && !o.requireCar) {
+      int cx, cy;
+      if (!findRoadSpotNear(o.x, o.y, cx, cy)) { cx = o.x + 2 * TILE_W; cy = o.y; }
+      mCar.x = (float)cx; mCar.y = (float)cy; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
+      mCarActive = true;
+      break;
     }
   }
   narrate(curDef.title);                  // annonce le nom de la mission
@@ -784,6 +779,11 @@ static void missionProgress() {
     // Scene scriptee a destination. Avec compagnon (marcoAboard) il descend
     // livrer puis remonte ; solo (Acte II+, Marco mort) c'est le contact qui
     // vient. La cinematique enchaine elle-meme sur l'objectif suivant.
+    // Le verre offert au Bar (M2) : on retrouve toute sa vie (sans toucher au gilet).
+    if (done.poi && strcmp(done.poi, "Le Bar") == 0 && playerHearts < PLAYER_HEARTS_MAX) {
+      playerHearts = PLAYER_HEARTS_MAX;
+      gb.sound.tone(330, 50); gb.sound.tone(440, 70);   // glouglou requinquant
+    }
     const char *l1, *l2; deliveryLines(def.title, l1, l2);
     bool hasCompanion = marcoFollow || marcoAboard;     // Marco a pied OU a bord
     startDeliveryCut(l1, l2, done.doneText, !hasCompanion);

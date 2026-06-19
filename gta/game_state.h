@@ -575,7 +575,7 @@ static const Objective OBJS_M2[] = {
     "Client suivant : une echoppe de Chinatown.", "Encaisse. Sans histoire, celui-la." },
   { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Le Bar",
     "Encore un : le vieux du Bar paie toujours rubis sur l'ongle.",
-    "Le vieux paie, et t'offre meme un verre." },
+    "Le vieux paie et t'offre un verre. Ca requinque : pleine forme !" },
   { OBJ_BEAT,   0, 0,  0, false, EV_NONE,       "Chantier",
     "Dernier client, au Chantier. Marco : celui-la, je le sens pas... Embuscade !",
     "Marco : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_AMBUSH },
