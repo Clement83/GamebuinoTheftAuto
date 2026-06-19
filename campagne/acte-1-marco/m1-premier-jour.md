@@ -46,6 +46,11 @@
   a un colis à livrer. »*
 - **Transition** `EV_MARCO_JOIN` (à pied) → `marcoFollow = true` : Marco nous
   **emboîte le pas** à distance de confort (`marcoUpdate`).
+- **Compagnon physique** — une fois allié, Marco monte quand on monte
+  (`marcoAboard`) **et descend quand on descend** (MENU) : il est reposé à pied à
+  côté de la caisse et reprend la filature (`gta.ino`, sortie MENU). Il remonte
+  au prochain embarquement. Comportement générique des missions à allié (M1, M4,
+  M13).
 
 ### 3. `OBJ_GOTO` → Les Quais *(`requireCar`, rayon 16)*
 - **Narration** — *« En route pour les Quais. Roule peinard, attire pas les

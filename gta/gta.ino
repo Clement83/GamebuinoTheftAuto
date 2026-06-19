@@ -377,6 +377,14 @@ void loop() {
       if (findFootSpot((int)car.x, (int)car.y, ox, oy)) {
         playerX = ox; playerY = oy; driving = false;
         playerFrame = 0; animTimer = 0;
+        if (marcoAboard) {            // le compagnon descend AVEC le joueur
+          marcoAboard = false; marcoFollow = true;
+          int mx, my;
+          if (findFootSpot((int)car.x, (int)car.y, mx, my)) {
+            marcoX = (float)(mx + PLAYER_W / 2); marcoY = (float)(my + PLAYER_H / 2);
+          } else { marcoX = car.x; marcoY = car.y; }
+          marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
+        }
         float bail2 = car.vx * car.vx + car.vy * car.vy;
         if (bail2 <= CAR_BAIL_PARK_SPEED2) {
           car.vx = 0.0f; car.vy = 0.0f;       // quasi a l'arret : on se gare proprement
