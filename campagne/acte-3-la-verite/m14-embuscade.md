@@ -7,9 +7,12 @@
 - **Entrée** — `MISSIONS[28]`, `STORY_SEQ[13]`. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 13`).
 - **Prime** — **450 $**.
-- **Échec** — aucun. Sarah n'est **pas une entité jouable** ici : pas de PV à
-  protéger ni de fail « si Sarah meurt » — c'est une **double vague** narrée
-  comme une défense de la planque.
+- **Échec sélectif** — **Sarah est une alliée DÉFENDUE** (`failOnAllyDeath`,
+  `MISSIONS[28]`) : entité stationnaire posée à la Planque (magenta,
+  `SARAH_COLOR`, `ALLY_HP = 5`). Les assaillants les plus proches d'**elle** la
+  ciblent ; le joueur doit **s'interposer**. **Si elle tombe → MISSION RATÉE**
+  (*« Sarah est morte ! Mission ratée. »*). Même mécanique que Tony en M8
+  (`missionAllyDeathFail` / `hurtAlly`).
 
 ## Objectifs (séquence moteur)
 

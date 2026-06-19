@@ -7,9 +7,12 @@
 - **Entrée** — `MISSIONS[22]`, `STORY_SEQ[7]`. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 7`).
 - **Prime** — **350 $**.
-- **Échec** — aucun. **Tony n'est pas une entité jouable** : il n'y a pas
-  d'allié à protéger ni de condition d'échec « si Tony meurt ». La mission est une
-  **double vague d'ennemis** au Garage, purement narrée comme une défense.
+- **Échec sélectif** — **Tony est un allié DÉFENDU** (`failOnAllyDeath`,
+  `MISSIONS[22]`) : entité stationnaire posée au Garage (vert, `TONY_COLOR`,
+  `ALLY_HP = 5`). Les assaillants les plus proches de **lui** le prennent pour
+  cible ; le joueur doit **s'interposer**. **S'il tombe → MISSION RATÉE**
+  (*« Tony est mort ! Mission ratée. »*). Détecté par `missionAllyDeathFail`
+  (`mission.h`), dégâts via `hurtAlly` (`mod_mission.h`).
 - **Conseil de jeu** — première vraie bataille rangée : passer par **AMU Nation**
   avant pour s'armer.
 

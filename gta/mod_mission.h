@@ -134,6 +134,20 @@ static bool enemyMeleeHits() {
 }
 
 
+// Inflige un coup a l'allie defendu (Tony / Sarah). A 0 PV : il tombe, ce qui
+// echoue la mission (detecte par missionProgress via allyDead).
+static void hurtAlly() {
+  if (!allyStands || allyHp == 0) return;
+  if (--allyHp == 0) {
+    allyStands = false; allyDead = true;
+    targetDownX = (int)marcoX; targetDownY = (int)marcoY; targetDownTimer = PED_DOWN_FRAMES;
+    gb.sound.tone(90, 140);
+  } else {
+    gb.sound.tone(150, 50);
+  }
+}
+
+
 // Met a jour les ennemis chaque frame. (fcx,fcy) = repere joueur (centre px).
 // IDLE -> AGGRO quand le joueur approche ; AGGRO : fonce (gros bras) ou tire
 // (gunner) ; renversable a la voiture lancee. EN_DOWN : decompte du splat ;
@@ -159,25 +173,36 @@ static void updateEnemies(int fcx, int fcy) {
       else continue;                                // encore endormi : ne bouge pas
     }
     if (e.atkTimer > 0) e.atkTimer--;
+    // Cible de l'ennemi : le joueur par defaut, mais l'ALLIE DEFENDU s'il est
+    // plus proche (l'aggro reste base sur le joueur ci-dessus). Le joueur doit
+    // alors s'interposer entre les assaillants et l'allie.
+    int tcx = fcx, tcy = fcy; bool onAlly = false; float td2 = d2;
+    if (allyStands && curDef.failOnAllyDeath) {
+      float adx = marcoX - e.x, ady = marcoY - e.y; float d2a = adx * adx + ady * ady;
+      if (d2a < td2) { tcx = (int)marcoX; tcy = (int)marcoY; td2 = d2a; onAlly = true; }
+    }
     if (e.kind == EK_GUNNER) {
       // Tireur : se rapproche jusqu'a portee de tir, puis fait feu si ligne de vue.
-      if (d2 > (float)(ENEMY_SHOOT_RANGE * ENEMY_SHOOT_RANGE) * 0.5f)
+      if (td2 > (float)(ENEMY_SHOOT_RANGE * ENEMY_SHOOT_RANGE) * 0.5f)
         missionChaseStep(cityMap, CITY_W, CITY_H, e.x, e.y, e.dir, e.tgtx, e.tgty,
-                         ENEMY_SPEED, fcx, fcy, aiRng);
-      if (e.atkTimer == 0 && d2 <= (float)(ENEMY_SHOOT_RANGE * ENEMY_SHOOT_RANGE) &&
-          missionLineOfSight(cityMap, CITY_W, CITY_H, (int)e.x, (int)e.y, fcx, fcy, ENEMY_SHOOT_RANGE)) {
+                         ENEMY_SPEED, tcx, tcy, aiRng);
+      if (e.atkTimer == 0 && td2 <= (float)(ENEMY_SHOOT_RANGE * ENEMY_SHOOT_RANGE) &&
+          missionLineOfSight(cityMap, CITY_W, CITY_H, (int)e.x, (int)e.y, tcx, tcy, ENEMY_SHOOT_RANGE)) {
         e.atkTimer = ENEMY_SHOOT_PERIOD;
         gb.sound.tone(140, 40);
-        fireCopBullet(e.x, e.y, fcx, fcy);          // balle hostile (esquivable)
+        if (onAlly) hurtAlly();                     // tir sur l'allie : touche directe (abstrait)
+        else        fireCopBullet(e.x, e.y, tcx, tcy);  // balle hostile (esquivable) sur le joueur
       }
     } else {
-      // Gros bras : fonce et frappe au contact.
+      // Gros bras : fonce et frappe au contact (le joueur ou l'allie).
       missionChaseStep(cityMap, CITY_W, CITY_H, e.x, e.y, e.dir, e.tgtx, e.tgty,
-                       ENEMY_SPEED, fcx, fcy, aiRng);
-      if (!driving && e.atkTimer == 0 && d2 < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
+                       ENEMY_SPEED, tcx, tcy, aiRng);
+      if ((onAlly || !driving) && e.atkTimer == 0 && td2 < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
         e.atkTimer = ENEMY_MELEE_PERIOD;            // cooldown meme sur un rate (sinon re-tente chaque frame)
-        if (enemyMeleeHits()) { gb.sound.tone(90, 70); hurtPlayer(ENEMY_MELEE_DMG, false); }
-        else gb.sound.tone(55, 40);                 // coup dans le vide
+        if (enemyMeleeHits()) {
+          gb.sound.tone(90, 70);
+          if (onAlly) hurtAlly(); else hurtPlayer(ENEMY_MELEE_DMG, false);
+        } else gb.sound.tone(55, 40);               // coup dans le vide
       }
     }
     if (++e.animTimer >= AI_PED_ANIM) { e.animTimer = 0; e.frame ^= 1; }
@@ -222,6 +247,7 @@ static void buildMissionRuntime(uint8_t m) {
   curDef.reward = src.reward;
   curDef.isStory = src.isStory;
   curDef.failOnCarLoss = src.failOnCarLoss;
+  curDef.failOnAllyDeath = src.failOnAllyDeath;
 }
 
 
@@ -256,6 +282,16 @@ static void enterObjective() {
   // Ennemis scenarises AGRESSIFS (gardes, assaillants) poses des l'activation,
   // de facon deterministe autour du point d'objectif (cf. spawnEnemiesForObjective).
   if (o.enemyCount > 0) spawnEnemiesForObjective(o);
+  // Allie DEFENDU (Tony M8, Sarah M14) : pose stationnaire sur le lieu de defense
+  // des le 1er objectif, et persiste (PV inchanges) sur toutes les vagues.
+  if (curDef.failOnAllyDeath && !allyStands) {
+    int wt, ht;
+    if (aiFindWalkTileNear(o.x, o.y, wt, ht)) { marcoX = (float)(wt * 8 + 4); marcoY = (float)(ht * 8 + 4); }
+    else { marcoX = (float)o.x; marcoY = (float)o.y; }
+    marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
+    allyStands = true; allyDead = false; allyHp = ALLY_HP;
+    allyColor = (curDef.title && strcmp(curDef.title, "Embuscade") == 0) ? SARAH_COLOR : TONY_COLOR;
+  }
   if (o.event == EV_MARCO_JOIN) {
     allyColor = (o.count == 1) ? SARAH_COLOR : MARCO_COLOR;  // count==1 -> Sarah
     marcoWaiting = true;                          // l'allie va apparaitre puis etre pris (TALK ou GOTO)
@@ -309,6 +345,7 @@ static void startMission(uint8_t m) {
   buildMissionRuntime(m);                 // resout les coords POI de la mission
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   marcoEmergeDelay = 0;
+  allyStands = false; allyDead = false; allyHp = 0;   // allie defendu : remis a zero
   mCarActive = false;
   killerChase = false;
   clearEnemies();
@@ -338,6 +375,7 @@ static void failMission(const char *msg) {
   missionRun.active = false;
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   mCarActive = false; carIsMission = false;
+  allyStands = false; allyDead = false;
   killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
   clearEnemies();
   missionFailedTimer = MISSION_FAIL_FRAMES;
@@ -367,6 +405,7 @@ static void killTarget(int px, int py) {
 static void finishMission() {
   const MissionDef &def = curDef;
   marcoWaiting = false; marcoFollow = false; marcoAboard = false; marcoEmergeDelay = 0;
+  allyStands = false; allyDead = false;          // allie defendu : fin de mission
   if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
   addMoney(def.reward);
   missionDoneTimer = MISSION_DONE_FRAMES;
@@ -532,9 +571,15 @@ static void missionProgress() {
   // Vehicule SPECIFIQUE detruit alors qu'on est A PIED (bail + explosion) : la
   // mort au volant est deja geree par startEndSeq -> on ne couvre que !driving.
   s.missionCarLost = carIsMission && carGone && !driving;
+  s.allyDead = allyDead;
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
   if (missionCarLossFail(def, cur, s)) { failMission("La caisse est detruite ! Mission ratee."); return; }
+  if (missionAllyDeathFail(def, s)) {
+    failMission(def.title && strcmp(def.title, "Embuscade") == 0
+                ? "Sarah est morte ! Mission ratee." : "Tony est mort ! Mission ratee.");
+    return;
+  }
   // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
   // de SORTIR et de rejoindre son poste, pour qu'on le voie arriver ("j'arrive !").
   if (cur.type == OBJ_TALK && cur.event == EV_MARCO_JOIN && marcoWaiting) {
@@ -709,7 +754,7 @@ static void drawMissionCar(int camX, int camY) {
 static void drawMarco(int camX, int camY) {
   if (!missionRun.active) return;
   if (marcoWaiting && marcoEmergeDelay > 0) return;   // encore dans l'immeuble (pas encore sorti)
-  if (marcoWaiting || marcoFollow)        // sort du batiment / attend / nous suit
+  if (marcoWaiting || marcoFollow || allyStands)  // sort / attend / suit / allie defendu stationnaire
     blitPed(camX, camY, (int)marcoX, (int)marcoY, marcoDir, marcoFrame, allyColor);
 }
 

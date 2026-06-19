@@ -267,6 +267,20 @@ int main() {
     check("broyage volontaire -> pas de fail", !missionCarLossFail(def, crush, s));
   }
 
+  // --- Echec selectif : PNJ allie REQUIS tue (missionAllyDeathFail) ---
+  {
+    static const Objective objs[] = {
+      { OBJ_BEAT, 0, 0, 0, false, EV_NONE, "Garage", "defends" },
+    };
+    MissionDef def   = { "M8", objs, 1, 350, true, false, true };  // failOnAllyDeath = true
+    MissionDef defNo = { "X",  objs, 1, 100, false, false, false };
+    MissionState s = {}; s.allyDead = true;
+    check("ally mort -> fail (flag on)",        missionAllyDeathFail(def,   s));
+    check("ally mort -> pas de fail (flag off)", !missionAllyDeathFail(defNo, s));
+    MissionState s2 = {}; s2.allyDead = false;
+    check("ally vivant -> pas de fail",         !missionAllyDeathFail(def, s2));
+  }
+
   if (failures == 0) { printf("OK : LOS, fuite, poursuite, objectifs, enchainement, fleche HUD valides\n"); return 0; }
   printf("%d echec(s)\n", failures);
   return 1;

@@ -16,8 +16,12 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   des missions à allié (M1/M4/M13).
 - ✅ **Échec sélectif — véhicule de mission détruit** (`failOnCarLoss` +
   `missionCarLossFail`, testé host ; câblé `missionProgress`). Actif sur **M7**.
-- ⏳ **Échec sélectif — PNJ requis tué** (PV d'allié + ciblage par les ennemis +
-  détection de mort). Pour M8 (Tony), M13/M14 (Sarah).
+- ✅ **Échec sélectif — PNJ requis tué** (`failOnAllyDeath` + `missionAllyDeathFail`,
+  testé host). Allié défendu stationnaire (réutilise l'entité allié) ; les ennemis
+  les plus proches de lui le ciblent, le joueur s'interpose ; sa mort = échec.
+  Actif sur **M8 (Tony, vert)** et **M14 (Sarah, magenta)**. *(M13 escorte : l'allié
+  est aboard en voiture, donc non blessable tant qu'il ne descend pas — couvert par
+  l'ambush en route, à venir avec les scènes scriptées.)*
 - ⏳ **Règle racket — tuer un client coopératif = échec** (M2, M9).
 - ⏳ **Scènes scriptées à destination** (contact qui attend, beat autonome du
   compagnon) — outil le plus lourd, déroulé par mission.

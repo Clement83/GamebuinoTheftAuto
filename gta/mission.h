@@ -209,6 +209,7 @@ struct MissionDef {
   bool isStory;    // mission de trame principale (telephone rouge) ? (false = secondaire)
   bool failOnCarLoss; // vehicule SPECIFIQUE requis : sa destruction echoue la mission
                       //   (ex. caisse des Loups en M7). Hors objectif OBJ_CRUSH (broyage voulu).
+  bool failOnAllyDeath; // PNJ allie REQUIS : sa mort echoue la mission (ex. Tony M8, Sarah M14).
 };
 
 struct MissionRun {
@@ -229,6 +230,7 @@ struct MissionState {
   int      enemiesAlive;  // ennemis scenarises encore debout (objectif a ennemis)
   bool     crushDone;     // la voiture de mission vient d'etre broyee (OBJ_CRUSH)
   bool     missionCarLost;// le vehicule SPECIFIQUE de la mission a ete detruit (hors broyage)
+  bool     allyDead;      // le PNJ allie REQUIS est tombe
 };
 
 // L'objectif o est-il rempli compte tenu de l'etat s ?
@@ -266,6 +268,12 @@ inline bool missionTimedOut(const Objective &o, uint16_t elapsed) {
 inline bool missionCarLossFail(const MissionDef &def, const Objective &cur,
                                const MissionState &s) {
   return def.failOnCarLoss && s.missionCarLost && cur.type != OBJ_CRUSH;
+}
+
+// Invariant d'echec selectif : la mission exige qu'un PNJ allie reste en vie et
+// celui-ci est tombe -> mission ratee.
+inline bool missionAllyDeathFail(const MissionDef &def, const MissionState &s) {
+  return def.failOnAllyDeath && s.allyDead;
 }
 
 // Passe a l'objectif suivant. Renvoie l'evenement scripte de l'objectif qui

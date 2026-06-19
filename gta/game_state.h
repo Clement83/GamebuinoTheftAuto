@@ -774,13 +774,13 @@ static const MissionDef MISSIONS[] = {
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
   { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
   { "Voiture volee",    OBJS_M7, 4, 350, true, true },   // index 21 = M7 (trame ; caisse des Loups = vehicule requis)
-  { "Represailles",     OBJS_M8, 3, 350, true },   // index 22 = M8 (trame)
+  { "Represailles",     OBJS_M8, 3, 350, true, false, true },   // index 22 = M8 (trame ; Tony defendu)
   { "Tournee de Marco", OBJS_M9, 3, 300, true },   // index 23 = M9 (trame)
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
   { "Rico le Loup",     OBJS_M11,3, 450, true },   // index 25 = M11 (trame, boss)
   { "La mallette",      OBJS_M12,3, 350, true },   // index 26 = M12 (trame)
   { "Le temoin",        OBJS_M13,3, 400, true },   // index 27 = M13 (trame, escorte)
-  { "Embuscade",        OBJS_M14,3, 450, true },   // index 28 = M14 (trame)
+  { "Embuscade",        OBJS_M14,3, 450, true, false, true },   // index 28 = M14 (trame ; Sarah defendue)
   { "Les dossiers",     OBJS_M15,3, 500, true },   // index 29 = M15 (trame)
   { "Sabotage",         OBJS_M16,4, 550, true },   // index 30 = M16 (trame)
   { "Bruno",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
@@ -1008,6 +1008,15 @@ static float   marcoX = 0.0f, marcoY = 0.0f;  // position monde quand il suit a 
 static uint8_t marcoDir = DIR_SOUTH;          // orientation du sprite (suivi)
 static uint8_t marcoFrame = 0, marcoAnimTimer = 0;  // anim de marche
 static uint16_t marcoEmergeDelay = 0;           // >0 : Marco encore dans le batiment (a dit "j'arrive", sort apres)
+// --- Allie DEFENDU (missions de defense : Tony M8, Sarah M14). Reutilise
+//     l'entite allie (marcoX/Y/dir/frame) en mode STATIONNAIRE : il reste sur le
+//     lieu, les ennemis les plus proches de lui le prennent pour cible, et le
+//     joueur doit s'interposer. S'il tombe -> echec (failOnAllyDeath).
+static bool    allyStands = false;   // allie stationnaire present sur le lieu
+static bool    allyDead   = false;   // l'allie est tombe -> echec a la prochaine frame (missionProgress)
+static uint8_t allyHp     = 0;       // PV de l'allie defendu
+static const uint8_t ALLY_HP = 5;    // coups encaisses avant de tomber (laisse le temps de s'interposer)
+static const uint16_t TONY_COLOR = 0x07E0;  // vert (Tony, patron du Garage)
 static const float MARCO_FOLLOW_SPEED = 0.55f;  // px/frame (un poil > joueur a pied)
 static const float MARCO_FOLLOW_GAP   = 10.0f;  // px : distance de confort derriere JW
 static const uint16_t MARCO_EMERGE_DELAY = 32;  // frames avant qu'il sorte (laisse lire "j'arrive")

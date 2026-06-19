@@ -26,6 +26,7 @@ static void reviveCommon() {
   if (missionRun.active) {                  // une mission en cours echoue
     missionRun.active = false; target.active = false;
     marcoWaiting = false; marcoFollow = false; marcoAboard = false;
+    allyStands = false; allyDead = false;
     mCarActive = false; carIsMission = false;
     storyMissionActive = false; killerChase = false;
     clearEnemies();
