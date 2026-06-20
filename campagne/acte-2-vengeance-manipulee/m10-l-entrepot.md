@@ -17,8 +17,13 @@
 - **Action joueur** — rejoindre le marqueur aux Quais.
 - **Atteint** — *« Des gardes verrouillent l'entrée. »*
 
-### 2. `OBJ_KILL` → gardes de la porte *(2 × `EK_GUNNER`, `SP_PRESENT`)*
+### 2. `OBJ_KILL` → gardes de la porte *(2 × `EK_GUNNER`, `SP_PRESENT`, `taunt=1`)*
 - **Narration** — *« Force le passage : deux gardes armés à la porte. »*
+- **Face-à-face** — à l'activation de l'objectif (`o.taunt && !driving`), un échange
+  fige le joueur (`startTauntCut`) avant que les 2 gardes ne t'aggro. Répliques
+  keyées par titre « L'entrepot » (`ambushTauntLines`) :
+  - l1 — *« Un garde : personne entre ici. Fais demi-tour, tant que tu peux. »*
+  - l2 — *« L'autre arme son flingue. Trop tard pour causer. »*
 - **Script** — `enemyCount == 2`, aucune cible nommée : KILL rempli quand les 2
   **tireurs** sont à terre (visibles d'emblée).
 - **Action joueur** — neutraliser les 2 tireurs.

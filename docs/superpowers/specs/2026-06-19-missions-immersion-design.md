@@ -19,10 +19,11 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
 - ✅ **Échec sélectif — PNJ requis tué** (`failOnAllyDeath` + `missionAllyDeathFail`,
   testé host). Allié défendu stationnaire (réutilise l'entité allié) ; les ennemis
   les plus proches de lui le ciblent, le joueur s'interpose ; sa mort = échec.
-  Actif sur **M8 (Tony, vert)** et **M14 (Sarah, magenta)**. *(M13 escorte : l'allié
-  est aboard en voiture, donc non blessable tant qu'il ne descend pas — couvert par
-  l'ambush en route, à venir avec les scènes scriptées.)*
-- ⏳ **Règle racket — tuer un client coopératif = échec** (M2, M9).
+  Actif sur **M8 (Tony, vert)** et **M14 (Sarah, magenta)**. *(M13 escorte : Sarah
+  reste compagnon embarqué invulnérable ; l'embuscade en route — livrée depuis —
+  est une montée de tension, pas un fail : le mécanisme d'allié défendu est
+  stationnaire et entrerait en conflit avec une escorte mobile.)*
+- ✅ **Règle racket — tuer un client coopératif = échec** (M2, M9).
 - 🔨 **Scènes scriptées à destination** — système posé : `EV_DELIVERY` +
   entité contact (`sceneNpc*`) + cinématique `CUT_DELIVERY` (le compagnon descend,
   marche vers le contact, dialogue, remonte) + échec si on écrase le contact.
@@ -54,8 +55,22 @@ Livraison incrémentale, chaque pas vérifié (tests host + build firmware + `.b
   et l'adieu de Marco fonctionnent désormais **à pied comme en voiture**
   (`sceneHomeX/Y` = voiture si au volant, sinon joueur).
 
+- ✅ **Passe d'enrichissement (cohérence + GOTO entre objectifs)** : `MAX_OBJS`
+  porté **8 → 10** (M2 à 9 objectifs était tronqué) ; nouveau flag d'objectif
+  **`taunt`** + `ambushTauntLines` (face-à-face hors boss, keyé par titre) ;
+  **face-à-face** sur **M2, M3, M6, M10, M14, M15** ; **M3** repris au modèle
+  compagnon (va chercher/redépose Marco) ; **M2** corrigé (récalcitrant déplacé
+  Commerces→Les Bureaux pour ne plus partager le POI du client coopératif, GOTO
+  Chantier ajouté, Chinatown retiré) ; **M13** : embuscade en route (waypoint
+  Chinatown + KILL) sur une escorte jusque-là sans danger ; **beats de ramassage
+  scriptés** (mallette M12, dossiers M15) ; **chauffe police scénarisée**
+  `applyMissionScriptFx`/`scriptForceWanted` (témoin → flics M6, alarme M16) ;
+  flavor M5 (copains de comptoir).
+
 **Tous les items de la spec sont implémentés** (build OK, host tests verts).
-Reste : **validation sur device** (timings de cutscene, équilibrage).
+Reste : **validation sur device** (timings de cutscene, équilibrage — notamment
+la chauffe M16 face au `failOnCarLoss`, et les GOTO de ramassage M12/M15 qui
+peuvent se valider quasi-instantanément si on finit le combat sur le point).
 
 ## Boîte à outils transverse
 

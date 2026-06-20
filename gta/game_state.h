@@ -568,30 +568,46 @@ static const Objective OBJS_M2[] = {
   { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Commerces",
     "Premier client : les Commerces. Regarde Marco faire.",
     "Marco : tu vois ? Facile. ...Le suivant, lui, fait le difficile." },
-  { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE,       "Commerces",
-    "Ce commercant-la refuse et te saute dessus. Mate-le, mais le tue pas.",
+  { OBJ_GOTO,   0, 0, 14, false, EV_NONE,       "Les Bureaux",
+    "Le difficile tient un bureau aux Bureaux. Rejoins-le avec Marco.", nullptr },
+  { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE,       "Les Bureaux",
+    "Ce gerant-la refuse et te saute dessus. Mate-le, mais le tue pas.",
     "Il crache l'argent. Marco : voila comment on fait.", 3, 0 },
-  { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Chinatown",
-    "Client suivant : une echoppe de Chinatown.", "Encaisse. Sans histoire, celui-la." },
   { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Le Bar",
     "Encore un : le vieux du Bar paie toujours rubis sur l'ongle.",
     "Le vieux paie et t'offre un verre. Ca requinque : pleine forme !" },
+  { OBJ_GOTO,   0, 0, 14, false, EV_NONE,       "Chantier",
+    "Dernier client, au Chantier. Marco : celui-la... je le sens pas. Avance, doucement.",
+    nullptr },
   { OBJ_BEAT,   0, 0,  0, false, EV_NONE,       "Chantier",
-    "Dernier client, au Chantier. Marco : celui-la, je le sens pas... Embuscade !",
-    "Marco : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_AMBUSH },
+    "Un type t'attend, plante entre deux gros bras.",
+    "Marco : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_PRESENT, 1 },
   { OBJ_GOTO,   0, 0, 14, false, EV_MARCO_LEAVE,"Le Garage",
     "Tournee finie. Ramene Marco au Garage.", nullptr },
 };
+// M3 : Marco veut faire un exemple d'un mauvais payeur. Comme M1/M2 (Acte I), on
+// va CHERCHER Marco au Garage (TALK -> il suit a pied, en retrait), confrontation
+// a Chinatown (le payeur et ses gros bras : scene de face-a-face, cf.
+// ambushTauntLines), on ecarte les hommes, le payeur detale, on l'acheve, puis on
+// RAMENE Marco (EV_MARCO_LEAVE). Marco invulnerable (pas de failOnAllyDeath).
 static const Objective OBJS_M3[] = {
-  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chinatown",
-    "Un mauvais payeur se planque a Chinatown. Marco veut un exemple.",
-    "Il a paye des gros bras pour te recevoir." },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chinatown",
+  { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Garage",
+    "Un mauvais payeur fait le mort. Marco veut un exemple. Va le chercher au Garage.",
+    nullptr },
+  { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN, "Le Garage",
+    "Marco : deux secondes petit, j'arrive !",
+    "Marco : ce gars-la rit de nous depuis trop longtemps. Suis-moi." },
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE,       "Chinatown",
+    "Le payeur se planque a Chinatown, entoure de ses gros bras. Approche.",
+    nullptr },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE,       "Chinatown",
     "Ecarte ses hommes de main.", "La voie est libre. Reste le payeur.",
-    0, 0, 2, EK_THUG, SP_PRESENT },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
+    0, 0, 2, EK_THUG, SP_PRESENT, 1 },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE,       "Chinatown",
     "Il detale ! Rattrape-le.",
     "Dette reglee. Marco : il s'en souviendra... s'il s'en souvient encore.", 1, 0 },
+  { OBJ_GOTO, 0, 0, 14, false, EV_MARCO_LEAVE,"Le Garage",
+    "C'est fait. Ramene Marco au Garage.", nullptr },
 };
 // --- Trame Acte II : la vengeance manipulee (les Loups) ---
 static const Objective OBJS_M5[] = {
@@ -599,8 +615,8 @@ static const Objective OBJS_M5[] = {
     "Inconnu : tu veux savoir pour Marco ? Trouve Nico. Il traine au Bar.",
     nullptr },
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Le Bar",
-    "Nico fait le malin et te bouscule. Secoue-le, sans le tuer : il parlera.",
-    "Nico : les Loups cherchent un type depuis des semaines... c'est eux, surement.",
+    "Nico crane devant ses deux copains de comptoir et te bouscule. Secoue-le, sans le tuer.",
+    "Ses copains se sont debines. Nico : les Loups cherchent un type depuis des semaines... c'est eux.",
     3, 0 },
 };
 static const Objective OBJS_M6[] = {
@@ -610,7 +626,7 @@ static const Objective OBJS_M6[] = {
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chinatown",
     "Mets trois Loups au tapis. Qu'ils comprennent.",
     "Ca devrait attirer leur attention. Inconnu : bien joue.",
-    0, 0, 3, EK_THUG, SP_PRESENT },
+    0, 0, 3, EK_THUG, SP_PRESENT, 1 },
 };
 static const Objective OBJS_M7[] = {
   { OBJ_GOTO,      0, 0, 18, false, EV_NONE, "Les Quais",
@@ -653,7 +669,7 @@ static const Objective OBJS_M10[] = {
     "Des gardes verrouillent l'entree." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Quais",
     "Force le passage : deux gardes armes a la porte.", "Entree degagee.",
-    0, 0, 2, EK_GUNNER, SP_PRESENT },
+    0, 0, 2, EK_GUNNER, SP_PRESENT, 1 },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Quais",
     "Nettoie l'entrepot. Que personne ne ressorte.",
     "Le patron des Loups va nous tuer pour ca... tant pis.", 0, 0, 3, EK_THUG, SP_AMBUSH },
@@ -678,7 +694,11 @@ static const Objective OBJS_M12[] = {
     "Un homme mort, une mallette pres du corps. Mais tu n'es pas seul..." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
     "Des nettoyeurs viennent pour la mallette. Prends-les de vitesse.",
-    "Ramasse la mallette et file.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
+    "Les nettoyeurs sont a terre. La mallette est restee pres du corps.",
+    0, 0, 2, EK_GUNNER, SP_AMBUSH },
+  { OBJ_GOTO, 0, 0, 10, false, EV_NONE, "Chinatown",
+    "Marche jusqu'au corps et empoigne la mallette.",
+    "Tu empoignes la mallette. Maintenant, file a la Planque." },
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Planque",
     "Rapporte la mallette a la Planque.",
     "Sarah : c'est bien ce que je craignais. Il faut qu'on se voie." },
@@ -691,8 +711,15 @@ static const Objective OBJS_M13[] = {
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Bar",
     "Sarah : Victor a peur, il efface les preuves. Sors-moi d'ici.",
     "Sarah monte. Direction la planque, et vite.", 1, 0 },
+  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Chinatown",
+    "Prends une caisse et file vers la planque en passant par Chinatown.",
+    "Une berline pile en travers de la route. Embuscade !" },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE,        "Chinatown",
+    "Les hommes de Victor ont repere Sarah ! Ecarte-les.",
+    "La voie est libre. Sarah, tassee sur le siege : roule, roule !",
+    0, 0, 2, EK_GUNNER, SP_AMBUSH },
   { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Planque",
-    "Conduis Sarah a la planque. Reste sur tes gardes.",
+    "Reprends la route vers la planque, vite !",
     "Sarah est a l'abri. Pour l'instant." },
 };
 static const Objective OBJS_M14[] = {
@@ -701,7 +728,7 @@ static const Objective OBJS_M14[] = {
     "Les hommes de Victor encerclent la planque." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
     "Defends Sarah : premiere vague !", "Ils refluent... non, d'autres arrivent !",
-    0, 0, 3, EK_THUG, SP_PRESENT },
+    0, 0, 3, EK_THUG, SP_PRESENT, 1 },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
     "Des tireurs, cette fois. Tiens bon !",
     "Sarah : je sais ou il garde les dossiers. Ses Bureaux.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
@@ -711,8 +738,10 @@ static const Objective OBJS_M15[] = {
     "Les Bureaux de Victor. Les preuves sont a l'interieur. Entre.",
     "Des gardes patrouillent le hall." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Bureaux",
-    "Neutralise les gardes du hall.", "Tu tiens les dossiers. Maintenant, sors.",
-    0, 0, 2, EK_GUNNER, SP_PRESENT },
+    "Neutralise les gardes du hall.", "Hall degage. Les dossiers sont dans le coffre.",
+    0, 0, 2, EK_GUNNER, SP_PRESENT, 1 },
+  { OBJ_GOTO, 0, 0, 10, false, EV_NONE, "Les Bureaux",
+    "Rafle les dossiers de Victor.", "Tu rafles les dossiers. Maintenant, sors." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Bureaux",
     "Des renforts te coupent la sortie. Force le passage.",
     "Sarah : 'Victor a ordonne l'assassinat de Marco.' On le tient.",
@@ -778,8 +807,8 @@ static const MissionDef MISSIONS[] = {
   // (cf. campagne.md, mission M4).
   { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
   { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
-  { "Les assurances",   OBJS_M2, 8, 150, true },   // index 17 = M2 (trame ; Marco compagnon a pied)
-  { "Mauvaise dette",   OBJS_M3, 3, 180, true },   // index 18 = M3 (trame)
+  { "Les assurances",   OBJS_M2, 9, 150, true },   // index 17 = M2 (trame ; Marco compagnon a pied)
+  { "Mauvaise dette",   OBJS_M3, 6, 180, true },   // index 18 = M3 (trame ; Marco compagnon a pied)
   { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
   { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
   { "Voiture volee",    OBJS_M7, 4, 350, true, true },   // index 21 = M7 (trame ; caisse des Loups = vehicule requis)
@@ -787,10 +816,10 @@ static const MissionDef MISSIONS[] = {
   { "Tournee de Marco", OBJS_M9, 3, 300, true },   // index 23 = M9 (trame)
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
   { "Rico le Loup",     OBJS_M11,3, 450, true },   // index 25 = M11 (trame, boss)
-  { "La mallette",      OBJS_M12,3, 350, true },   // index 26 = M12 (trame)
-  { "Le temoin",        OBJS_M13,3, 400, true },   // index 27 = M13 (trame, escorte)
+  { "La mallette",      OBJS_M12,4, 350, true },   // index 26 = M12 (trame ; ramassage mallette scripte)
+  { "Le temoin",        OBJS_M13,5, 400, true },   // index 27 = M13 (trame, escorte + embuscade en route)
   { "Embuscade",        OBJS_M14,3, 450, true, false, true },   // index 28 = M14 (trame ; Sarah defendue)
-  { "Les dossiers",     OBJS_M15,3, 500, true },   // index 29 = M15 (trame)
+  { "Les dossiers",     OBJS_M15,4, 500, true },   // index 29 = M15 (trame ; ramassage dossiers scripte)
   { "Sabotage",         OBJS_M16,4, 550, true, true },   // index 30 = M16 (caisses de luxe = vehicules requis)
   { "Bruno",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
   { "Le dernier appel", OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
@@ -927,7 +956,7 @@ static bool    menuConfirmDelete = false; // B presse une fois : confirme l'effa
 // Copie runtime des objectifs de la mission active : les coords des objectifs
 // references par un POI (champ `poi`) sont resolues ici au lancement, car la
 // carte (donc les POI) change a chaque regeneration. curDef pointe sur curObjs.
-static const int MAX_OBJS = 8;
+static const int MAX_OBJS = 10;
 static Objective curObjs[MAX_OBJS];
 static MissionDef curDef = { "", curObjs, 0 };
 
@@ -1008,7 +1037,7 @@ static const float ENEMY_SPEED        = 0.45f;// px/frame (un poil < joueur a pi
 static const int   ENEMY_MELEE_DIST   = 8;    // px : portee du coup au corps-a-corps
 static const uint16_t ENEMY_MELEE_PERIOD = 26;// frames entre deux coups (~1 s)
 static const int   ENEMY_MELEE_DMG    = 1;    // coeurs perdus par coup
-static const uint8_t ENEMY_MELEE_MISS_PCT = 50;// % de coups au corps-a-corps qui ratent (cogne dans le vide)
+static const uint8_t ENEMY_MELEE_MISS_PCT = 90;// % de coups au corps-a-corps qui ratent (cogne dans le vide) -> 10% touchent
 static const int   ENEMY_SHOOT_RANGE  = 50;   // px : portee de tir (gunner)
 static const uint16_t ENEMY_SHOOT_PERIOD = 42;// frames entre deux tirs
 static const uint8_t ENEMY_HP_THUG    = 3;    // 3 coups de poing pour un gros bras

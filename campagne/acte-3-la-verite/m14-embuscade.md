@@ -22,8 +22,13 @@
 - **Action joueur** — rejoindre le marqueur à la Planque.
 - **Atteint** — *« Les hommes de Victor encerclent la planque. »*
 
-### 2. `OBJ_BEAT` → 1re vague *(3 × `EK_THUG`, `SP_PRESENT`)*
+### 2. `OBJ_BEAT` → 1re vague *(3 × `EK_THUG`, `SP_PRESENT`, `taunt = 1`)*
 - **Narration** — *« Défends Sarah : première vague ! »*
+- **Face-à-face** — à l'activation (`taunt = 1`, joueur à pied),
+  `enterObjective` appelle `ambushTauntLines` (keyé par le titre *« Embuscade »*)
+  puis `startTauntCut` : le joueur est figé le temps de deux répliques —
+  *« Un homme de Victor : la journaliste est la ! On la veut vivante. »* /
+  *« Sarah : ils sont partout ! Ne les laisse pas approcher ! »*, puis l'assaut.
 - **Script** — 3 gros bras visibles d'emblée, qui foncent.
 - **Complétion** — `enemiesAlive == 0`.
 - **Atteint** — *« Ils refluent... non, d'autres arrivent ! »*
@@ -31,6 +36,8 @@
 ### 3. `OBJ_BEAT` → 2e vague *(2 × `EK_GUNNER`, `SP_AMBUSH`)*
 - **Narration** — *« Des tireurs, cette fois. Tiens bon ! »*
 - **Script** — 2 **tireurs** passifs jusqu'à l'approche, puis tirent.
+- **Pas de face-à-face** — pas de flag `taunt` sur cette vague (le flag ne cible
+  qu'**une** rencontre) : l'assaut reprend sans nouvelle scène figée.
 - **Complétion** — `enemiesAlive == 0`.
 - **Atteint** — *« Sarah : je sais où il garde les dossiers. Ses Bureaux. »*
 

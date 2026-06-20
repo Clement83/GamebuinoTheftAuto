@@ -4,12 +4,13 @@
 
 > Script fidèle à l'implémentation (`OBJS_M12`, `game_state.h`). La « mallette »
 > est **purement narrative** : pas d'objet à ramasser au sol (pas de
-> `OBJ_PICKUP` dans le moteur). On la « récupère » en survivant au combat puis en
-> quittant la zone.
+> `OBJ_PICKUP` dans le moteur). On la « récupère » via un **beat de ramassage
+> scripté** — un `OBJ_GOTO` court (rayon 10) jusqu'au corps, après le combat.
 
 - **Entrée** — `MISSIONS[26]`, `STORY_SEQ[11]`. `isStory`.
 - **Déclencheur** — téléphone **rouge** à la Planque (`campaignStep == 11`).
 - **Prime** — **350 $**.
+- **Objectifs** — **4**.
 - **Échec** — aucun.
 
 ## Objectifs (séquence moteur)
@@ -28,9 +29,16 @@
   **passifs** jusqu'à l'approche, puis tirent. KILL rempli quand tous à terre.
 - **Action joueur** — neutraliser les 2 tireurs.
 - **Complétion** — `enemiesAlive == 0`.
-- **Atteint** — *« Ramasse la mallette et file. »*
+- **Atteint** — *« Les nettoyeurs sont a terre. La mallette est restee près du
+  corps. »*
 
-### 3. `OBJ_GOTO` → Planque *(rayon 14)*
+### 3. `OBJ_GOTO` → Chinatown *(rayon 10)* — ramassage de la mallette
+- **Narration** — *« Marche jusqu'au corps et empoigne la mallette. »*
+- **Action joueur** — revenir au corps (marqueur Chinatown, rayon serré) pour
+  empoigner la mallette.
+- **Atteint** — *« Tu empoignes la mallette. Maintenant, file à la Planque. »*
+
+### 4. `OBJ_GOTO` → Planque *(rayon 14)*
 - **Narration** — *« Rapporte la mallette à la Planque. »*
 - **Action joueur** — rejoindre le marqueur à la Planque.
 - **Atteint** — *« Sarah : c'est bien ce que je craignais. Il faut qu'on se

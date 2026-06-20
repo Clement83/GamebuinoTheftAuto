@@ -201,6 +201,11 @@ struct Objective {
                        //   (les passants ne comptent JAMAIS). 0 = ancien comportement.
   uint8_t enemyKind;   // EnemyKind du groupe (EK_THUG par defaut)
   uint8_t spawnMode;   // SpawnMode : SP_PRESENT (defaut) ou SP_AMBUSH
+  // Face-a-face scenarise : si !=0, l'activation de cet objectif joue un bref
+  // taunt (deux repliques, joueur fige) avant la baston (cf. ambushTauntLines,
+  // keye par titre de mission). Permet de ne taunter QU'UNE rencontre par mission
+  // (les vagues suivantes n'en rejouent pas). Init agregat -> 0 = pas de taunt.
+  uint8_t taunt;
 };
 
 struct MissionDef {

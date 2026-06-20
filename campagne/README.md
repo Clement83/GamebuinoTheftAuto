@@ -86,21 +86,27 @@ Une mission = un tableau d'`Objective` enchaînés (`mission.h`). Types existant
 **Ennemis scénarisés** : `EK_THUG` (gros bras, fonce et cogne) ou `EK_GUNNER`
 (tireur). Mode `SP_PRESENT` (visibles d'emblée) ou `SP_AMBUSH` (passifs jusqu'à
 l'approche). Posés en anneau déterministe (`spawnEnemiesForObjective`), max
-`MAX_ENEMIES == 4`. `MAX_OBJS == 8` objectifs par mission.
+`MAX_ENEMIES == 4`. `MAX_OBJS == 10` objectifs par mission.
 
 **Événements & cinématiques** (`EV_*` / `CUT_*`, joueur figé) :
-- `EV_MARCO_JOIN` — un allié émerge puis monte passager. `count==1` → l'allié est
-  **Sarah** (magenta) au lieu de Marco (cyan). Utilisé en **M1, M4, M13**.
+- `EV_MARCO_JOIN` — un allié émerge puis te suit (à pied) ou monte passager.
+  `count==1` → l'allié est **Sarah** (magenta) au lieu de Marco (cyan). Utilisé en
+  **M1, M2, M3, M4, M13**.
 - `EV_MARCO_DIE` — `CUT_MARCO_DEATH` : Marco descend, parle au tueur, se fait
   abattre ; le tueur prend la fuite (à rattraper). **M4 uniquement.**
 - `EV_MARCO_LEAVE` — `CUT_MARCO_LEAVE` : Marco descend, remercie, rentre chez lui,
-  clôt la mission. **M1 uniquement.**
-- `CUT_TAUNT` — bref face-à-face de boss (deux répliques) avant la baston, pour
-  **Rico (M11)**, **Bruno (M17)**, **Victor (M18)** (`bossTauntLines`).
+  clôt la mission (variante à pied ou en voiture). **M1, M2, M3** (règle compagnon).
+- `CUT_TAUNT` — bref face-à-face (deux répliques, joueur figé) avant la baston.
+  Deux sources : **boss** via `bossTauntLines` (**Rico M11**, **Bruno M17**,
+  **Victor M18**) ; **embuscades scénarisées** via le flag d'objectif `taunt` +
+  `ambushTauntLines` keyé par titre (**M2, M3, M6, M10, M14, M15**).
 
-**Échec** : seule **M4** peut échouer dans la trame (le tueur en fuite sort des
-limites du monde). Les chronos `limit` existent pour les missions secondaires
-(Taxi, Course…) mais aucune mission de trame n'en pose.
+**Échec** (sélectif, seulement quand le scénario le justifie) : **M4** (le tueur
+en fuite sort du monde) ; **véhicule requis détruit** `failOnCarLoss` (**M7**,
+**M16**) ; **allié requis tué** `failOnAllyDeath` (**M8** Tony, **M14** Sarah) ;
+**client de racket tué** `sceneNpcDead` (**M2**, **M9**). Les chronos `limit`
+existent pour les missions secondaires (Taxi, Course…) mais aucune mission de
+trame n'en pose.
 
 **Économie** : prime `reward` créditée à la complétion (`finishMission`), de
 **120 $** (M1) à **800 $** (M18).
@@ -114,14 +120,14 @@ Ancrés par nom de POI (`findPoi`), résolus en coords au lancement.
 | POI | Rôle | Missions |
 |---|---|---|
 | **Planque** | base du joueur, **téléphone rouge** | toutes |
-| **Le Garage** | Marco puis Tony | M1, M4, M8 |
+| **Le Garage** | Marco (on l'y prend/redépose) puis Tony | M1, M2, M3, M4, M8 |
 | **Les Commerces** | tournée / racket | M2, M9 |
-| **Le Bar** | Nico (M5), Sarah (M13), le vieux | M5, M13 |
-| **Chinatown** | quartier des Loups, parking de la mallette | M3, M6, M12, M16 |
+| **Les Bureaux** | bureau du récalcitrant (M2), dossiers de Victor | M2, M15 |
+| **Le Bar** | tournée (M2), Nico (M5), Sarah (M13), le vieux | M2, M5, M9, M13 |
+| **Chinatown** | Loups, mallette, embuscade de l'escorte | M3, M6, M12, M13, M16 |
 | **Les Quais** | docks, caisse des Loups, entrepôt | M7, M10 |
 | **Le Chantier** | mort de Marco, repaire de Rico | M4, M11 |
 | **Commissariat** | planque arrière | M7 |
-| **Les Bureaux** | bureaux de Victor (dossiers) | M15 |
 | **Le Casino** | repaire final de Victor | M16, M18 |
 | **La Casse** | broyeur (sabotage), repaire de Bruno | M16, M17 |
 

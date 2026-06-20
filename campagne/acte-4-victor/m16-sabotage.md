@@ -14,6 +14,16 @@
   caisse est détruite ! »*). Le **broyage volontaire** ne déclenche rien : il pose
   `crushDone` et efface `carIsMission` (cf. `missionCarLossFail`, `mission.h`).
   Exploser **au volant** te tue (échec par la séquence MORT).
+- **Alarme (montée de tension voulue)** — à la complétion de **chaque**
+  `OBJ_ENTER_CAR`, `applyMissionScriptFx` (`mod_mission.h`, clé titre
+  `"Sabotage"`) déclenche l'alarme de la caisse : niveau de recherche police
+  forcé à **2 étoiles** (`scriptForceWanted(2)`, niveau modéré pour rester
+  jouable) + narration *« Alarme ! File a la Casse avant qu'ils ne t'arretent. »*
+  La chauffe pousse à rejoindre vite le broyeur.
+  **Risque / équilibrage à surveiller** : la caisse de luxe reste un **véhicule
+  requis** (`failOnCarLoss`) ; si la police la détruit **avant le broyeur** →
+  **MISSION RATÉE**. Le réglage est tenu **modéré** car le trajet jusqu'à La
+  Casse est court.
 
 ## Objectifs (séquence moteur)
 
@@ -22,7 +32,9 @@
   de luxe, à Chinatown. »*
 - **Script** — `mCar` posée aux coords de Chinatown.
 - **Action joueur** — aller à pied jusqu'à la caisse et **monter dedans**.
-- **Complétion** — `inMissionCar`.
+- **Complétion** — `inMissionCar`. Déclenche l'**alarme** : recherche police → **2
+  étoiles** (`scriptForceWanted(2)`), *« Alarme ! File a la Casse avant qu'ils ne
+  t'arretent. »*
 
 ### 2. `OBJ_CRUSH` → La Casse *(`requireCar`, rayon 14)*
 - **Narration** — *« Amène-la à la Casse. Descends près de la grue et fais-la
@@ -37,7 +49,9 @@
 - **Narration** — *« Encore une, garée devant le Casino. »*
 - **Script** — `mCar` posée aux coords du Casino.
 - **Action joueur** — monter dans la seconde voiture de luxe.
-- **Complétion** — `inMissionCar`.
+- **Complétion** — `inMissionCar`. Re-déclenche l'**alarme** : recherche police →
+  **2 étoiles** (`scriptForceWanted(2)`), *« Alarme ! File a la Casse avant qu'ils
+  ne t'arretent. »*
 
 ### 4. `OBJ_CRUSH` → La Casse *(`requireCar`, rayon 14)*
 - **Narration** — *« Rebelote : au broyeur, et reste près de la grue jusqu'au

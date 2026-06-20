@@ -271,6 +271,39 @@ static bool bossTauntLines(const char *title, const char *&l1, const char *&l2) 
 }
 
 
+// Repliques de face-a-face avant une EMBUSCADE scenarisee (objectif BEAT a pied),
+// keyees par titre de mission. Vrai si la mission a une scene d'embuscade : un type
+// t'attend avec ses gros bras, deux repliques, puis ils chargent (cf. enterObjective).
+static bool ambushTauntLines(const char *title, const char *&l1, const char *&l2) {
+  if (!title) return false;
+  if (strcmp(title, "Les assurances") == 0) {
+    l1 = "Le type : Marco t'envoie au charbon, hein ? Mauvaise pioche, petit.";
+    l2 = "Marco : c'est un piege ! Sors les poings, vite !"; return true;
+  }
+  if (strcmp(title, "Mauvaise dette") == 0) {
+    l1 = "Marco : tu sais pourquoi on est la. Paie tes dettes.";
+    l2 = "Le payeur : ...Bossez-le, les gars !"; return true;
+  }
+  if (strcmp(title, "Message aux Loups") == 0) {
+    l1 = "Un Loup, craneur : t'es perdu, l'ami ? C'est pas ton quartier.";
+    l2 = "Un autre : regarde-le... il va comprendre. Chopez-le !"; return true;
+  }
+  if (strcmp(title, "L'entrepot") == 0) {
+    l1 = "Un garde : personne entre ici. Fais demi-tour, tant que tu peux.";
+    l2 = "L'autre arme son flingue. Trop tard pour causer."; return true;
+  }
+  if (strcmp(title, "Embuscade") == 0) {
+    l1 = "Un homme de Victor : la journaliste est la ! On la veut vivante.";
+    l2 = "Sarah : ils sont partout ! Ne les laisse pas approcher !"; return true;
+  }
+  if (strcmp(title, "Les dossiers") == 0) {
+    l1 = "Un garde : t'as rien a faire dans les Bureaux de M. Victor.";
+    l2 = "Il degaine. Les autres rappliquent."; return true;
+  }
+  return false;
+}
+
+
 // Active l'objectif courant : narration + spawn des entites necessaires.
 static void enterObjective() {
   const MissionDef &def = curDef;
@@ -286,6 +319,13 @@ static void enterObjective() {
   // Ennemis scenarises AGRESSIFS (gardes, assaillants) poses des l'activation,
   // de facon deterministe autour du point d'objectif (cf. spawnEnemiesForObjective).
   if (o.enemyCount > 0) spawnEnemiesForObjective(o);
+  // Face-a-face scenarise A PIED (flag o.taunt) : le type t'attend avec ses gros
+  // bras. Joueur fige le temps de deux repliques, puis les ennemis deja poses
+  // chargent. Keye par titre (cf. ambushTauntLines) ; le flag cible UNE rencontre.
+  if (o.taunt && o.enemyCount > 0 && !driving) {
+    const char *l1, *l2;
+    if (ambushTauntLines(curDef.title, l1, l2)) startTauntCut(l1, l2);
+  }
   // Allie DEFENDU (Tony M8, Sarah M14) : pose stationnaire sur le lieu de defense
   // des le 1er objectif, et persiste (PV inchanges) sur toutes les vagues.
   if (curDef.failOnAllyDeath && !allyStands) {
@@ -716,6 +756,32 @@ static void cutsceneUpdate() {
 }
 
 
+// Effets systeme scenarises a la COMPLETION d'un objectif (chauffe police /
+// alarme), keyes par titre de mission. Renforcent les boucles de jeu (recherche
+// police -> Pay'n'Spray / fuite). Niveau MODERE (2 etoiles) pour rester jouable.
+static void scriptForceWanted(uint8_t lvl) {
+  if (wanted.level < lvl) wanted.level = lvl;
+  wanted.decayTimer = WANTED_DECAY_FRAMES;       // pleine duree de vie de l'etoile
+}
+static void applyMissionScriptFx(const Objective &done, const char *title) {
+  if (!title) return;
+  // M6 : tabasser trois Loups en pleine rue -> un temoin alerte la police.
+  // (la baston est le dernier objectif : la chauffe se vit en roue libre apres,
+  //  sans risque d'echec de mission -> premiere lecon recherche/repeinture.)
+  if (strcmp(title, "Message aux Loups") == 0 && done.type == OBJ_BEAT) {
+    scriptForceWanted(2);
+    narrate("Un temoin appelle les flics ! Seme-les ou file au Pay'n'Spray.");
+  }
+  // M16 : voler une caisse de luxe declenche son alarme -> chauffe (les hommes de
+  // Victor / la police). Tension voulue par le design ; reste modere car la caisse
+  // est requise (failOnCarLoss) et le trajet vers la Casse est court.
+  if (strcmp(title, "Sabotage") == 0 && done.type == OBJ_ENTER_CAR) {
+    scriptForceWanted(2);
+    narrate("Alarme ! File a la Casse avant qu'ils ne t'arretent.");
+  }
+}
+
+
 // Teste l'objectif courant ; s'il est rempli, applique l'evenement de
 // transition (Marco monte / meurt) puis active l'objectif suivant, ou termine.
 static void missionProgress() {
@@ -774,6 +840,7 @@ static void missionProgress() {
   uint8_t ev = missionAdvance(missionRun, def);   // step++ (active=false si fini)
   // EV_DELIVERY et death-beat : le doneText est narre PAR la scene (pas tout de suite).
   if (done.doneText && ev != EV_DELIVERY && !bossKill) narrate(done.doneText);  // message "objectif atteint"
+  applyMissionScriptFx(done, def.title);          // effets systeme (chauffe police...) keyes par titre
   if (bossKill) { startBossDownCut(done.doneText); return; }   // fige sur le corps + revelation
   if (ev == EV_DELIVERY) {
     // Scene scriptee a destination. Avec compagnon (marcoAboard) il descend

@@ -18,15 +18,17 @@
 - **Atteint** — *(aucun `doneText` : enchaîne directement sur Nico.)*
 
 ### 2. `OBJ_SUBDUE` → Nico *(count 3)*
-- **Narration** — *« Nico fait le malin et te bouscule. Secoue-le, sans le tuer :
-  il parlera. »*
+- **Narration** — *« Nico crane devant ses deux copains de comptoir et te
+  bouscule. Secoue-le, sans le tuer. »*
 - **Script** — cible nommée posée près du Bar (`T_EMERGE`), sort, **fonce et
   frappe** sans mourir (branche `OBJ_SUBDUE`).
 - **Action joueur** — le **tabasser au poing à pied** (3 coups portés,
   `objSubdue`).
 - **Complétion** — `objSubdue >= 3`.
-- **Atteint** — *« Nico : les Loups cherchent un type depuis des semaines...
-  c'est eux, sûrement. »*
+- **Atteint** — *« Ses copains se sont debines. Nico : les Loups cherchent un
+  type depuis des semaines... c'est eux. »*
+- **Note design** — les deux copains de comptoir ne sont que du flavor : ils se
+  débinent dès que ça chauffe, donc **pas de combat** avec eux.
 
 ## Clôture
 → `finishMission()` : **+200 $**, **MISSION ACCOMPLIE**, `campaignStep → 5`.
