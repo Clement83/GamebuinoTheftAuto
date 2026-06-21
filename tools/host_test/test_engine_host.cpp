@@ -37,24 +37,24 @@ int main() {
   // --- isSolidAt sur la vraie cityMap (water/building solides, herbe/route non) ---
   check_int("solid(-1,0)", isSolidAt(-1, 0), 1);   // hors-bornes
   check_int("solid(0,-1)", isSolidAt(0, -1), 1);
-  check_int("solid(96,0)", isSolidAt(96, 0), 1);
+  check_int("solid(CITY_W,0)", isSolidAt(CITY_W, 0), 1);
   check_int("solid(0,0)", isSolidAt(0, 0), 1);     // water (id 5)
   check_int("solid(2,0)", isSolidAt(2, 0), 1);
-  check_int("solid(47,46)", isSolidAt(47, 46), 0); // spawn, non-solide (route)
+  check_int("solid(31,16)", isSolidAt(31, 16), 0); // route degagee, non-solide
   check_int("solid(0,3)", isSolidAt(0, 3), 1);     // bordure desormais solide (citygen)
 
   // --- tryMove (parite engine.py sur la vraie ville) ---
   check_move(8, 0, 4, 0, 8, 0);        // bloque par water colonne 0..
   check_move(8, 0, 4, 4, 8, 0);
   check_move(0, 0, -4, -4, 0, 0);      // hors-bornes -> bloque
-  check_move(376, 368, 1, 0, 377, 368);// spawn px : libre en x
-  check_move(376, 368, 0, 1, 376, 369);// boite retrecie (inset 1px) : 1px de jeu en y
-  check_move(376, 368, 1, 1, 377, 369);// x et y bougent (clearance des deux cotes)
+  check_move(248, 128, 1, 0, 249, 128);// route degagee : libre en x
+  check_move(248, 128, 0, 1, 248, 129);// boite retrecie (inset 1px) : 1px de jeu en y
+  check_move(248, 128, 1, 1, 249, 129);// x et y bougent (clearance des deux cotes)
 
   // --- voiture : invariants physique arcade ---
   // Place la voiture sur le spawn (non-solide), cap est, plein gaz : avance en +x.
   {
-    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    CarState c = { 31.0f * 8 + 4, 16.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
     float x0 = c.x;
     for (int i = 0; i < 20; i++) carUpdate(c, 1.0f, 0.0f, false, false);
     if (!(c.x > x0 + 5.0f)) { printf("FAIL car accelere : x %.1f -> %.1f\n", x0, c.x); failures++; }
@@ -62,7 +62,7 @@ int main() {
   }
   // Pointe : plein gaz vers l'est (route degagee ~20 tuiles) -> proche CAR_MAX_FWD.
   {
-    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    CarState c = { 31.0f * 8 + 4, 16.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
     for (int i = 0; i < 45; i++) carUpdate(c, 1.0f, 0.0f, false, false);
     if (carBoxHitsSolid(c.x, c.y, CAR_HALF)) { printf("FAIL pointe : touche un mur\n"); failures++; }
     if (!(carForwardSpeed(c) > CAR_MAX_FWD - 0.3f)) {
@@ -70,7 +70,7 @@ int main() {
   }
   // Drift : a vitesse, drift + braquage -> vitesse laterale non nulle.
   {
-    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    CarState c = { 31.0f * 8 + 4, 16.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
     for (int i = 0; i < 15; i++) carUpdate(c, 1.0f, 0.0f, false, false); // lance tout droit
     for (int i = 0; i < 8; i++) carUpdate(c, 0.0f, 1.0f, true, true);    // braque + drift(frein)
     float cs = cosf(c.angle), sn = sinf(c.angle);
@@ -79,7 +79,7 @@ int main() {
   }
   // Frein : a vitesse, freiner reduit la vitesse avant plus vite que la trainee seule.
   {
-    CarState a = { 47.0f * 8 + 4, 46.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
+    CarState a = { 31.0f * 8 + 4, 16.0f * 8 + 4, 0.0f, 0.0f, 0.0f };
     CarState b = a;
     for (int i = 0; i < 15; i++) { carUpdate(a, 1.0f, 0.0f, false, false); carUpdate(b, 1.0f, 0.0f, false, false); }
     carUpdate(a, 0.0f, 0.0f, false, false);   // roue libre (drag seul)
@@ -90,7 +90,7 @@ int main() {
   // Marche arriere : cap ouest, throttle -1 -> recule vers l'est (route degagee),
   // vitesse avant negative et bornee a -CAR_MAX_REV.
   {
-    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
+    CarState c = { 31.0f * 8 + 4, 16.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
     for (int i = 0; i < 30; i++) carUpdate(c, -1.0f, 0.0f, false, false);
     float fwd = carForwardSpeed(c);
     if (!(fwd < -0.3f)) { printf("FAIL pas de marche arriere fwd=%.2f\n", fwd); failures++; }
@@ -99,7 +99,7 @@ int main() {
   // Pivot contre un mur : nez bloque (cap ouest, mur a tx45-46), gaz + braquage
   // -> le cap doit changer (sinon on reste coince sans pouvoir se degager).
   {
-    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
+    CarState c = { 31.0f * 8 + 4, 16.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
     for (int i = 0; i < 10; i++) carUpdate(c, 1.0f, 1.0f, false, false); // se plaque au mur
     float a0 = c.angle;
     for (int i = 0; i < 10; i++) carUpdate(c, 1.0f, 1.0f, false, false); // gaz + braque
@@ -110,7 +110,7 @@ int main() {
   // -> jamais dans une tuile solide (collision bloque/glisse), et a l'impact la
   // composante bloquee est annulee (jamais de rebond vers l'arriere : vx >= 0).
   {
-    CarState c = { 47.0f * 8 + 4, 46.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
+    CarState c = { 31.0f * 8 + 4, 16.0f * 8 + 4, (float)M_PI, 0.0f, 0.0f };
     for (int i = 0; i < 80; i++) {
       carUpdate(c, 1.0f, 0.0f, false, false);
       if (carBoxHitsSolid(c.x, c.y, CAR_HALF)) {

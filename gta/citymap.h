@@ -3,13 +3,13 @@
 #include <stdint.h>
 #include "assets.h"
 
-#define CITY_W 96
-#define CITY_H 96
-#define PLAYER_START_X 90
-#define PLAYER_START_Y 18
+#define CITY_W 150
+#define CITY_H 150
+#define PLAYER_START_X 140
+#define PLAYER_START_Y 142
 #define PLAYER_START_DIR DIR_SOUTH
 
-#define CITY_NUM_POIS 27
+#define CITY_NUM_POIS 37
 
 // Point d'interet : bbox en TUILES (inclus) pour la detection
 // HUD, point-cible (tx,ty) en PX monde pour les missions/fleche.
@@ -32,7 +32,7 @@ extern const CityService citySprays[CITY_NUM_SPRAYS];
 extern const CityService cityAmmus[CITY_NUM_AMMUS];
 
 #define CITY_HAS_CASSE 1
-#define CITY_CASSE_TX 596
-#define CITY_CASSE_TY 132
-#define CITY_CRANE_TX 596
-#define CITY_CRANE_TY 116
+#define CITY_CASSE_TX 1100
+#define CITY_CASSE_TY 924
+#define CITY_CRANE_TX 1100
+#define CITY_CRANE_TY 908
