@@ -604,7 +604,8 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
     """Tamponne l'enceinte de La Casse dans le district junkyard.
 
     Cherche une fenetre de la taille du blueprint, libre de route/eau, dont
-    l'entree (bas-centre) est bordee par une route au sud (acces voiture) ;
+    l'entree (bas-centre) est bordee par un trottoir puis une route au sud
+    (acces voiture, le trottoir n'est pas solide -> ne bloque pas la caisse) ;
     priorite aux fenetres centrees dans le district junkyard puis proches de son
     centroide (deterministe). Ecrit les tuiles sur `grid` et renvoie
     {zone:(tx,ty), crane:(tx,ty), entrance:(tx,ty)} en TUILES, ou None si pas de
@@ -622,6 +623,7 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
     if not roads:
         return None
     water = tile_index.get("water")
+    pavement_id = tile_index.get("pavement")
     erow, ecol = (bh - 1), JUNK_BLUEPRINT[bh - 1].index(".")  # entree (gap du bas)
 
     cells = [i for i in range(w * h) if district_id[i] == jd]
@@ -638,8 +640,13 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
             if any(grid[c] in roads or grid[c] == water for c in block):
                 continue
             ey, ex = y + erow, x + ecol         # case d'entree
-            if ey + 1 >= h or grid[(ey + 1) * w + ex] not in roads:
-                continue                        # route exigee juste au sud
+            if pavement_id is None:
+                if ey + 1 >= h or grid[(ey + 1) * w + ex] not in roads:
+                    continue                    # route exigee juste au sud
+            else:
+                if ey + 2 >= h or grid[(ey + 1) * w + ex] != pavement_id or \
+                        grid[(ey + 2) * w + ex] not in roads:
+                    continue                    # trottoir puis route au sud
             ccx, ccy = x + bw // 2, y + bh // 2
             inj = 0 if district_id[ccy * w + ccx] == jd else 1
             d = (ccx - cx) ** 2 + (ccy - cy) ** 2
@@ -648,6 +655,14 @@ def place_junkyard(grid, district_id, assign, tile_index, w, h, margin=2):
         return None
     cands.sort()                                # district d'abord, puis centroide
     _, _, y, x, block = cands[0]
+    # decalage esthetique d'une case vers la gauche (demande), si la fenetre
+    # decalee reste valide (dans les bornes, sans route/eau).
+    if x - 1 >= margin:
+        shifted = [(y + ry) * w + (x - 1 + rx)
+                   for ry in range(bh) for rx in range(bw)]
+        if not any(grid[c] in roads or grid[c] == water for c in shifted):
+            x -= 1
+            block = shifted
     for ci, c in enumerate(block):
         ry, rx = divmod(ci, bw)
         grid[c] = tile_index[JUNK_TILE_OF[JUNK_BLUEPRINT[ry][rx]]]
@@ -720,6 +735,7 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
                 hard.add(tile_index[t])
     erow = bh - 1
     ecol = CONS_BLUEPRINT[erow].index(".")          # entree (gap du bas)
+    pavement_id = tile_index.get("pavement")
 
     cells = [i for i in range(w * h) if district_id[i] == cd]
     if not cells:
@@ -738,22 +754,36 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
             if overlap == 0:                        # doit toucher le quartier
                 continue
             roadn = sum(1 for c in block if grid[c] in roads)
+            # Qualite de l'entree (best-effort, ne filtre pas) : ideal = trottoir
+            # puis route au sud (comme un batiment ordinaire) ; a defaut, route
+            # directe au sud (ancien comportement) ; sinon, ni l'un ni l'autre.
+            ey, ex = y + erow, x + ecol
+            s1 = grid[(ey + 1) * w + ex] if ey + 1 < h else None
+            s2 = grid[(ey + 2) * w + ex] if ey + 2 < h else None
+            if pavement_id is not None and s1 == pavement_id and s2 in roads:
+                entq = 0
+            elif s1 in roads:
+                entq = 1
+            else:
+                entq = 2
             ccx, ccy = x + bw // 2, y + bh // 2
             d = (ccx - cx) ** 2 + (ccy - cy) ** 2
-            # max recouvrement quartier, puis min route ecrasee, puis central.
-            cands.append((-overlap, roadn, d, y, x, block))
+            # max recouvrement quartier, puis meilleure entree, puis min route
+            # ecrasee, puis central.
+            cands.append((-overlap, entq, roadn, d, y, x, block))
     if not cands:
         return None
     cands.sort()
-    _, _, _, y, x, block = cands[0]
-    # decalage esthetique d'une case vers la gauche (demande), si la fenetre
-    # decalee reste valide (dans les bornes, sans tuile interdite).
-    if x - 1 >= margin:
-        shifted = [(y + ry) * w + (x - 1 + rx)
+    _, _, _, _, y, x, block = cands[0]
+    # decalage esthetique (demande) : 1 case vers le haut, 3 cases vers la
+    # gauche, si la fenetre decalee reste valide (dans les bornes, sans tuile
+    # interdite). Applique en un seul bloc (pas de repli partiel).
+    ny, nx = y - 1, x - 3
+    if ny >= margin and nx >= margin:
+        shifted = [(ny + ry) * w + (nx + rx)
                    for ry in range(bh) for rx in range(bw)]
         if not any(grid[c] in hard for c in shifted):
-            x -= 1
-            block = shifted
+            y, x, block = ny, nx, shifted
     for ci, c in enumerate(block):
         ry, rx = divmod(ci, bw)
         grid[c] = tile_index[CONS_TILE_OF[CONS_BLUEPRINT[ry][rx]]]

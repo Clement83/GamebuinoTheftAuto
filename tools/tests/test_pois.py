@@ -280,15 +280,18 @@ def test_junkyard_compound_fenced_and_has_wrecks():
 
 
 def test_junkyard_entrance_borders_a_road():
-    # l'enceinte a une entree (sol de casse) bordee par une route au sud.
+    # l'enceinte a une entree (sol de casse) bordee par un trottoir puis une
+    # route au sud (acces voiture ; le trottoir n'est pas solide).
     c = _gen()
-    grid, w = c.grid, c.w
+    grid, w, h = c.grid, c.w, c.h
     gap = None
-    for y in range(c.h - 1):
+    for y in range(h - 2):
         for x in range(w):
-            if grid[y * w + x] == TI["junk_ground"] and grid[(y + 1) * w + x] in ROADS:
+            if grid[y * w + x] == TI["junk_ground"] and \
+                    grid[(y + 1) * w + x] == TI["pavement"] and \
+                    grid[(y + 2) * w + x] in ROADS:
                 gap = (x, y)
-    assert gap is not None, "aucune entree de casse bordant une route"
+    assert gap is not None, "aucune entree de casse bordant trottoir+route"
 
 
 def test_junkyard_deterministic():
