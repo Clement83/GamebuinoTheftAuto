@@ -14,6 +14,11 @@ static int findPoi(const char *name);
 static int poiAtTile(int tx, int ty);
 static void updateLights();
 
+// --- bande son (mod_music.h) ---
+static void musicStart();
+static void musicStop();
+static void musicTick();
+
 // --- render ---
 static void drawTile(uint8_t id, int sx, int sy);
 static void blitCar(int camX, int camY, int worldCx, int worldCy, int frameIdx, uint16_t color);

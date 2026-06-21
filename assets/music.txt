@@ -1,0 +1,83 @@
+# Bande son du demake -- une piste par ambiance de quartier, 2 voix (basse + melodie).
+# Le sequenceur (gta/mod_music.h) lit poiAtTile() et bascule de piste selon le POI
+# ou se trouve le joueur (le meme nom qui s'affiche en bas a gauche). Compos
+# *originales* facon GTA -> aucun souci de droits.
+#
+# Genere gta/music_data.cpp via : .venv/bin/python -m tools.build_music
+#
+# Format :
+#   TRACK: nom        -> debute une piste (le bloc TEMPO/BASS/LEAD qui suit la decrit).
+#   TEMPO: N          -> N frames par pas (1 pas = double-croche). 25 fps -> 1 frame = 40 ms.
+#   BASS: ...         -> voix grave. LEAD: ... -> voix aigue. Lignes multiples concatenees.
+#   ZONE: piste = PoiA, PoiB, ...  -> quels quartiers (noms de POI exacts) jouent cette piste.
+#   DEFAULT: piste    -> piste de depart / repli.
+# Tokens de note : C4 A2 D#3 (notation anglaise) ; . = re-pluck (meme note) ; - = silence.
+# Un POI non liste garde la musique courante (pas de coupure sur les routes / petits services).
+
+# ============================ PISTES ============================
+
+# --- DOWNTOWN : banger G-funk lourd, tendu (centre dense) ---
+TRACK: downtown
+TEMPO: 5
+BASS: A1 .  -  A1  -  A1  -  -   A1  -  -  C2  -  D2  -  -
+BASS: E2 .  -  E2  -  D2  -  -   C2  -  C2  -  A1  -  -  -
+LEAD: -  -  -  -  -  -  -  -   A4  -  C5 -  E5 -  D5 -
+LEAD: E5 -  D5 -  C5 -  A4 -   -  -  G4 -  A4 -  -  -
+
+# --- DOCKS : groove mineur un peu pop (Em-C-G-D), 32 pas, melodique mais cool
+#     (quais, casse, chantier, Rockford, garage) ---
+TRACK: docks
+TEMPO: 6
+BASS: E2 -  E2 -  E2 -  B2 -    C2 -  C2 -  C2 -  G2 -
+BASS: G2 -  G2 -  G2 -  D3 -    D2 -  D2 -  D2 -  A2 -
+LEAD: B4 -  D5 -  E5 -  D5 B4   C5 -  E5 -  G5 -  E5 -
+LEAD: D5 -  G5 -  D5 -  B4 -    A4 -  D5 -  F#5 -  D5 -
+
+# --- BEACH : chill ensoleille facon Vice City, basse bondissante (bord de mer) ---
+TRACK: beach
+TEMPO: 6
+BASS: C2 -  G2 -  C2 -  G2 -   A2 -  E2 -  G2 -  G2 -
+LEAD: E4 G4 C5 -  -  G4 E4 -   F4 A4 C5 -  -  G4 -  -
+
+# --- HOOD : funk lowrider syncope, lead qui siffle (ghetto) ---
+TRACK: hood
+TEMPO: 5
+BASS: A1 -  A1 -  -  A1 -  C2   -  D2 -  -  E2 -  D2 -
+LEAD: -  -  A4 -  C5 -  D5 -    E5 -  D5 C5 -  A4 -  -
+
+# --- CASINO : lounge jazzy enjoue, basse marchante (Le Casino) ---
+TRACK: casino
+TEMPO: 5
+BASS: C2 -  E2 -  G2 -  A2 -   F2 -  A2 -  G2 -  E2 -
+LEAD: G4 -  E4 -  C5 -  -  B4   C5 -  G4 -  E4 -  -  -
+
+# --- CHINATOWN : pentatonique orientale (gong : do re mi sol la), aigu et clair ---
+TRACK: chinatown
+TEMPO: 5
+BASS: C2 -  -  G2 -  -  C2 -    A2 -  -  G2 -  -  C2 -
+LEAD: E5 G5 A5 -  G5 E5 D5 -    E5 -  C5 D5 E5 -  -  -
+
+# --- BAR : lounge blues feutre, lent, note bleue (Le Bar) ---
+TRACK: bar
+TEMPO: 6
+BASS: A1 -  -  E2 -  -  A1 -    C2 -  -  E2 -  D2 -  -
+LEAD: -  -  A4 -  C5 D#5 -  C5   -  A4 -  -  E4 -  -  -
+
+# --- AMMUNATION : tendu et martial (joue quand le magasin d'armes est ouvert) ---
+TRACK: ammunation
+TEMPO: 4
+BASS: E2 E2 -  E2 E2 -  E2 -    G2 G2 -  G2 E2 -  D2 -
+LEAD: -  -  -  -  B4 -  -  -    -  -  C5 -  B4 -  -  -
+
+# ========================= MAPPING POI =========================
+# AMMUNATION n'est pas ici : il est declenche par l'etat du menu (shopOpen), pas par un POI.
+
+ZONE: downtown  = Pillbox, St. Mark's, Bedford Pt, Las Colinas, Portland, Garcia, Les Bureaux
+ZONE: docks     = Les Quais, Chantier, La Casse, Rockford, Le Garage
+ZONE: beach     = Vice Point, Ocean Beach, Verona Bch, Bayview, Planque
+ZONE: hood      = Little Haiti, Hashbury, Cedar Grove, Commerces
+ZONE: casino    = Le Casino
+ZONE: chinatown = Chinatown
+ZONE: bar       = Le Bar
+
+DEFAULT: downtown

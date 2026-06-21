@@ -34,6 +34,7 @@
 #include "wanted.h"
 #include "slot.h"
 #include "save.h"
+#include "music.h"
 
 #include "game_state.h"
 #include "game_decls.h"
@@ -47,6 +48,8 @@ void setup() {
   playerDir = PLAYER_START_DIR;
   playerFrame = 0;
   animTimer = 0;
+  gb.sound.setVolume(2);                       // 0-8 (defaut 6) : adoucit la BO (et un poil les SFX)
+  musicStart();                                // boucle de fond chiptune (cf. mod_music.h)
 
   // Pas de voiture de depart : JW commence a pied (il en volera une au besoin).
   // carGone => caisse perso ni dessinee ni "remontable" ; voler une caisse IA
@@ -158,6 +161,7 @@ void setup() {
 void loop() {
   while (!gb.update());
   updateLights();
+  musicTick();                                 // avance la bande son (joue partout, menus compris)
 
   // Ecran de selection de profil au demarrage (modal) : on choisit/charge un
   // des 3 profils avant que le monde ne tourne. Sortie du menu -> jeu normal.
@@ -618,3 +622,4 @@ void loop() {
 #include "mod_hud.h"
 #include "mod_sequence.h"
 #include "mod_save.h"
+#include "mod_music.h"
