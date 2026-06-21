@@ -481,12 +481,14 @@ static void finishMission() {
 static void startMarcoDeathCut() {
   if (seqKind != SEQ_NONE) return;
   seqKind = SEQ_CUT; cutKind = CUT_MARCO_DEATH; cutPhase = 0; cutTimer = 0;
-  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net
+  car.vx = 0.0f; car.vy = 0.0f;                       // la caisse s'arrete net (si au volant)
   marcoAboard = false; marcoWaiting = false; marcoEmergeDelay = 0;
   marcoFollow = true;                                  // pour que drawMarco le dessine
-  int ox, oy;                                          // Marco descend a cote de la caisse
-  if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
-  else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  if (driving) {                                       // descend a cote de la caisse
+    int ox, oy;
+    if (findFootSpot((int)car.x, (int)car.y, ox, oy)) { marcoX = ox + PLAYER_W / 2; marcoY = oy + PLAYER_H / 2; }
+    else { marcoX = car.x; marcoY = car.y + TILE_H; }
+  }                                                    // a pied : on garde marcoX/Y (filature)
   marcoFrame = 0; marcoAnimTimer = 0;
   // Le tueur ("l'autre gars") attend au point de rendez-vous (= coords du KILL).
   const Objective &k = curObjs[missionRun.step];

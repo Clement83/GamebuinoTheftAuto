@@ -440,13 +440,15 @@ static const Objective OBJS_JOE[] = {
     "Beau boulot. Joe parlera plus." },
 };
 // M4 (trame) : reutilise la mecanique Marco passager -> mort -> tueur qui fonce.
+// Comme M1/M2, la caisse est OPTIONNELLE (EV_MARCO_JOIN sans requireCar) : la
+// tournee peut se faire a pied, marcoUpdate() embarque Marco automatiquement
+// si le joueur monte en route.
 static const Objective OBJS_DEAL[] = {
-  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE,       "Le Garage",
-    "Marco : un dernier rendez-vous, ce soir. Prends la caisse au Garage.", nullptr },
-  { OBJ_GOTO,      0, 0, 14, true,  EV_MARCO_JOIN,  "Le Garage",
-    "Passe prendre Marco devant le Garage.", "Marco monte. Marco : direction le Chantier." },
-  { OBJ_GOTO,      0, 0, 16, true,  EV_MARCO_DIE,   "Chantier",
-    "Conduis Marco au Chantier. Il est nerveux ce soir.",
+  { OBJ_GOTO,      0, 0, 14, false, EV_MARCO_JOIN,  "Le Garage",
+    "Marco : un dernier rendez-vous, ce soir. Passe le prendre au Garage.",
+    "Marco : direction le Chantier." },
+  { OBJ_GOTO,      0, 0, 16, false, EV_MARCO_DIE,   "Chantier",
+    "Emmene Marco au Chantier. Il est nerveux ce soir.",
     "Le Chantier. Marco descend, mefiant... une silhouette l'attend dans l'ombre." },
   { OBJ_KILL,      0, 0,  0, false, EV_NONE,        "Chantier",
     "Le tueur fonce sur toi. Pas question de le laisser filer !",
@@ -787,7 +789,7 @@ static const Objective OBJS_M18[] = {
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
   { "Joe",              OBJS_JOE,      1, 150 },
-  { "Le dernier trajet", OBJS_DEAL,    4, 250, true },   // index 1 = M4 (trame)
+  { "Le dernier trajet", OBJS_DEAL,    3, 250, true },   // index 1 = M4 (trame)
   { "Bagarre de rue",   OBJS_FIGHT,    1, 120 },
   { "Vengeance",        OBJS_VENGEANCE,1, 200 },
   { "Nettoyage",        OBJS_CLEAN,    2, 300 },
