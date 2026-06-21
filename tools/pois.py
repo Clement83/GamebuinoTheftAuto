@@ -778,7 +778,7 @@ def place_construction(grid, district_id, assign, tile_index, w, h, margin=2):
     # decalage esthetique (demande) : 1 case vers le haut, 3 cases vers la
     # gauche, si la fenetre decalee reste valide (dans les bornes, sans tuile
     # interdite). Applique en un seul bloc (pas de repli partiel).
-    ny, nx = y - 1, x - 3
+    ny, nx = y, x - 5
     if ny >= margin and nx >= margin:
         shifted = [(ny + ry) * w + (nx + rx)
                    for ry in range(bh) for rx in range(bw)]
