@@ -113,7 +113,9 @@ def _check_stamp(grid, w, pos):
     sign = sum(n[s] for s in SIGNS.values())
     door = sum(n[d] for d in STAMP_DOORS)
     assert sign == 1 and door == 1
-    assert grid[(y + 3) * w + (x + 1)] in {TI["road_h"], TI["road_v"], TI["road_cross"]}
+    # pieton (police/hosp/fire) : trottoir juste sous la porte, route au-dela.
+    assert grid[(y + 3) * w + (x + 1)] == TI["pavement"]
+    assert grid[(y + 4) * w + (x + 1)] in {TI["road_h"], TI["road_v"], TI["road_cross"]}
 
 
 def test_place_stamps_places_all_three_without_overlap():
@@ -122,6 +124,7 @@ def test_place_stamps_places_all_three_without_overlap():
     for ry in (6, 12, 18):                  # routes horizontales -> acces
         for x in range(w):
             grid[ry * w + x] = TI["road_h"]
+            grid[(ry - 1) * w + x] = TI["pavement"]   # trottoir cote nord (cf add_pavement)
     placed = pois.place_stamps(grid, [Z_DOWNTOWN] * (w * h),
                                [0] * (w * h), [Z_DOWNTOWN], 7, w, h, TI)
     assert all(placed[k] is not None for k in ("police", "hospital", "fire"))

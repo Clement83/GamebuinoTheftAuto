@@ -258,13 +258,19 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
     """Tamponne tous les stamps disponibles -> {nom: (x,y) | None}.
 
     Un emplacement valide : parcelle de la taille du blueprint sans route/eau ni
-    chevauchement d'un stamp deja pose, avec une route juste au sud de la porte
-    (acces + orientation). Priorite a la zone privilegiee, puis ordre derive de
-    la graine. Aucune parcelle valide -> None pour ce stamp (skip propre)."""
+    chevauchement d'un stamp deja pose. Orientation de la porte (vers le sud) :
+    - "garage" (porte carrossable, reutilisee pour Pay'n'Spray) garde un acces
+      direct a la route, comme avant.
+    - tous les autres stamps (pietons) exigent un trottoir juste au sud de la
+      porte, avec la route encore au-dela -- comme un batiment de quartier
+      ordinaire, plutot que colle a la chaussee.
+    Priorite a la zone privilegiee, puis ordre derive de la graine. Aucune
+    parcelle valide -> None pour ce stamp (skip propre)."""
     blueprint = STAMP_BLUEPRINT
     sh, sw = len(blueprint), len(blueprint[0])
     drow, dcol = _door_cell(blueprint)
     road_ids = {tile_index["road_h"], tile_index["road_v"], tile_index["road_cross"]}
+    pavement_id = tile_index.get("pavement")
     blocked = road_ids | {tile_index["water"]}
     occupied, placed = set(), {}
     centers = []        # centres (tx,ty) des stamps deja poses (pour dispersion)
@@ -273,6 +279,7 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
         sdef = STAMP_DEFS[name]
         if not all(t in tile_index for t in sdef["tiles"].values()):
             continue
+        on_road = (name == "garage" or pavement_id is None)
         cands = []
         for y in range(margin, h - margin - sh):
             for x in range(margin, w - margin - sw):
@@ -280,9 +287,16 @@ def place_stamps(grid, zones, district_id, seed_type, seed, w, h, tile_index,
                          for ry in range(sh) for rx in range(sw)]
                 if any(grid[c] in blocked or c in occupied for c in cells):
                     continue
-                if y + drow + 1 >= h or \
-                        grid[(y + drow + 1) * w + (x + dcol)] not in road_ids:
+                if y + drow + 1 >= h:
                     continue
+                door_s1 = grid[(y + drow + 1) * w + (x + dcol)]
+                if on_road:
+                    if door_s1 not in road_ids:
+                        continue
+                else:
+                    if door_s1 != pavement_id or y + drow + 2 >= h or \
+                            grid[(y + drow + 2) * w + (x + dcol)] not in road_ids:
+                        continue
                 cx, cy = x + sw // 2, y + sh // 2
                 pref = sdef["prefer"]
                 prio = 0 if (pref is None or seed_type[district_id[cy * w + cx]] == pref) else 1
