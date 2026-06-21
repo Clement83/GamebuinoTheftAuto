@@ -840,22 +840,24 @@ static const uint8_t STORY_LEN = sizeof(STORY_SEQ) / sizeof(STORY_SEQ[0]);
 //     proche (la carte change a chaque regeneration). `mission` = index dans
 //     MISSIONS (meme ordre que ci-dessus). ---
 struct PhoneDef { uint8_t tx, ty; uint8_t mission; };
+// Grille 4x4 (echelle pour carte CITY_W x CITY_H = 150x150 ; marge ~22,
+// pas ~35 -- proportionnelle a l'ancienne grille 96x96, marge 14, pas 22).
 static const PhoneDef PHONES[] = {
-  { 14, 14,  0 },   // Joe
-  { 38, 14, 15 },   // Livraison de pizza (ex-"Mauvaise affaire"/Marco)
-  { 60, 14,  2 },   // Bagarre de rue
-  { 82, 14,  3 },   // Vengeance
-  { 14, 36,  4 },   // Nettoyage
-  { 38, 36,  5 },   // Temoin genant
-  { 60, 36,  6 },   // Taxi clandestin
-  { 82, 36,  7 },   // Course folle
-  { 14, 58,  8 },   // Livraison
-  { 38, 58,  9 },   // Cavale
-  { 60, 58, 10 },   // Recouvrement
-  { 82, 58, 11 },   // Racket
-  { 14, 80, 12 },   // Vol de caisse
-  { 38, 80, 13 },   // Le chauffard
-  { 60, 80, 14 },   // Le livreur perdu
+  { 22, 22,  0 },   // Joe
+  { 59, 22, 15 },   // Livraison de pizza (ex-"Mauvaise affaire"/Marco)
+  { 94, 22,  2 },   // Bagarre de rue
+  { 128, 22,  3 },  // Vengeance
+  { 22, 56,  4 },   // Nettoyage
+  { 59, 56,  5 },   // Temoin genant
+  { 94, 56,  6 },   // Taxi clandestin
+  { 128, 56,  7 },  // Course folle
+  { 22, 91,  8 },   // Livraison
+  { 59, 91,  9 },   // Cavale
+  { 94, 91, 10 },   // Recouvrement
+  { 128, 91, 11 },  // Racket
+  { 22, 125, 12 },  // Vol de caisse
+  { 59, 125, 13 },  // Le chauffard
+  { 94, 125, 14 },  // Le livreur perdu
 };
 static const int NUM_PHONES = sizeof(PHONES) / sizeof(PHONES[0]);
 static int16_t phonePx[NUM_PHONES], phonePy[NUM_PHONES];   // positions monde (px)
