@@ -335,6 +335,30 @@ static const uint16_t PLAYER_CAR_COLOR  = 0xC800;  // rouge (voiture de depart)
 // Couleur de la voiture actuellement pilotee (change si on en vole une autre).
 static uint16_t carColor = PLAYER_CAR_COLOR;
 
+// --- Camions/bus : une seule forme partagee (truckFrames), 5 livrees obtenues
+//     en recolorant 4 cles (corps/cabine/fenetres/echelle) -- cf. build_truck.py.
+//     Le gyrophare reste un overlay anime (drawGyro), pas une couleur bakee.
+enum TruckKind : uint8_t {
+  TRUCK_SCHOOLBUS, TRUCK_BUS, TRUCK_FIRE, TRUCK_AMBULANCE, TRUCK_DUMP, TRUCK_KIND_N
+};
+struct TruckVariant {
+  uint16_t body, cab, window, ladder;  // couleurs de recolorisation des 4 cles
+  bool hasGyro; uint16_t gyroL, gyroR; // gyrophare gauche/droite (anime), ou absent
+};
+static const TruckVariant TRUCK_VARIANTS[TRUCK_KIND_N] = {
+  { 0xFFE0, 0xFFE0, 0x5ADB, 0xFFE0, false, 0, 0 },                 // bus scolaire (jaune, fenetres bleu-gris)
+  { 0x051F, 0x051F, 0x051F, 0x051F, false, 0, 0 },                 // bus de ville (bleu uni)
+  { 0xF800, 0xF800, 0xF800, 0xC618, true,  0xF800, 0xFFE0 },       // pompier (rouge, echelle argent, gyro rouge/jaune)
+  { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, true,  0xF800, 0x001F },       // ambulance (blanc, gyro rouge/bleu)
+  { 0xFD20, 0x8410, 0xFD20, 0xFD20, false, 0, 0 },                 // benne chantier (orange, cabine grise)
+};
+static const int TRUCK_SPAWN_PCT = 12;  // % de chance qu'un (re)spawn de trafic soit un camion plutot qu'une voiture
+
+// Vehicule actuellement pilote par le joueur : voiture (forme/boite carFrames)
+// ou camion (truckFrames) -- determine le sprite et la cle de couleur a utiliser.
+static bool drivingTruck = false;
+static uint8_t drivingVariant = 0;
+
 struct AiCar {
   float x, y;          // centre, px monde
   uint8_t dir;         // 0..3 (N E S W)
@@ -350,6 +374,8 @@ struct AiCar {
   uint8_t backoff;     // >0 : frames ou la caisse RECULE (s'eloigne du joueur) au lieu
                        // de poursuivre/forcer -- arme apres un choc ou en panique
   bool active;
+  bool isTruck;        // sprite/boite truckFrames au lieu de carFrames (cf. TruckVariant)
+  uint8_t variant;     // index dans TRUCK_VARIANTS, valide seulement si isTruck
 };
 
 struct AiPed {
@@ -373,7 +399,7 @@ struct AiPed {
 // Epave : carcasse laissee par une voiture explosee. Obstacle statique (trafic
 // + voiture joueur), fume (palier leger), petit saut a la naissance puis
 // immobile. Recyclee quand on s'eloigne (pas de timer). Non conduisible.
-struct Wreck { float x, y, vx, vy; uint8_t frame; uint8_t hop; bool active; };
+struct Wreck { float x, y, vx, vy; uint8_t frame; uint8_t hop; bool active; bool truck; };
 static const int NUM_WRECKS = 2;
 static Wreck wrecks[NUM_WRECKS];
 

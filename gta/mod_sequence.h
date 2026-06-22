@@ -265,7 +265,8 @@ static void drawSequence(int camX, int camY) {
       if (carry) {                                              // voiture portee
         int idx = (int)(ang / TWO_PI * CAR_FRAMES + 0.5f) % CAR_FRAMES;
         if (idx < 0) idx += CAR_FRAMES;
-        blitCar(camX, camY, (int)tx, (int)ty, idx, carColor);
+        if (drivingTruck) blitTruck(camX, camY, (int)tx, (int)ty, idx, TRUCK_VARIANTS[drivingVariant]);
+        else blitCar(camX, camY, (int)tx, (int)ty, idx, carColor);
       }
       drawBox(txS, tyS, 1, 0xFD20, 0xFD20);                     // crochet
     } else if (seqPhase == PH_CRUSH) {             // voiture lachee : ecrasee au broyeur

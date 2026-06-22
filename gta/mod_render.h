@@ -45,14 +45,44 @@ static void blitCar(int camX, int camY, int worldCx, int worldCy,
 }
 
 
-// Girophare : 2 pixels rouge/bleu au centre du toit qui ALTERNENT (clignotement)
-// selon la phase d'animation globale. Dessine par-dessus la caisse. Aucun sprite
-// supplementaire en flash. Appele pour les voitures de police au-dela d'1 etoile.
-static void drawGyro(int camX, int camY, int worldCx, int worldCy) {
+// Blit recolore d'un sprite camion/bus : forme partagee (truckFrames), 4 cles
+// (corps/cabine/fenetres/echelle) recolorees selon la livree -- cf. TruckVariant
+// et tools/build_truck.py. Meme principe que blitCar, juste plus de cles.
+static void blitTruck(int camX, int camY, int worldCx, int worldCy,
+                       int frameIdx, const TruckVariant &v) {
+  const uint16_t *src = truckFrames[frameIdx];
+  int ox = worldCx - camX - TRUCK_BOX / 2;
+  int oy = worldCy - camY - TRUCK_BOX / 2;
+  for (int ry = 0; ry < TRUCK_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * TRUCK_BOX;
+    for (int rx = 0; rx < TRUCK_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == TRUCK_TRANSPARENT) continue;
+      if (c == TRUCK_BODY_KEY) c = v.body;
+      else if (c == TRUCK_CAB_KEY) c = v.cab;
+      else if (c == TRUCK_WINDOW_KEY) c = v.window;
+      else if (c == TRUCK_LADDER_KEY) c = v.ladder;
+      int x = ox + rx;
+      if (x >= 0 && x < SCREEN_W) row[x] = c;
+    }
+  }
+}
+
+
+// Girophare : 2 pixels (gauche/droite) au centre du toit qui ALTERNENT entre
+// colorA et colorB (clignotement) selon la phase d'animation globale. Dessine
+// par-dessus la caisse. Aucun sprite supplementaire en flash. Appele pour les
+// voitures de police au-dela d'1 etoile, et pour les camions pompier/ambulance
+// (cf. TruckVariant.hasGyro).
+static void drawGyro(int camX, int camY, int worldCx, int worldCy,
+                      uint16_t colorA, uint16_t colorB) {
   int cx = worldCx - camX, cy = worldCy - camY;
   bool phase = (missionAnim >> 2) & 1;            // bascule toutes les ~4 frames
-  uint16_t left  = phase ? 0xF800 : 0x001F;       // rouge / bleu
-  uint16_t right = phase ? 0x001F : 0xF800;
+  uint16_t left  = phase ? colorA : colorB;
+  uint16_t right = phase ? colorB : colorA;
   if (cy >= 0 && cy < SCREEN_H) {
     uint16_t *row = fb + cy * SCREEN_W;
     if (cx - 1 >= 0 && cx - 1 < SCREEN_W) row[cx - 1] = left;
@@ -113,9 +143,33 @@ static void blitCarBurnt(int camX, int camY, int worldCx, int worldCy, int frame
 }
 
 
+// Idem blitCarBurnt, pour l'epave d'un camion (truckFrames, 4 cles -> toutes
+// charbon fonce indistinctement, seuls phares/pare-brise restent clairs).
+static void blitTruckBurnt(int camX, int camY, int worldCx, int worldCy, int frameIdx) {
+  const uint16_t *src = truckFrames[frameIdx];
+  int ox = worldCx - camX - TRUCK_BOX / 2;
+  int oy = worldCy - camY - TRUCK_BOX / 2;
+  for (int ry = 0; ry < TRUCK_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * TRUCK_BOX;
+    for (int rx = 0; rx < TRUCK_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == TRUCK_TRANSPARENT) continue;
+      int x = ox + rx;
+      if (x < 0 || x >= SCREEN_W) continue;
+      bool dark = (c == TRUCK_BODY_KEY || c == TRUCK_CAB_KEY ||
+                   c == TRUCK_WINDOW_KEY || c == TRUCK_LADDER_KEY);
+      row[x] = dark ? 0x2104 : 0x4208;   // charbon fonce / clair
+    }
+  }
+}
+
+
 // --- Epaves : naissance (petit saut), recyclage au loin, rendu (carcasse +
 //     fumee residuelle). spawnWreck est appele a la destruction d'une voiture. ---
-static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float hopy) {
+static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float hopy, bool truck) {
   float n = sqrtf(hopx * hopx + hopy * hopy);
   float ux = 0.0f, uy = 0.0f;
   if (n > 0.01f) { ux = hopx / n; uy = hopy / n; }
@@ -124,7 +178,7 @@ static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float h
   if (slot < 0) slot = 0;                       // pool plein : recycle le slot 0
   Wreck &w = wrecks[slot];
   w.x = wx; w.y = wy; w.vx = ux * 1.6f; w.vy = uy * 1.6f;
-  w.frame = frameIdx; w.hop = WRECK_HOP_FRAMES; w.active = true;
+  w.frame = frameIdx; w.hop = WRECK_HOP_FRAMES; w.active = true; w.truck = truck;
 }
 
 
@@ -149,7 +203,8 @@ static void drawWrecks(int camX, int camY) {
   for (int i = 0; i < NUM_WRECKS; i++) {
     Wreck &w = wrecks[i];
     if (!w.active) continue;
-    blitCarBurnt(camX, camY, (int)w.x, (int)w.y, w.frame);
+    if (w.truck) blitTruckBurnt(camX, camY, (int)w.x, (int)w.y, w.frame);
+    else blitCarBurnt(camX, camY, (int)w.x, (int)w.y, w.frame);
     int frame = (missionAnim / 6 + i) % SMOKE_FRAMES;     // fumee residuelle (legere)
     blitSmoke((int)w.x - camX, (int)w.y - camY, 0, frame);
   }
@@ -326,13 +381,20 @@ static void drawCar(int camX, int camY) {
       (seqPhase == PH_CARRY || seqPhase == PH_CRUSH || seqPhase == PH_EJECT)) return;
   if (carGone) return;
   float a = car.angle;
-  int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);
+  int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);   // TRUCK_FRAMES == CAR_FRAMES : meme formule
   idx %= CAR_FRAMES;
   if (idx < 0) idx += CAR_FRAMES;
+  if (drivingTruck) {
+    const TruckVariant &v = TRUCK_VARIANTS[drivingVariant];
+    blitTruck(camX, camY, (int)car.x, (int)car.y, idx, v);
+    if (v.hasGyro && wanted.level >= 2)
+      drawGyro(camX, camY, (int)car.x, (int)car.y, v.gyroL, v.gyroR);
+    return;
+  }
   blitCar(camX, camY, (int)car.x, (int)car.y, idx, carColor);
   // Si on roule dans une voiture de police volee, le girophare suit la meme regle.
   if (carColor == POLICE_BLUE && wanted.level >= 2)
-    drawGyro(camX, camY, (int)car.x, (int)car.y);
+    drawGyro(camX, camY, (int)car.x, (int)car.y, 0xF800, 0x001F);
 }
 
 

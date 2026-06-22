@@ -44,7 +44,7 @@ static void explodeCarAt(int wx, int wy) {
     c.hp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
     if (c.hp <= 0) {
       c.active = false;
-      spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], ddx, ddy);   // carcasse de CETTE voiture
+      spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], ddx, ddy, c.isTruck);   // carcasse de CETTE voiture
       onCarWrecked();                                        // +3 (etoiles)
       explodeCarAt((int)c.x, (int)c.y);                      // chaine
     }
@@ -114,7 +114,7 @@ static uint16_t copShootPeriod() {
 // explosion (souffle + chaine). credit = c'est le joueur qui l'a detruite
 // (alors +3 etoiles) ; un tir de flic ne credite personne.
 static void wreckAiCar(AiCar &c, float hopx, float hopy, bool credit) {
-  spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], hopx, hopy);
+  spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], hopx, hopy, c.isTruck);
   if (credit) onCarWrecked();
   c.active = false;
   explodeCarAt((int)c.x, (int)c.y);
@@ -399,7 +399,7 @@ static void updateCarFuse() {
   if ((carFuse % period) == 0) gb.sound.tone(1400, 24);
   if (carFuse > 0) return;
   explodeCarAt((int)car.x, (int)car.y);
-  spawnWreck(car.x, car.y, (uint8_t)carFrameIdx(), carImpactX, carImpactY);  // ma caisse: epave, pas d'etoiles
+  spawnWreck(car.x, car.y, (uint8_t)carFrameIdx(), carImpactX, carImpactY, drivingTruck);  // ma caisse: epave, pas d'etoiles
   carGone = true; carHp = CAR_MAX_HP; carRunaway = false; carFuse = 0;
   if (driving) startEndSeq(SEQ_WASTED, "MORT", "Hopital", true);  // dedans = mort
 }

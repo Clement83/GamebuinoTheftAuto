@@ -24,6 +24,7 @@
 #include "citymap.h"
 #include "engine.h"
 #include "car.h"
+#include "truck.h"
 #include "smoke.h"
 #include "player.h"
 #include "ai.h"
@@ -329,16 +330,17 @@ void loop() {
         if (best == -3 || best >= 0) { carFuse = 0; carRunaway = false; }
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
-          carColor = MISSION_CAR_COLOR; carIsMission = true;
+          carColor = MISSION_CAR_COLOR; carIsMission = true; drivingTruck = false;
           mCarActive = false; driving = true; carHp = CAR_MAX_HP; carGone = false;
         } else if (best == -1) {
-          driving = true; carIsMission = false;   // remonter dans sa voiture (PV gardes)
+          driving = true; carIsMission = false; drivingTruck = false;  // sa propre voiture : jamais un camion
         } else if (best >= 0) {
           AiCar &c = aiCars[best];           // vol : un conducteur (s'il y en a un) tombe au sol puis fuit
           if (c.driver) aiEjectDriver((int)c.x, (int)c.y, true, false, c.dir);  // caisse vide -> personne a ejecter
           car.x = c.x; car.y = c.y; car.vx = 0.0f; car.vy = 0.0f;
           car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
           carColor = c.color; carIsMission = false;
+          drivingTruck = c.isTruck; drivingVariant = c.variant;
           carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;   // herite de l'usure de la caisse volee
           if (c.isPolice) {                  // voiture de police : gilet enfile + pompe a bord
             giveBodyArmor();

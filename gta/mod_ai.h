@@ -40,7 +40,14 @@ static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
     aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
             tx, ty, aiIsDrivable, aiRng);
     c.isPolice = ((int)(aiRngNext(aiRng) % 100) < policeCarPct(wanted.level));   // part du trafic = police (croit avec les etoiles)
-    c.color = c.isPolice ? POLICE_BLUE : AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
+    // Police et camion s'excluent : un camion n'est jamais une voiture de police.
+    c.isTruck = !c.isPolice && ((int)(aiRngNext(aiRng) % 100) < TRUCK_SPAWN_PCT);
+    if (c.isTruck) {
+      c.variant = (uint8_t)(aiRngNext(aiRng) % TRUCK_KIND_N);
+      c.color = TRUCK_VARIANTS[c.variant].body;
+    } else {
+      c.color = c.isPolice ? POLICE_BLUE : AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
+    }
     c.hp = CAR_MAX_HP;
     c.driver = true;                       // trafic = voiture avec conducteur
     c.fleeing = false; c.fleeTimer = 0;    // arrive calme
@@ -574,9 +581,15 @@ static void aiDraw(int camX, int camY) {
   for (int i = 0; i < NUM_AI_CARS; i++) {
     AiCar &c = aiCars[i];
     if (!c.active) continue;
+    if (c.isTruck) {
+      const TruckVariant &v = TRUCK_VARIANTS[c.variant];
+      blitTruck(camX, camY, (int)c.x, (int)c.y, AI_CAR_FRAME[c.dir], v);
+      if (v.hasGyro) drawGyro(camX, camY, (int)c.x, (int)c.y, v.gyroL, v.gyroR);
+      continue;
+    }
     blitCar(camX, camY, (int)c.x, (int)c.y, AI_CAR_FRAME[c.dir], c.color);
     // Girophare allume au-dela d'une etoile (>= 2) sur les voitures de police.
-    if (c.isPolice && wanted.level >= 2) drawGyro(camX, camY, (int)c.x, (int)c.y);
+    if (c.isPolice && wanted.level >= 2) drawGyro(camX, camY, (int)c.x, (int)c.y, 0xF800, 0x001F);
   }
   for (int i = 0; i < NUM_AI_PEDS; i++) {
     AiPed &p = aiPeds[i];

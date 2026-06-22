@@ -22,11 +22,13 @@ static void musicTick();
 // --- render ---
 static void drawTile(uint8_t id, int sx, int sy);
 static void blitCar(int camX, int camY, int worldCx, int worldCy, int frameIdx, uint16_t color);
-static void drawGyro(int camX, int camY, int worldCx, int worldCy);
+static void blitTruck(int camX, int camY, int worldCx, int worldCy, int frameIdx, const TruckVariant &v);
+static void drawGyro(int camX, int camY, int worldCx, int worldCy, uint16_t colorA, uint16_t colorB);
 static inline int carFrameIdx();
 static void blitSmoke(int scx, int scy, int tier, int frame);
 static void blitCarBurnt(int camX, int camY, int worldCx, int worldCy, int frameIdx);
-static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float hopy);
+static void blitTruckBurnt(int camX, int camY, int worldCx, int worldCy, int frameIdx);
+static void spawnWreck(float wx, float wy, uint8_t frameIdx, float hopx, float hopy, bool truck);
 static void updateWrecks(int fcx, int fcy);
 static void drawWrecks(int camX, int camY);
 static void spawnSmoke(float wx, float wy);
