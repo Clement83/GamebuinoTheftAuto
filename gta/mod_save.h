@@ -54,10 +54,6 @@ static void updateProfileMenu() {
   if (gb.buttons.pressed(BUTTON_A)) {
     currentProfile = menuSel;
     profileLoadCurrent();                 // applique le profil s'il existe
-    // CHEAT TEMPORAIRE (a supprimer) : bazooka + molotov + cash, meme apres chargement.
-    weaponOwned[WEAPON_BAZOOKA] = true; weaponAmmo[WEAPON_BAZOOKA] = 10;
-    weaponOwned[WEAPON_MOLOTOV] = true; weaponAmmo[WEAPON_MOLOTOV] = 10;
-    playerMoney += 5000; moneyShown = playerMoney;
     inMenu = false; menuConfirmDelete = false;
     gb.sound.playOK();
   }
