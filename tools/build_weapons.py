@@ -22,6 +22,8 @@ PAL = {
     's': (238, 205, 165), # peau (poing)
     'y': (255, 220, 120), # accent (bouche / detente / cuillere)
     'r': (180, 40, 40),   # rouge (ogive roquette)
+    'c': (190, 220, 210), # verre (bouteille molotov)
+    'o': (240, 130, 30),  # flamme (chiffon enflamme)
 }
 
 # Une grille 6x6 par arme. Top-down "de cote", oriente vers la droite.
@@ -68,6 +70,13 @@ SPRITES = [
      ".dddd.",
      ".dddd.",
      "..dd.."],
+    # MOLOTOV -- bouteille de verre, chiffon enflamme au goulot
+    ["..o...",
+     ".oo...",
+     "..c...",
+     ".ccc..",
+     ".ccc..",
+     "..c..."],
 ]
 
 

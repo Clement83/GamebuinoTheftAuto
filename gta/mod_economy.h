@@ -294,7 +294,7 @@ static void drawShop() {
   snprintf(money, sizeof(money), "$%ld", (long)playerMoney);
   printShadowCol(SCREEN_W - (int)strlen(money) * 4 - 1, 1, money, 0x07E0);
   for (uint8_t w = WEAPON_PISTOL; w < WEAPON_COUNT; w++) {
-    int r = w - WEAPON_PISTOL, y = 11 + r * 9;
+    int r = w - WEAPON_PISTOL, y = 9 + r * 7;
     if (w == shopSel)                              // surlignage de la ligne choisie
       for (int yy = y - 1; yy < y + 7 && yy < SCREEN_H; yy++)
         for (int xx = 0; xx < SCREEN_W; xx++) fb[yy * SCREEN_W + xx] = 0x2945;
@@ -307,7 +307,7 @@ static void drawShop() {
   }
   // Ligne GILET (apres les armes) : icone cœur bleu, prix ou "PLEIN".
   {
-    int y = 11 + (WEAPON_COUNT - WEAPON_PISTOL) * 9;
+    int y = 9 + (WEAPON_COUNT - WEAPON_PISTOL) * 7;
     if (shopSel == SHOP_ARMOR)
       for (int yy = y - 1; yy < y + 7 && yy < SCREEN_H; yy++)
         for (int xx = 0; xx < SCREEN_W; xx++) fb[yy * SCREEN_W + xx] = 0x2945;

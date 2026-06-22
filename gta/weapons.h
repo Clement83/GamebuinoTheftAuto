@@ -13,6 +13,7 @@ enum WeaponId : uint8_t {
   WEAPON_SHOTGUN,
   WEAPON_BAZOOKA,
   WEAPON_GRENADE,
+  WEAPON_MOLOTOV,
   WEAPON_COUNT
 };
 
@@ -36,6 +37,7 @@ static const WeaponDef WEAPONS[WEAPON_COUNT] = {
   { "Pompe",    22.0f, 11.0f,  true,   8, false },
   { "Bazooka",  58.0f,  8.0f,  true,   4, true  },
   { "Grenade",  20.0f, 16.0f,  true,   3, true  },
+  { "Molotov",  18.0f, 14.0f,  true,   3, true  },
 };
 
 // Munitions infinies pour cette arme (le poing).
