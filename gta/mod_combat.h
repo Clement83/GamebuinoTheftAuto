@@ -16,10 +16,11 @@ static void onCarWrecked() {
 static void explodeCarAt(int wx, int wy) {
   boomX = wx; boomY = wy; boomTimer = BOOM_FRAMES;
   gb.sound.tone(70, 200);
+  spawnGroundFire((float)wx, (float)wy);   // toute explosion laisse un feu au sol
   // Degats de zone : PNJ debout tues dans le rayon letal ; affoles un peu au-dela.
   for (int i = 0; i < NUM_AI_PEDS; i++) {
     AiPed &p = aiPeds[i];
-    if (!p.active || p.state == 1) continue;
+    if (!p.active || p.state == 1 || p.state == 4) continue;
     int dx = (int)p.x - wx, dy = (int)p.y - wy;
     int d2 = dx * dx + dy * dy;
     if (d2 <= BOOM_HURT_RADIUS * BOOM_HURT_RADIUS) knockDownPed(p);
@@ -42,12 +43,7 @@ static void explodeCarAt(int wx, int wy) {
     float dist = sqrtf(ddx * ddx + ddy * ddy);
     if (dist >= BOOM_VEHICLE_RADIUS) continue;
     c.hp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
-    if (c.hp <= 0) {
-      c.active = false;
-      spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], ddx, ddy, c.isTruck);   // carcasse de CETTE voiture
-      onCarWrecked();                                        // +3 (etoiles)
-      explodeCarAt((int)c.x, (int)c.y);                      // chaine
-    }
+    if (c.hp <= 0) igniteAiCar(c, ddx, ddy, true);   // chaine : meche ~10s (pas instantane)
   }
   // Voiture du joueur dans le rayon (sans etre le centre source) : elle encaisse
   // aussi -> a 0 PV la meche s'allume via updateCarFuse (pas de cas special ici).
@@ -56,6 +52,43 @@ static void explodeCarAt(int wx, int wy) {
     float dist = sqrtf(ddx * ddx + ddy * ddy);
     if (dist > 0.5f && dist < BOOM_VEHICLE_RADIUS)
       carHp -= (int16_t)(BOOM_CENTER_DMG * (1.0f - dist / BOOM_VEHICLE_RADIUS));
+  }
+}
+
+
+// Allume un feu au sol en (fx,fy) : pas de degats immediats, juste une zone qui
+// va bruler quelques secondes (cf. updateGroundFires). Recycle le plus vieux
+// slot si le pool est plein.
+static void spawnGroundFire(float fx, float fy) {
+  int slot = -1;
+  for (int i = 0; i < NUM_GROUND_FIRES; i++) if (!groundFires[i].active) { slot = i; break; }
+  if (slot < 0) slot = 0;
+  GroundFire &g = groundFires[slot];
+  g.x = fx; g.y = fy; g.life = GROUND_FIRE_LIFE; g.tickTimer = GROUND_FIRE_TICK;
+  g.smoking = false; g.active = true;
+  dispatchFireTruck((int)fx, (int)fy, false, (int8_t)slot);   // appel immediat + retentatives via scan mod_ai.h
+}
+
+
+// Avance les feux au sol : flamme active pendant GROUND_FIRE_LIFE frames (ou
+// moins, coupee court par un pompier -- cf. responderUpdate), puis fumee
+// residuelle pendant GROUND_FIRE_SMOKE frames, puis plus rien. Tant qu'en
+// flamme, infligent un leger degat periodique a qui reste dans le rayon :
+// joueur (a pied ou en caisse), PNJ (un passant pris dans les flammes tombe,
+// comme un coup fatal) et voitures du trafic (degats cumulatifs -> explosent
+// a 0 PV). En fumee : plus aucun degat, juste l'animation qui s'estompe.
+static void updateGroundFires() {
+  for (int i = 0; i < NUM_GROUND_FIRES; i++) {
+    GroundFire &g = groundFires[i];
+    if (!g.active) continue;
+    if (g.smoking) {
+      if (g.life == 0 || --g.life == 0) g.active = false;
+      continue;
+    }
+    if (g.life == 0 || --g.life == 0) { g.smoking = true; g.life = GROUND_FIRE_SMOKE; continue; }
+    if (g.tickTimer > 0 && --g.tickTimer > 0) continue;
+    g.tickTimer = GROUND_FIRE_TICK;
+    fireProximityTick(g.x, g.y);
   }
 }
 
@@ -110,12 +143,64 @@ static uint16_t copShootPeriod() {
 }
 
 
-// Detruit une voiture IA : carcasse fumante (saut dans le sens du choc),
-// explosion (souffle + chaine). credit = c'est le joueur qui l'a detruite
-// (alors +3 etoiles) ; un tir de flic ne credite personne.
-static void wreckAiCar(AiCar &c, float hopx, float hopy, bool credit) {
-  spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], hopx, hopy, c.isTruck);
-  if (credit) onCarWrecked();
+// Degats periodiques de zone depuis un point en feu (fx,fy) : joueur, PNJ,
+// voitures IA. Appelée par updateGroundFires et updateCarFuse/updateAiCarFuses.
+static void fireProximityTick(float fx, float fy) {
+  long r2 = (long)GROUND_FIRE_RADIUS * GROUND_FIRE_RADIUS;
+  if (!driving) {
+    int dx = (playerX + PLAYER_W / 2) - (int)fx, dy = (playerY + PLAYER_H / 2) - (int)fy;
+    if ((long)dx * dx + (long)dy * dy <= r2) hurtPlayer(1, false);
+  } else if (!carGone) {
+    float ddx = car.x - fx, ddy = car.y - fy;
+    if (ddx * ddx + ddy * ddy <= (float)r2) carHp -= GROUND_FIRE_DMG;
+  }
+  for (int q = 0; q < NUM_AI_PEDS; q++) {
+    AiPed &p = aiPeds[q];
+    if (!p.active || p.state == 1 || p.state == 3 || p.state == 4) continue;
+    float dx = p.x - fx, dy = p.y - fy;
+    if (dx * dx + dy * dy <= (float)r2) knockDownPed(p);
+  }
+  for (int q = 0; q < NUM_AI_CARS; q++) {
+    AiCar &c = aiCars[q];
+    if (!c.active || c.fuse > 0) continue;   // deja en feu : pas de double-allumage
+    float ddx = c.x - fx, ddy = c.y - fy;
+    if (ddx * ddx + ddy * ddy <= (float)r2) {
+      c.hp -= GROUND_FIRE_DMG;
+      if (c.hp <= 0) igniteAiCar(c, 0.0f, 0.0f, false);   // propagation : pas de credit joueur
+    }
+  }
+}
+
+
+// Allume la meche d'une voiture IA (fuse ~10 s avant explosion). Capture le
+// vecteur du choc et le credit joueur pour les rejouer a l'explosion.
+static void igniteAiCar(AiCar &c, float hopx, float hopy, bool credit) {
+  if (c.fuse > 0) return;   // deja en feu
+  c.fuse      = CAR_FUSE_FRAMES;
+  c.fireTick  = GROUND_FIRE_TICK;
+  c.fireHopX  = hopx; c.fireHopY = hopy;
+  c.fireCredit = credit;
+  gb.sound.tone(120, 200);
+  int8_t idx = -1;
+  for (int _i = 0; _i < NUM_AI_CARS; _i++) if (&aiCars[_i] == &c) { idx = (int8_t)_i; break; }
+  dispatchFireTruck((int)c.x, (int)c.y, true, -1, idx);   // appel immediat + retentatives via scan
+}
+
+
+// Allume la meche de la caisse du joueur (0 PV -> ~10 s avant explosion).
+static void ignitePlayerCar() {
+  if (carFuse > 0) return;
+  carFuse     = CAR_FUSE_FRAMES;
+  carFireTick = GROUND_FIRE_TICK;
+  gb.sound.tone(120, 200);
+}
+
+
+// Finalise la destruction d'une voiture IA dont la meche vient d'expirer :
+// carcasse, etoiles si credit joueur, explosion en chaine.
+static void wreckAiCar(AiCar &c) {
+  spawnWreck(c.x, c.y, AI_CAR_FRAME[c.dir], c.fireHopX, c.fireHopY, c.isTruck);
+  if (c.fireCredit) onCarWrecked();
   c.active = false;
   explodeCarAt((int)c.x, (int)c.y);
 }
@@ -153,7 +238,7 @@ static void updateBullets() {
       bool consumed = false;
       for (int q = 0; q < NUM_AI_PEDS; q++) {
         AiPed &p = aiPeds[q];
-        if (!p.active || p.state == 1 || p.state == 3) continue;   // pas les corps au sol
+        if (!p.active || p.state == 1 || p.state == 3 || p.state == 4) continue;   // pas les corps au sol
         if (fabsf(b.x - p.x) < 4.0f && fabsf(b.y - p.y) < 4.0f) {
           hitPed(p, true); b.active = false; consumed = true; break;
         }
@@ -187,7 +272,7 @@ static void updateBullets() {
       if (!c.active) continue;
       if (fabsf(b.x - c.x) < 5.0f && fabsf(b.y - c.y) < 5.0f) {
         c.hp -= b.carDmg;
-        if (c.hp <= 0) wreckAiCar(c, b.vx, b.vy, !b.hostile);   // etoiles si tir joueur
+        if (c.hp <= 0) igniteAiCar(c, b.vx, b.vy, !b.hostile);   // meche ~10s puis explosion
         else if (c.driver) { aiEjectDriver((int)c.x, (int)c.y, false, false, c.dir); c.driver = false; }   // mitraillee : le conducteur detale
         b.active = false; break;
       }
@@ -212,7 +297,8 @@ static void drawBullets(int camX, int camY) {
 
 
 // Lance un projectile explosif dans la direction visee (centre joueur pcx,pcy).
-// kind 0 = roquette (tout droit), 1 = grenade (cloche + meche).
+// kind 0 = roquette (tout droit), 1 = grenade (cloche + meche), 2 = molotov
+// (meme arc que la grenade, mais allume un feu au sol au lieu d'exploser).
 static void spawnProjectile(uint8_t kind, int pcx, int pcy) {
   int slot = -1;
   for (int i = 0; i < NUM_PROJ; i++) if (!projs[i].active) { slot = i; break; }
@@ -223,7 +309,7 @@ static void spawnProjectile(uint8_t kind, int pcx, int pcy) {
   if (kind == 0) {                              // roquette
     p.vx = fdx * ROCKET_SPEED; p.vy = fdy * ROCKET_SPEED;
     p.flight = (uint16_t)(ROCKET_RANGE / ROCKET_SPEED); p.fuse = 0;
-  } else {                                      // grenade : vitesse pour couvrir THROW_DIST en FLIGHT frames
+  } else {                                      // grenade / molotov : meme cloche
     float sp = (float)GRENADE_THROW_DIST / GRENADE_FLIGHT;
     p.vx = fdx * sp; p.vy = fdy * sp;
     p.flight = GRENADE_FLIGHT; p.fuse = GRENADE_FUSE;
@@ -262,12 +348,17 @@ static void updateProjectiles() {
       // Les PNJ qui voient la grenade paniquent AVANT l'explosion.
       for (int q = 0; q < NUM_AI_PEDS; q++) {
         AiPed &pd = aiPeds[q];
-        if (!pd.active || pd.state == 1 || pd.isCop) continue;
+        if (!pd.active || pd.state == 1 || pd.state == 4 || pd.isCop) continue;
         float dx = pd.x - p.x, dy = pd.y - p.y;
         if (dx * dx + dy * dy <= (float)(GRENADE_FEAR_RADIUS * GRENADE_FEAR_RADIUS))
           startPanic(pd, (int)p.x, (int)p.y);
       }
-      if (p.fuse == 0 || --p.fuse == 0) { spawnSmoke(p.x, p.y); explodeCarAt((int)p.x, (int)p.y); p.active = false; }
+      if (p.kind == 2) {                          // molotov : explose a l'impact, pas de meche
+        if (p.flight == 0) { spawnGroundFire(p.x, p.y); p.active = false; }
+      } else if (p.fuse == 0 || --p.fuse == 0) {
+        spawnSmoke(p.x, p.y); explodeCarAt((int)p.x, (int)p.y);
+        p.active = false;
+      }
     }
   }
 }
@@ -284,10 +375,12 @@ static void drawProjectiles(int camX, int camY) {
       if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0xFD20;
       int tx = (int)(p.x - p.vx) - camX, ty = (int)(p.y - p.vy) - camY;
       if (tx >= 0 && tx < SCREEN_W && ty >= 0 && ty < SCREEN_H) fb[ty * SCREEN_W + tx] = 0x8200;
-    } else {                                    // grenade
+    } else {                                    // grenade / molotov
       if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = 0x2104;  // ombre
       int gy = y - (int)p.z;
-      uint16_t col = (p.flight == 0 && (missionAnim & 4)) ? 0xFFFF : 0x3DA6;  // clignote quand posee
+      uint16_t col;
+      if (p.kind == 2) col = (missionAnim & 2) ? 0xFC00 : 0xFFE0;            // molotov : flamme orange/jaune
+      else             col = (p.flight == 0 && (missionAnim & 4)) ? 0xFFFF : 0x3DA6;  // grenade : clignote quand posee
       if (x >= 0 && x < SCREEN_W && gy >= 0 && gy < SCREEN_H) fb[gy * SCREEN_W + x] = col;
     }
   }
@@ -317,7 +410,8 @@ static void tryAttack() {
     // file tout droit et explose a l'impact ; la grenade part en cloche et
     // explose au bout de ~3 s. L'explosion (boom + degats radiaux + chaine) a
     // lieu a la detonation du projectile (cf. updateProjectiles), pas ici.
-    spawnProjectile(curWeapon == WEAPON_GRENADE ? 1 : 0, pcx, pcy);
+    uint8_t pk = (curWeapon == WEAPON_MOLOTOV) ? 2 : (curWeapon == WEAPON_GRENADE) ? 1 : 0;
+    spawnProjectile(pk, pcx, pcy);
   } else if (curWeapon == WEAPON_FIST) {
     // Poing : frappe instantanee du pieton le plus proche devant (cone), 3 coups.
     // Les armes A BALLES ne frappent plus par cone : leurs degats (pietons ET
@@ -326,7 +420,7 @@ static void tryAttack() {
     bool act[NUM_AI_PEDS];
     for (int i = 0; i < NUM_AI_PEDS; i++) {
       px[i] = aiPeds[i].x; py[i] = aiPeds[i].y;
-      act[i] = aiPeds[i].active && aiPeds[i].state != 1 && aiPeds[i].state != 3;   // debout ou panique (pas au sol)
+      act[i] = aiPeds[i].active && aiPeds[i].state != 1 && aiPeds[i].state != 3 && aiPeds[i].state != 4;   // debout ou panique (pas au sol)
     }
     int hit = combatConeTarget(px, py, act, NUM_AI_PEDS, pcx, pcy, playerDir, wd.reach, wd.side);
     if (hit >= 0) hitPed(aiPeds[hit], false);
@@ -390,18 +484,37 @@ static void updateCarFuse() {
   if (carGone) return;
   if (carFuse == 0) {
     if (carHp > 0) return;
-    carFuse = CAR_FUSE_FRAMES;                   // 0 PV : la mèche s'allume
-    gb.sound.tone(120, 200);
+    ignitePlayerCar();   // 0 PV : la meche s'allume
+    dispatchFireTruck((int)car.x, (int)car.y, true, -1, -1);   // appel immediat + retentatives via scan
   }
   carFuse--;
+  // Propagation : inflige des degats a ce qui est trop pres de la caisse en feu.
+  if (carFireTick > 0) carFireTick--;
+  if (carFireTick == 0) { carFireTick = GROUND_FIRE_TICK; fireProximityTick(car.x, car.y); }
   uint16_t period = carFuse > CAR_FUSE_FRAMES / 2 ? 18
                   : (carFuse > CAR_FUSE_FRAMES / 4 ? 9 : 4);  // bips accelerant
   if ((carFuse % period) == 0) gb.sound.tone(1400, 24);
   if (carFuse > 0) return;
   explodeCarAt((int)car.x, (int)car.y);
   spawnWreck(car.x, car.y, (uint8_t)carFrameIdx(), carImpactX, carImpactY, drivingTruck);  // ma caisse: epave, pas d'etoiles
-  carGone = true; carHp = CAR_MAX_HP; carRunaway = false; carFuse = 0;
+  carGone = true; carHp = CAR_MAX_HP; carRunaway = false; carFuse = 0; carFireTick = 0;
   if (driving) startEndSeq(SEQ_WASTED, "MORT", "Hopital", true);  // dedans = mort
+}
+
+
+// Avance les meches de toutes les voitures IA en feu ; propagation periodique ;
+// quand la meche expire -> wreckAiCar (epave + explosion).
+static void updateAiCarFuses() {
+  for (int i = 0; i < NUM_AI_CARS; i++) {
+    AiCar &c = aiCars[i];
+    if (!c.active || c.fuse == 0) continue;
+    if (c.fireTick > 0) c.fireTick--;
+    if (c.fireTick == 0) { c.fireTick = GROUND_FIRE_TICK; fireProximityTick(c.x, c.y); }
+    uint16_t period = c.fuse > CAR_FUSE_FRAMES / 2 ? 18
+                    : (c.fuse > CAR_FUSE_FRAMES / 4 ? 9 : 4);
+    if ((c.fuse % period) == 0) gb.sound.tone(1400, 24);
+    if (--c.fuse == 0) wreckAiCar(c);   // meche ecoulee -> boom
+  }
 }
 
 

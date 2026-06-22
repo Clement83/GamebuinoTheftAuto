@@ -53,6 +53,7 @@ static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
     c.fleeing = false; c.fleeTimer = 0;    // arrive calme
     c.brakeReact = 0;                      // reflexes au repos
     c.backoff = 0;
+    c.fuse = 0; c.fireTick = 0;            // pas en feu a l'apparition
     c.active = true;
   } else {
     c.active = false;
@@ -196,7 +197,7 @@ static void knockDownPed(AiPed &p) {
   // Temoins proches : un meurtre a cote affole (rayon court).
   for (int i = 0; i < NUM_AI_PEDS; i++) {
     AiPed &o = aiPeds[i];
-    if (&o == &p || !o.active || o.state == 1) continue;
+    if (&o == &p || !o.active || o.state == 1 || o.state == 4) continue;
     int dx = (int)o.x - (int)p.x, dy = (int)o.y - (int)p.y;
     if (dx * dx + dy * dy <= KILL_PANIC_RANGE * KILL_PANIC_RANGE) startPanic(o, (int)p.x, (int)p.y);
   }
@@ -464,15 +465,24 @@ static void aiUpdate(int fcx, int fcy) {
   for (int i = 0; i < NUM_AI_PEDS; i++) {
     AiPed &p = aiPeds[i];
     if (p.state == 1) {                       // au sol : compte a rebours
-      if (p.downTimer == 0 || --p.downTimer == 0) p.active = false;
-    } else if (p.active) {
+      if (p.downTimer == 0 || --p.downTimer == 0) {
+        // Corps qui attend l'ambulance (max MAX_PENDING_CORPSES en meme temps ;
+        // au-dela, on retombe sur l'ancien despawn par timer).
+        if (pendingCorpses < MAX_PENDING_CORPSES) {
+          p.state = 4; pendingCorpses++;
+          dispatchAmbulance((int)p.x, (int)p.y);
+        } else {
+          p.active = false;
+        }
+      }
+    } else if (p.active && p.state != 4) {
       int ddx = (int)p.x - fcx, ddy = (int)p.y - fcy;
       if (ddx * ddx + ddy * ddy > rec2) p.active = false;
     }
     // Plus de recherche : les flics debout redeviennent de simples passants.
     if (p.isCop && wanted.level == 0 && p.state == 0) { p.active = false; aiRespawnPed(p, fcx, fcy); continue; }
     if (!p.active) { aiRespawnPed(p, fcx, fcy); continue; }
-    if (p.state == 1) continue;               // mort/renverse : immobile
+    if (p.state == 1 || p.state == 4) continue;   // mort/renverse, ou corps en attente : immobile
     if (p.state == 3) {                        // AU SOL RECUPERABLE : se releve puis fuit
       if (p.downTimer == 0 || --p.downTimer == 0)
         startPanic(p, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);   // debout -> panique
@@ -574,6 +584,175 @@ static void aiUpdate(int fcx, int fcy) {
       }
     }
   }
+  // Redispatch : un corps/feu reste en attente sans vehicule en route (job
+  // annule par un vol, ou pool plein au moment du premier appel) -> on retente
+  // chaque frame ; dispatchResponder est un no-op si un vehicule du meme type
+  // est deja en mission, donc l'appel repete ne cree pas de doublons.
+  if (pendingCorpses > 0) {
+    for (int q = 0; q < NUM_AI_PEDS; q++)
+      if (aiPeds[q].state == 4) { dispatchAmbulance((int)aiPeds[q].x, (int)aiPeds[q].y); break; }
+  }
+  // Redispatch generique : feux au sol d'abord, puis caisse du joueur, puis caisses IA.
+  // dispatchResponder est no-op si un pompier est deja actif -> un seul foyer a la fois.
+  for (int q = 0; q < NUM_GROUND_FIRES; q++)
+    if (groundFires[q].active && !groundFires[q].smoking)
+      { dispatchFireTruck((int)groundFires[q].x, (int)groundFires[q].y, false, (int8_t)q); break; }
+  if (!carGone && carFuse > 0)
+    dispatchFireTruck((int)car.x, (int)car.y, true, -1, -1);
+  for (int q = 0; q < NUM_AI_CARS; q++)
+    if (aiCars[q].active && aiCars[q].fuse > 0)
+      { dispatchFireTruck((int)aiCars[q].x, (int)aiCars[q].y, true, -1, (int8_t)q); break; }
+  responderUpdate(fcx, fcy);
+}
+
+
+// Enregistre un appel d'intervention (ambulance/pompier) pour (tx,ty) si aucun
+// vehicule du meme type n'est deja en mission (cf. NUM_RESPONDERS = 1 par type
+// max) et qu'un slot est libre. Le vehicule ne se materialise pas tout de
+// suite : phase RESP_PENDING, ~3 s de delai (RESP_DISPATCH_DELAY) avant de
+// spawner, pour simuler un temps de reaction sans le faire apparaitre trop
+// loin (un anneau plus large faisait parfois echouer aiFindTileInRing -> le
+// secours n'arrivait jamais).
+static void dispatchResponder(uint8_t kind, int tx, int ty, bool fireIsCar, int8_t fireSlot, int8_t fireCarIdx) {
+  for (int i = 0; i < NUM_RESPONDERS; i++)
+    if (responders[i].active && responders[i].kind == kind) return;   // deja un de ce type en mission/en attente
+  int slot = -1;
+  for (int i = 0; i < NUM_RESPONDERS; i++) if (!responders[i].active) { slot = i; break; }
+  if (slot < 0) return;                       // les 2 places sont prises par l'autre type
+  Responder &r = responders[slot];
+  r.kind = kind; r.phase = RESP_PENDING; r.tgx = (int16_t)tx; r.tgy = (int16_t)ty;
+  r.workTimer = RESP_DISPATCH_DELAY; r.fireIsCar = fireIsCar; r.fireSlot = fireSlot;
+  r.fireCarIdx = fireCarIdx;
+  r.medicActive = false; r.pedIdx = -1; r.active = true;
+  r.car.active = false;
+}
+
+// Materialise le vehicule (aiPlace autour de la cible) une fois le delai de
+// dispatch ecoule. Si aucune tuile carrossable n'est trouvee, abandonne
+// l'appel (il sera retente par la boucle de redispatch dans aiUpdate).
+static void responderSpawnCar(Responder &r) {
+  AiCar &c = r.car;
+  int spx, spy;
+  if (!aiFindTileInRing(r.tgx, r.tgy, RING_MIN, RING_MAX, aiIsDrivable, spx, spy)) { r.active = false; return; }
+  aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty, spx, spy, aiIsDrivable, aiRng);
+  c.hp = CAR_MAX_HP; c.driver = true; c.fleeing = false; c.fleeTimer = 0;
+  c.brakeReact = 0; c.backoff = 0; c.isPolice = false; c.isTruck = true;
+  c.fuse = 0; c.fireTick = 0;
+  c.variant = (r.kind == RESP_AMBULANCE) ? TRUCK_AMBULANCE : TRUCK_FIRE;
+  c.color = TRUCK_VARIANTS[c.variant].body;
+  c.active = true;
+  r.phase = RESP_INBOUND; r.workTimer = 0;
+}
+
+static void dispatchAmbulance(int x, int y) { dispatchResponder(RESP_AMBULANCE, x, y, false, -1, -1); }
+static void dispatchFireTruck(int x, int y, bool fireIsCar, int8_t fireSlot, int8_t fireCarIdx) {
+  dispatchResponder(RESP_FIRETRUCK, x, y, fireIsCar, fireSlot, fireCarIdx);
+}
+
+
+// Avance les vehicules d'intervention : roulent vers la cible (conduite trafic
+// reutilisee), travaillent sur place (ambulancier a pied qui ramasse TOUS les
+// corps en attente / canon a eau du pompier), puis repartent et despawn. Volable
+// a tout instant comme une caisse normale (cf. scan de vol dans gta.ino) : si
+// `car.active` tombe a false (volee/detruite), la mission est simplement
+// abandonnee ici (le vol lui-meme gere le reste : ejection, panique ambulancier).
+static void responderUpdate(int fcx, int fcy) {
+  for (int i = 0; i < NUM_RESPONDERS; i++) {
+    Responder &r = responders[i];
+    if (!r.active) continue;
+    if (r.phase == RESP_PENDING) {
+      if (--r.workTimer == 0) responderSpawnCar(r);
+      continue;
+    }
+    AiCar &c = r.car;
+    if (!c.active) { r.active = false; continue; }
+    if (r.phase == RESP_INBOUND) {
+      if (r.kind == RESP_FIRETRUCK && r.fireIsCar) {
+        if (r.fireCarIdx >= 0) {
+          AiCar &fc = aiCars[r.fireCarIdx];
+          if (!fc.active || fc.fuse == 0) { r.phase = RESP_LEAVING; continue; }   // feu eteint/voiture disparue
+          r.tgx = (int16_t)fc.x; r.tgy = (int16_t)fc.y;
+        } else {
+          r.tgx = (int16_t)car.x; r.tgy = (int16_t)car.y;
+        }
+      }
+      policeCarStep(c, r.tgx, r.tgy);
+      float ddx = (float)r.tgx - c.x, ddy = (float)r.tgy - c.y;
+      if (ddx * ddx + ddy * ddy < 14.0f * 14.0f) r.phase = RESP_WORKING;
+    } else if (r.phase == RESP_WORKING) {
+      if (r.kind == RESP_AMBULANCE) {
+        if (!r.medicActive) {
+          int best = -1; float bestd = 1e18f;
+          for (int q = 0; q < NUM_AI_PEDS; q++) {
+            AiPed &p = aiPeds[q];
+            if (p.state != 4) continue;
+            float dx = p.x - c.x, dy = p.y - c.y, d2 = dx * dx + dy * dy;
+            if (d2 < bestd) { bestd = d2; best = q; }
+          }
+          if (best < 0) { r.phase = RESP_LEAVING; continue; }   // plus de corps en attente
+          r.pedIdx = (int8_t)best; r.medicActive = true; r.medicGoingBack = false;
+          r.medicX = c.x; r.medicY = c.y; r.medicDir = c.dir; r.medicFrame = 0; r.medicAnimTimer = 0;
+        } else {
+          AiPed &corpse = aiPeds[r.pedIdx];
+          if (!r.medicGoingBack) {
+            bool arrived = npcWalkToward(r.medicX, r.medicY, r.medicDir, r.medicFrame, r.medicAnimTimer,
+                                          corpse.x, corpse.y, AI_PED_SPEED);
+            if (arrived) {
+              r.medicGoingBack = true;
+              corpse.active = false;
+              if (pendingCorpses > 0) pendingCorpses--;
+            }
+          } else {
+            bool arrived = npcWalkToward(r.medicX, r.medicY, r.medicDir, r.medicFrame, r.medicAnimTimer,
+                                          c.x, c.y, AI_PED_SPEED);
+            if (arrived) r.medicActive = false;   // de retour : cherchera un autre corps au prochain passage
+          }
+        }
+      } else {                                   // FIRETRUCK : canon a eau, simple compte a rebours
+        if (r.workTimer == 0) {
+          r.workTimer = RESPONDER_WORK_FRAMES;
+          // Le jet d'eau commence : le feu passe direct en fumee (coupe la
+          // flamme, peu importe le temps de combustion restant).
+          if (!r.fireIsCar && r.fireSlot >= 0 && !groundFires[r.fireSlot].smoking) {
+            groundFires[r.fireSlot].smoking = true;
+            groundFires[r.fireSlot].life = GROUND_FIRE_SMOKE;
+          }
+        }
+        if (--r.workTimer == 0) {
+          if (r.fireIsCar) {
+            if (r.fireCarIdx >= 0) { if (aiCars[r.fireCarIdx].active) aiCars[r.fireCarIdx].fuse = 0; }
+            else { if (!carGone) { carFuse = 0; carFireTick = 0; } }
+          }
+          r.phase = RESP_LEAVING;
+        }
+      }
+    } else {                                     // RESP_LEAVING : repart et despawn au loin
+      aiCarStepAway(c, fcx, fcy);
+      int ddx = (int)c.x - fcx, ddy = (int)c.y - fcy;
+      if (ddx * ddx + ddy * ddy > RECYCLE_DIST * RECYCLE_DIST) { c.active = false; r.active = false; }
+    }
+  }
+}
+
+
+// Dessine les vehicules d'intervention : camion (sprite truck + girophare),
+// ambulancier a pied (sprite pieton standard, blanc), et le jet d'eau du
+// pompier (overlay 2 px clignotant, meme principe que drawGyro -- aucun sprite
+// dedie n'est necessaire).
+static void responderDraw(int camX, int camY) {
+  for (int i = 0; i < NUM_RESPONDERS; i++) {
+    Responder &r = responders[i];
+    if (!r.active || !r.car.active) continue;
+    const TruckVariant &v = TRUCK_VARIANTS[r.car.variant];
+    blitTruck(camX, camY, (int)r.car.x, (int)r.car.y, AI_CAR_FRAME[r.car.dir], v);
+    if (v.hasGyro) drawGyro(camX, camY, (int)r.car.x, (int)r.car.y, v.gyroL, v.gyroR);
+    if (r.medicActive) blitPed(camX, camY, (int)r.medicX, (int)r.medicY, r.medicDir, r.medicFrame, 0xFFFF);
+    if (r.kind == RESP_FIRETRUCK && (r.phase == RESP_INBOUND || r.phase == RESP_WORKING)) {
+      float ddx = r.car.x - r.tgx, ddy = r.car.y - r.tgy;
+      if (ddx * ddx + ddy * ddy < 20.0f * 20.0f)
+        drawWaterJet(camX, camY, r.car, r.tgx, r.tgy);
+    }
+  }
 }
 
 
@@ -596,8 +775,10 @@ static void aiDraw(int camX, int camY) {
     if (!p.active) continue;
     if (p.state == 1) blitSplat(camX, camY, (int)p.x, (int)p.y);
     else if (p.state == 3) blitDownBody(camX, camY, (int)p.x, (int)p.y, p.color);  // assomme (vol de voiture)
+    else if (p.state == 4) blitDownBody(camX, camY, (int)p.x, (int)p.y, p.color);  // corps en attente de l'ambulance
     else blitPed(camX, camY, (int)p.x, (int)p.y, p.dir, p.frame, p.color);
   }
+  responderDraw(camX, camY);
 }
 
 

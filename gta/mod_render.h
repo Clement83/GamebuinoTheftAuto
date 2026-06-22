@@ -439,14 +439,42 @@ static void drawPhoneBooth(int camX, int camY, int px, int py,
 }
 
 
+// Icone de flamme generique (3 points rouge/orange autour d'un centre jaune,
+// clignotant) : meme silhouette pour TOUS les feux du jeu (caisse en feu,
+// feu au sol du molotov...). Pas de nouveau sprite : juste 4 pixels poses
+// directement dans le framebuffer, comme drawGyro/drawBoom.
+static void drawFireIcon(int cx, int cy) {
+  static const int8_t FX[3] = { -1, 1, 0 };
+  static const int8_t FY[3] = {  1, 1, -2 };
+  uint16_t dot = (missionAnim & 2) ? 0xFC00 : 0xF800;     // orange / rouge qui clignote
+  if (cx >= 0 && cx < SCREEN_W && cy >= 0 && cy < SCREEN_H) fb[cy * SCREEN_W + cx] = 0xFFE0;  // centre jaune
+  for (int k = 0; k < 3; k++) {
+    int x = cx + FX[k], y = cy + FY[k];
+    if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = dot;
+  }
+}
+
+
+// Verifie si un pompier est en train d'arroser cette cible (RESP_WORKING) :
+// isPlayerCar=true -> caisse du joueur ; sinon -> aiCars[aiIdx].
+static bool fireBeingHosed(bool isPlayerCar, int aiIdx) {
+  for (int i = 0; i < NUM_RESPONDERS; i++) {
+    Responder &r = responders[i];
+    if (!r.active || r.kind != RESP_FIRETRUCK || r.phase != RESP_WORKING || !r.fireIsCar) continue;
+    if (isPlayerCar && r.fireCarIdx < 0) return true;
+    if (!isPlayerCar && r.fireCarIdx == aiIdx) return true;
+  }
+  return false;
+}
+
+
 // Fumee de la caisse du joueur (au volant OU lancee). Sprite pre-rendu ancre au
-// CAPOT (avance (cos,sin) selon l'angle) : palier leger sous ~60 % de PV, dense
-// sous ~30 %. En feu (mèche) : grosse flamme + 2e panache qui monte.
+// CAPOT : palier leger sous ~60 % de PV, dense sous ~30 %. En feu (meche) :
+// flamme + double panache. Pompier qui arrose -> plus que la fumee (flamme masquee).
 static void drawCarSmoke(int camX, int camY) {
   if (carGone) return;
   bool burning = carFuse > 0;
-  if (!burning && carHp > (CAR_MAX_HP * 3) / 5) return;     // caisse saine : rien
-  // Amochee : elle fume qu'on soit au volant, lancee ou simplement garee a cote.
+  if (!burning && carHp > (CAR_MAX_HP * 3) / 5) return;
   int tier = (burning || carHp <= (CAR_MAX_HP * 3) / 10) ? 1 : 0;
   int frame = (missionAnim / (tier ? 3 : 6)) % SMOKE_FRAMES;
   float a = car.angle;
@@ -454,26 +482,62 @@ static void drawCarSmoke(int camX, int camY) {
   int hy = (int)(car.y + sinf(a) * SMOKE_HOOD_DIST) - camY;
   blitSmoke(hx, hy, tier, frame);
   if (burning) {
-    blitSmoke(hx, hy - 4, 1, (frame + 2) % SMOKE_FRAMES);   // panache qui monte plus haut
-    if (missionAnim & 2) {                                  // lechee de flamme clignotante
-      uint16_t fcol = (missionAnim & 4) ? 0xFD20 : 0xFFE0;
-      if (hx >= 0 && hx < SCREEN_W && hy >= 0 && hy < SCREEN_H) fb[hy * SCREEN_W + hx] = fcol;
-      int hx2 = hx + ((missionAnim & 8) ? 1 : -1);
-      if (hx2 >= 0 && hx2 < SCREEN_W && hy >= 0 && hy < SCREEN_H) fb[hy * SCREEN_W + hx2] = fcol;
+    blitSmoke(hx, hy - 4, 1, (frame + 2) % SMOKE_FRAMES);
+    if (!fireBeingHosed(true, -1)) drawFireIcon(hx, hy - 2);
+  }
+}
+
+
+// Fumee des voitures du trafic amochees : panache ancre au centre (palier leger /
+// dense). En feu (fuse > 0) : meme combo flamme + double panache que drawCarSmoke.
+static void drawAiCarSmoke(int camX, int camY) {
+  for (int i = 0; i < NUM_AI_CARS; i++) {
+    AiCar &c = aiCars[i];
+    if (!c.active) continue;
+    bool burning = c.fuse > 0;
+    if (!burning && c.hp > (CAR_MAX_HP * 3) / 5) continue;
+    int tier = (burning || c.hp <= (CAR_MAX_HP * 3) / 10) ? 1 : 0;
+    int frame = (missionAnim / (tier ? 3 : 6) + i) % SMOKE_FRAMES;
+    int cx = (int)c.x - camX, cy = (int)c.y - camY;
+    blitSmoke(cx, cy - 2, tier, frame);
+    if (burning) {
+      blitSmoke(cx, cy - 6, 1, (frame + 2) % SMOKE_FRAMES);
+      if (!fireBeingHosed(false, i)) drawFireIcon(cx, cy - 4);
     }
   }
 }
 
 
-// Fumee des voitures du trafic amochees (pas seulement celle du joueur) : panache
-// ancre au centre, palier leger sous ~60 % de PV, dense sous ~30 %.
-static void drawAiCarSmoke(int camX, int camY) {
-  for (int i = 0; i < NUM_AI_CARS; i++) {
-    AiCar &c = aiCars[i];
-    if (!c.active || c.hp > (CAR_MAX_HP * 3) / 5) continue;
-    int tier = (c.hp <= (CAR_MAX_HP * 3) / 10) ? 1 : 0;
-    int frame = (missionAnim / (tier ? 3 : 6) + i) % SMOKE_FRAMES;
-    blitSmoke((int)c.x - camX, (int)c.y - camY - 2, tier, frame);
+// Jet d'eau du camion de pompiers en action (RESP_WORKING) : degre de bleu/blanc
+// depuis le capot vers la cible, vague laterale sinusoidale via table (sans trig),
+// eclaboussures scintillantes a l'impact. Tout en pixels directs, zero sprite.
+static void drawWaterJet(int camX, int camY, const AiCar &c, int tgx, int tgy) {
+  static const int8_t WAVE[8] = { 0, 1, 1, 0, 0, -1, -1, 0 };  // vague douce
+  float dx = (float)tgx - c.x, dy = (float)tgy - c.y;
+  float len = sqrtf(dx * dx + dy * dy);
+  if (len < 1.0f) return;
+  float fdx = dx / len, fdy = dy / len;   // vecteur unitaire camion->feu
+  float pdx = -fdy, pdy = fdx;            // perpendiculaire
+  int cx = (int)c.x - camX, cy = (int)c.y - camY;
+  for (int k = 2; k <= 19; k++) {
+    int side = WAVE[(missionAnim + k) & 7];
+    int x = cx + (int)(fdx * k + pdx * side);
+    int y = cy + (int)(fdy * k + pdy * side);
+    if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) continue;
+    uint16_t col = (k <= 7) ? 0xBFFF   // bleu tres clair pres du camion
+                 : (k <= 13) ? 0x3FFF  // bleu moyen
+                 : 0x07FF;             // cyan vif a la pointe
+    fb[y * SCREEN_W + x] = col;
+  }
+  // Eclaboussures a l'impact : 4 pixels en croix, clignotement en quinconce
+  static const int8_t SX[4] = { -1,  1,  0,  0 };
+  static const int8_t SY[4] = {  0,  0, -1,  1 };
+  int ex = cx + (int)(fdx * 19), ey = cy + (int)(fdy * 19);
+  for (int k = 0; k < 4; k++) {
+    if ((missionAnim + k) & 2) continue;
+    int sx = ex + SX[k], sy = ey + SY[k];
+    if (sx >= 0 && sx < SCREEN_W && sy >= 0 && sy < SCREEN_H)
+      fb[sy * SCREEN_W + sx] = 0xFFFF;
   }
 }
 
@@ -492,4 +556,22 @@ static void drawBoom(int camX, int camY) {
       int x = cx + dx, y = cy + dy;
       if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fb[y * SCREEN_W + x] = col;
     }
+}
+
+
+// Feu au sol (molotov, explosion, chaine...) : flamme + panache de fumee quand
+// actif ; que de la fumee qui s'estompe une fois g.smoking (pompier ou fin de vie).
+static void drawGroundFires(int camX, int camY) {
+  for (int i = 0; i < NUM_GROUND_FIRES; i++) {
+    GroundFire &g = groundFires[i];
+    if (!g.active) continue;
+    int cx = (int)g.x - camX, cy = (int)g.y - camY;
+    int frame = (missionAnim / 4 + i) % SMOKE_FRAMES;
+    if (g.smoking) {
+      blitSmoke(cx, cy, 1, frame);
+    } else {
+      blitSmoke(cx, cy - 4, 1, frame);   // panache au-dessus de la flamme
+      drawFireIcon(cx, cy);
+    }
+  }
 }

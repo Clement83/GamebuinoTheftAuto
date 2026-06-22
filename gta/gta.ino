@@ -131,6 +131,9 @@ void setup() {
   carFuse = 0; carRunaway = false; carImpactX = 0.0f; carImpactY = 0.0f;
   for (int i = 0; i < NUM_WRECKS; i++) wrecks[i].active = false;
   for (int i = 0; i < NUM_SMOKE; i++) smokes[i].active = false;
+  for (int i = 0; i < NUM_GROUND_FIRES; i++) groundFires[i].active = false;
+  for (int i = 0; i < NUM_RESPONDERS; i++) { responders[i].active = false; responders[i].car.active = false; }
+  pendingCorpses = 0;
   boomTimer = 0;
   overlayMsg = nullptr; overlayTimer = 0;
   seqKind = SEQ_NONE; seqPhase = 0; seqTimer = 0; seqPoi = nullptr;
@@ -138,6 +141,10 @@ void setup() {
 
   // Argent, butin au sol et projectiles : tout vide au demarrage.
   playerMoney = 10;                            // pecule de depart
+  // CHEAT TEMPORAIRE (a supprimer) : bazooka + molotov + cash direct en inventaire.
+  weaponOwned[WEAPON_BAZOOKA] = true; weaponAmmo[WEAPON_BAZOOKA] = 10;
+  weaponOwned[WEAPON_MOLOTOV] = true; weaponAmmo[WEAPON_MOLOTOV] = 10;
+  playerMoney += 5000;
   moneyShown = playerMoney; moneyRollStep = 1;
   moneyGainAmt = 0; moneyGainTimer = 0; moneyLossAmt = 0; moneyLossTimer = 0;
   for (int i = 0; i < NUM_LOOT; i++) loots[i].active = false;
@@ -324,10 +331,20 @@ void loop() {
                  + (long)(pcy - (int)aiCars[i].y) * (pcy - (int)aiCars[i].y);
           if (d <= aiThr && d < bestd) { best = i; bestd = d; }
         }
+        // Vehicules d'intervention (ambulance/pompier) : volables a tout instant,
+        // comme une caisse normale (memes regles, pas d'etoile supplementaire).
+        // Encodage : best = -100 - i (i = index dans responders[]).
+        for (int i = 0; i < NUM_RESPONDERS; i++) {
+          if (!responders[i].active || !responders[i].car.active) continue;
+          AiCar &rc = responders[i].car;
+          long d = (long)(pcx - (int)rc.x) * (pcx - (int)rc.x)
+                 + (long)(pcy - (int)rc.y) * (pcy - (int)rc.y);
+          if (d <= aiThr && d < bestd) { best = -100 - i; bestd = d; }
+        }
         // Monter dans une AUTRE caisse (mission/volee) coupe une mèche/lancee
         // heritee de l'ancienne. Remonter dans SA propre caisse (best == -1) ne
         // reinitialise rien : PV et feu appartiennent a la voiture (persistants).
-        if (best == -3 || best >= 0) { carFuse = 0; carRunaway = false; }
+        if (best == -3 || best >= 0 || best <= -100) { carFuse = 0; carRunaway = false; }
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
           carColor = MISSION_CAR_COLOR; carIsMission = true; drivingTruck = false;
@@ -348,6 +365,29 @@ void loop() {
             weaponAmmo[WEAPON_SHOTGUN] += WEAPONS[WEAPON_SHOTGUN].ammoPickup;
           }
           c.active = false;                  // la voiture quitte le pool IA
+          driving = true; carGone = false;
+        } else if (best <= -100) {
+          int ri = -100 - best;
+          Responder &r = responders[ri];
+          AiCar &c = r.car;
+          if (c.driver) aiEjectDriver((int)c.x, (int)c.y, true, false, c.dir);
+          if (r.medicActive) {                    // ambulancier a pied : panique et detale
+            int slot = -1;
+            for (int k = 0; k < NUM_AI_PEDS; k++) if (!aiPeds[k].active) { slot = k; break; }
+            if (slot >= 0) {
+              AiPed &mp = aiPeds[slot];
+              mp.x = r.medicX; mp.y = r.medicY; mp.dir = r.medicDir; mp.frame = 0; mp.animTimer = 0;
+              mp.hp = 3; mp.isCop = false; mp.shootTimer = COP_SHOOT_PERIOD; mp.meleeTimer = 0;
+              mp.color = 0xFFFF; mp.state = 0; mp.active = true;
+              startPanic(mp, (int)c.x, (int)c.y);
+            }
+          }
+          car.x = c.x; car.y = c.y; car.vx = 0.0f; car.vy = 0.0f;
+          car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
+          carColor = c.color; carIsMission = false;
+          drivingTruck = true; drivingVariant = c.variant;
+          carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;
+          c.active = false; r.active = false;     // intervention annulee : corps/feu reste en attente (redispatch plus tard)
           driving = true; carGone = false;
         }
         if (best != -2) answered = true;     // monte dans une caisse -> interaction faite
@@ -441,8 +481,10 @@ void loop() {
   if (overlayTimer > 0) overlayTimer--;
   updateRunawayCar();                          // caisse sans conducteur sur sa lancee
   updateCarFuse();                             // mèche -> explosion (mort si dedans)
+  updateAiCarFuses();                          // meches des caisses IA -> explosion (~10s)
   updateWrecks(focusX, focusY);                // epaves : petit saut puis despawn au loin
   updateSmoke();                               // panaches de fumee d'explosion (~5 s)
+  updateGroundFires();                         // feux au sol : degats legers + extinction
   updateSequence();                            // avance la cinematique mort/arret/spray
 
   // Pay'n'Spray : entrer en voiture par la porte du garage (case gar_door) et
@@ -567,6 +609,7 @@ void loop() {
 #endif
   drawCasseZone(camX, camY);                    // zone de broyage (La Casse)
   drawWrecks(camX, camY);                       // epaves fumantes (sous le trafic)
+  drawGroundFires(camX, camY);                  // feux au sol (molotov)
   aiDraw(camX, camY);
   drawWeaponPickups(camX, camY);
   drawLoot(camX, camY);

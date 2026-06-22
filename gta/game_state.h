@@ -121,7 +121,7 @@ static Bullet bullets[NUM_BULLETS];
 //     chaine), pas le tir lui-meme. ---
 struct Projectile {
   float    x, y, vx, vy;  // px monde
-  uint8_t  kind;          // 0 = roquette, 1 = grenade
+  uint8_t  kind;          // 0 = roquette, 1 = grenade, 2 = molotov
   uint8_t  z;             // hauteur visuelle de la grenade (cloche), px
   uint16_t flight;        // frames de vol restants (roquette: portee ; grenade: arc)
   uint16_t fuse;          // grenade: frames avant explosion ; roquette: 0
@@ -186,8 +186,10 @@ static uint8_t       carCrashTimer = 0;
 //     saute en marche elle continue sur sa lancee (runaway) et explose plus
 //     loin. L'explosion fait un petit saut (oppose au dernier choc) + des
 //     degats de zone (PNJ tues, joueur -1 coeur). ---
-static const uint16_t CAR_FUSE_FRAMES = 250;   // ~10 s a ~25 fps
+static const uint16_t CAR_FUSE_FRAMES = 250;   // ~10 s a ~25 fps -- meche partagee
+                                                // par TOUTE caisse en feu (joueur ET IA)
 static uint16_t       carFuse        = 0;       // >0 : compte a rebours avant boom
+static uint8_t        carFireTick    = 0;       // cadence de propagation (cf. fireProximityTick)
 static bool           carRunaway     = false;   // caisse sans conducteur, sur sa lancee
 static float          carImpactX = 0.0f, carImpactY = 0.0f;  // sens du dernier choc
 // Sortie de voiture, 3 paliers selon la vitesse^2 (max ~5.3 = CAR_MAX_FWD^2) :
@@ -352,7 +354,7 @@ static const TruckVariant TRUCK_VARIANTS[TRUCK_KIND_N] = {
   { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, true,  0xF800, 0x001F },       // ambulance (blanc, gyro rouge/bleu)
   { 0xFD20, 0x8410, 0xFD20, 0xFD20, false, 0, 0 },                 // benne chantier (orange, cabine grise)
 };
-static const int TRUCK_SPAWN_PCT = 12;  // % de chance qu'un (re)spawn de trafic soit un camion plutot qu'une voiture
+static const int TRUCK_SPAWN_PCT = 5;   // % de chance qu'un (re)spawn de trafic soit un camion plutot qu'une voiture
 
 // Vehicule actuellement pilote par le joueur : voiture (forme/boite carFrames)
 // ou camion (truckFrames) -- determine le sprite et la cle de couleur a utiliser.
@@ -376,6 +378,14 @@ struct AiCar {
   bool active;
   bool isTruck;        // sprite/boite truckFrames au lieu de carFrames (cf. TruckVariant)
   uint8_t variant;     // index dans TRUCK_VARIANTS, valide seulement si isTruck
+  // --- en feu (cf. CAR_FUSE_FRAMES) : meme meche que la caisse du joueur --
+  // contact direct (tir/explosion a 0 PV) ou propagation (cf. fireProximityTick).
+  // fireHopx/y + fireCredit sont captures a l'allumage et rejoues a l'explosion
+  // (~10 s plus tard), l'info d'origine du coup n'existant plus a ce moment-la.
+  uint16_t fuse;        // >0 : compte a rebours avant boom (idem carFuse)
+  uint8_t  fireTick;    // cadence de propagation pendant que fuse > 0
+  float    fireHopX, fireHopY;  // sens du coup qui a allume le feu (saut de l'epave)
+  bool     fireCredit;  // true : +3 etoiles a l'explosion (tir/explosion du joueur)
 };
 
 struct AiPed {
@@ -384,8 +394,10 @@ struct AiPed {
   int tgtx, tgty;
   uint16_t color;
   uint8_t frame, animTimer;
-  uint8_t state;       // 0 = marche, 1 = mort/renverse (despawn), 2 = panique (fuite),
-                       // 3 = au sol RECUPERABLE (se releve puis fuit ; ex. vol de voiture)
+  uint8_t state;       // 0 = marche, 1 = mort/renverse (despawn ou attente ambulance),
+                       // 2 = panique (fuite), 3 = au sol RECUPERABLE (se releve puis
+                       // fuit ; ex. vol de voiture), 4 = corps en attente (persistant,
+                       // attend l'ambulance), 5 = ambulancier en mission (a pied)
   uint16_t downTimer;
   uint8_t hp;          // 3 coups de poing pour tomber ; 1 balle suffit
   bool isCop;          // policier (bleu) : poursuit/matraque/tire quand recherche
@@ -413,6 +425,60 @@ static Smoke smokes[NUM_SMOKE];
 static AiCar aiCars[NUM_AI_CARS];
 static AiPed aiPeds[NUM_AI_PEDS];
 static uint32_t aiRng = 0xC0FFEEu;   // graine PRNG partagee (xorshift32)
+
+// --- Feu au sol : source de feu GENERIQUE, posee par n'importe quelle origine
+//     incendiaire -- molotov qui atterrit, mais aussi tout point de detonation
+//     (roquette/grenade/voiture qui explose/chaine, cf. explodeCarAt). Pas de
+//     degats directs a l'allumage ; brule pendant quelques secondes, infligeant
+//     un leger degat periodique a qui reste dans la zone (joueur/PNJ/voiture,
+//     cf. fireProximityTick) -- ce qui peut a son tour allumer une caisse
+//     proche (propagation) -- puis s'extingue seule, ou plus vite si un
+//     pompier l'arrose (cf. Responder RESP_FIRETRUCK, generique lui aussi :
+//     il repond a CE pool ET aux caisses en feu, quelle que soit l'origine).
+struct GroundFire { float x, y; uint16_t life; uint8_t tickTimer; bool smoking; bool active; };
+static const int      NUM_GROUND_FIRES   = 4;
+static const uint16_t GROUND_FIRE_LIFE   = 200;  // ~8 s a ~25 fps avant transition en fumee
+static const uint16_t GROUND_FIRE_SMOKE  = 50;   // ~2 s de fumee residuelle avant extinction totale
+static const uint8_t  GROUND_FIRE_RADIUS = 10;   // px : rayon de la zone qui brule
+static const uint8_t  GROUND_FIRE_TICK   = 20;   // frames entre deux degats (~0.8 s)
+static const int16_t  GROUND_FIRE_DMG    = 1;    // degats legers par tick
+static GroundFire groundFires[NUM_GROUND_FIRES];
+
+// --- Vehicules d'intervention (ambulance / pompiers) : repondent automatiquement
+//     a un corps a terre en attente ou un feu, en reutilisant la conduite trafic
+//     existante (policeCarStep / aiCarStepAway) sur un AiCar embarque. Volables a
+//     tout moment comme une voiture normale (cf. scan de vol dans gta.ino) ; le
+//     vol annule l'intervention (la cible reste en attente, sera redispatchee). ---
+enum ResponderKind  : uint8_t { RESP_AMBULANCE = 0, RESP_FIRETRUCK = 1 };
+enum ResponderPhase : uint8_t {
+  RESP_PENDING = 0,   // appel passe, vehicule pas encore materialise (cooldown avant spawn)
+  RESP_INBOUND = 1,   // roule vers la cible (corps ou feu)
+  RESP_WORKING = 2,   // sur place : ambulancier a pied (corps) ou canon a eau (feu)
+  RESP_LEAVING = 3,   // intervention terminee : repart puis despawn
+};
+struct Responder {
+  AiCar    car;        // vehicule (sprite camion via TRUCK_AMBULANCE/TRUCK_FIRE)
+  uint8_t  kind;
+  uint8_t  phase;
+  int16_t  tgx, tgy;   // cible courante (px monde)
+  uint16_t workTimer;  // duree de la phase WORKING (arrosage pompier)
+  bool     fireIsCar;  // pompier seulement : cible = une caisse en feu (sinon un GroundFire)
+  int8_t   fireSlot;   // pompier seulement : index dans groundFires[] (valide seulement si !fireIsCar)
+  int8_t   fireCarIdx; // pompier + fireIsCar seulement : index dans aiCars[] (-1 = caisse du joueur)
+  bool     medicActive;// ambulance seulement : l'ambulancier est sorti a pied
+  float    medicX, medicY;
+  uint8_t  medicDir, medicFrame, medicAnimTimer;
+  bool     medicGoingBack; // false = va vers le corps, true = le ramene au camion
+  int8_t   pedIdx;     // ambulance seulement : index aiPeds du corps en cours de ramassage
+  bool     active;
+};
+static const int      NUM_RESPONDERS        = 2;   // 1 ambulance + 1 pompier max en meme temps
+static const float    RESPONDER_SPEED       = AI_CAR_SPEED;
+static const uint16_t RESPONDER_WORK_FRAMES = 60;  // ~2.4 s sur place (pompier / ramassage par corps)
+static const uint16_t RESP_DISPATCH_DELAY   = 75;  // ~3 s entre l'appel et l'apparition du vehicule
+static const int      MAX_PENDING_CORPSES   = 2;   // au-dela, un corps despawn a l'ancienne (timer)
+static Responder responders[NUM_RESPONDERS];
+static int        pendingCorpses = 0;
 
 // ---------------------------------------------------------------------------
 //  Systeme de missions modulaire. Deux telephones FIXES dans la ville ; chacun
@@ -924,8 +990,8 @@ static const int AMMU_REACH = 12;        // px : portee d'ouverture (centre joue
 
 // Tarifs : prix d'achat de l'arme (1re fois) et prix d'un rechargement (1 lot de
 // munitions = WEAPONS[w].ammoPickup). Index par WeaponId ; FIST a 0 (jamais vendu).
-static const int32_t WEAPON_PRICE[WEAPON_COUNT] = { 0, 100, 250, 200, 600, 300 };
-static const int32_t AMMO_PRICE[WEAPON_COUNT]   = { 0,  40, 100,  80, 250, 120 };
+static const int32_t WEAPON_PRICE[WEAPON_COUNT] = { 0, 100, 250, 200, 600, 300, 150 };
+static const int32_t AMMO_PRICE[WEAPON_COUNT]   = { 0,  40, 100,  80, 250, 120,  60 };
 static const int32_t ARMOR_PRICE = 200;    // gilet pare-balles (+3 PV)
 
 // Etat du magasin (UI modale, monde gele pendant l'achat). Lignes : les armes

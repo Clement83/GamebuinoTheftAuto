@@ -43,9 +43,12 @@ static void blitCopHitFx(int camX, int camY);
 static void drawPlayer(int camX, int camY);
 static void drawCar(int camX, int camY);
 static void drawPhoneBooth(int camX, int camY, int px, int py, uint16_t body, bool canRing);
+static bool fireBeingHosed(bool isPlayerCar, int aiIdx);
+static void drawWaterJet(int camX, int camY, const AiCar &c, int tgx, int tgy);
 static void drawCarSmoke(int camX, int camY);
 static void drawAiCarSmoke(int camX, int camY);
 static void drawBoom(int camX, int camY);
+static void drawGroundFires(int camX, int camY);
 
 // --- ai ---
 static bool aiFindTileInRing(int ccx, int ccy, int minR, int maxR, AiClassify classify, int &otx, int &oty);
@@ -66,6 +69,10 @@ static void policeCarStep(AiCar &c, int fcx, int fcy);
 static void aiCarStepAway(AiCar &c, int fcx, int fcy);
 static bool nudgeAiCar(AiCar &c, float ox, float oy);
 static void carHonk();
+static void dispatchAmbulance(int x, int y);
+static void dispatchFireTruck(int x, int y, bool fireIsCar, int8_t fireSlot, int8_t fireCarIdx = -1);
+static void responderUpdate(int fcx, int fcy);
+static void responderDraw(int camX, int camY);
 static void aiUpdate(int fcx, int fcy);
 static void aiDraw(int camX, int camY);
 static bool npcWalkToward(float &x, float &y, uint8_t &dir, uint8_t &frame, uint8_t &animTimer, float tx, float ty, float speed);
@@ -76,7 +83,11 @@ static void explodeCarAt(int wx, int wy);
 static void fireBullets(int pcx, int pcy);
 static void fireCopBullet(float sx, float sy, int tx, int ty);
 static uint16_t copShootPeriod();
-static void wreckAiCar(AiCar &c, float hopx, float hopy, bool credit);
+static void wreckAiCar(AiCar &c);
+static void igniteAiCar(AiCar &c, float hopx, float hopy, bool credit);
+static void ignitePlayerCar();
+static void fireProximityTick(float fx, float fy);
+static void updateAiCarFuses();
 static void updateBullets();
 static void drawBullets(int camX, int camY);
 static void spawnProjectile(uint8_t kind, int pcx, int pcy);
@@ -85,6 +96,8 @@ static void drawProjectiles(int camX, int camY);
 static void tryAttack();
 static void updateCarFuse();
 static void updateRunawayCar();
+static void spawnGroundFire(float fx, float fy);
+static void updateGroundFires();
 
 // --- mission ---
 static bool spawnTargetWander(int pcx, int pcy);
