@@ -1,12 +1,18 @@
 # GTA Demake — Gamebuino META
 
 Un demake top-down façon GTA1/2 pour la **Gamebuino META** (microcontrôleur
-SAMD21 / Cortex-M0+, écran 80×64, RAM et flash très limitées). Ville générée,
-trafic IA (voitures + piétons), conduite arcade avec drift, combat à pied,
-armes, et un système de **missions** déclenchées par des **cabines
-téléphoniques**.
+SAMD21 / Cortex-M0+, écran 80×64, RAM et flash très limitées). Ville générée
+de façon procédurale (organique, par seed), trafic IA (voitures + piétons,
+sens uniques, anti-chevauchement), conduite arcade avec drift, voitures
+destructibles, combat à pied, armes, niveau de recherche policier (étoiles),
+musique chiptune, POI interactifs (casino, hôpital, garage, broyeur de La
+Casse…), et une **campagne scénarisée de 18 missions + épilogue** doublée de
+**missions secondaires rejouables**, toutes deux déclenchées par des
+**cabines téléphoniques**.
 
-## Jouer (sur la console)
+# Pour jouer
+
+## Installer (sur la console)
 
 Pas besoin de compiler : le dépôt fournit le jeu déjà packagé dans le dossier
 **`GTADEMAKE/`** (le `.bin`, l'icône et l'écran-titre).
@@ -18,9 +24,6 @@ Pas besoin de compiler : le dépôt fournit le jeu déjà packagé dans le dossi
 
 > La racine de la SD ressemble alors à `GTADEMAKE/`, `Pns/`, `Tetris/`, … — un
 > dossier par jeu. Ne renomme pas `GTADEMAKE` (le firmware attend ce nom).
-
-La suite de ce README s'adresse au **développement** (build, génération des
-données, tests).
 
 ## 🎮 Contrôles
 
@@ -61,6 +64,33 @@ Côté code : `gta/save.h` (struct `SaveProfile` + helpers purs, testés par
 (`profileRead` / `profileWriteCurrent` / `profileLoadCurrent`, menu
 `updateProfileMenu` / `drawProfileMenu`).
 
+## Campagne & cabines téléphoniques
+
+Deux familles de cabines, dessinées en pixel-art 8×8 procédural
+(`drawPhoneBooth` dans `gta.ino`), posées sur le **trottoir** le plus proche
+(`findSidewalkSpot`, tuile `TILE_PAVEMENT`) pour rester accessibles à pied :
+
+- **Cabines bleues — missions secondaires** (`PHONES`). Une par mission,
+  réparties en grille. Au repos, la plus proche **sonne** (toit clignotant +
+  ondes) ; décrocher (A) lance la mission associée. Rejouables.
+
+- **Cabine rouge — trame principale**. **Une seule**, ancrée à la **Planque**
+  (pas plusieurs dispersées sur la carte). Elle sonne au lancement et après
+  chaque mission de trame réussie ; décrocher (A) lance la mission suivante de
+  `STORY_SEQ[]` (`campaignStep`, sauvegardé). Le dernier décrochage déclenche
+  l'épilogue.
+
+La trame est entièrement implémentée : **18 missions + épilogue**, réparties
+en 4 actes (Marco → fausse piste chez les Loups → la vérité avec Sarah →
+Victor). Voir [campagne/README.md](campagne/README.md) pour le scénario
+complet (boucle de jeu, types d'objectifs, lieux, personnages) et les fiches
+`campagne/acte-*/m*.md`, chacune un script fidèle au code (`mod_mission.h`).
+
+# Pour développer
+
+La suite de ce README couvre le **développement** : structure du code, build,
+génération des données, tests.
+
 ## Structure du projet
 
 ```
@@ -78,18 +108,36 @@ gta/                  Sketch Arduino + headers C++ "purs" (le firmware)
   combat.h            Coup de poing / dégâts
   weapons.h           Définition des armes + munitions
   mission.h           Couche mission (objectifs, LOS, fuite, flèche HUD)
+  wanted.h            Machine d'état du niveau de recherche policier (étoiles)
+  slot.h              Logique pure de la machine à sous du Casino
   save.h              Profils de sauvegarde (struct + pack/apply purs)
+  smoke.h / music.h   Données générées (fumée voiture, pistes chiptune)
   assets.h / *_data.cpp   Données générées (tileset, sprites, carte) — NE PAS éditer
 tools/                Générateurs Python (PC) -> écrivent les *_data.cpp
   build_assets.py     tileset.csv + PNG -> gta/assets.{h,cpp}
-  build_city.py       city/city.txt (DSL) -> gta/citymap.{h,cpp}
+  build_city.py       city/city.txt -> gta/citymap.{h,cpp} (+ aperçu PNG)
+  citygen.py          générateur procédural de ville (value noise déterministe
+                      par seed : zones, routes, ponts, blocs, trottoirs, spawn)
+  citydsl.py          compilateur pur du DSL de city.txt (appelle citygen)
+  pois.py             placement déterministe des POI sur la grille générée
   build_player.py     sprite piéton procédural -> gta/player.{h,cpp}
-  build_car.py        frames de rotation voiture -> gta/car.{h,cpp}
+  build_car.py        frames de rotation voiture + fumée -> gta/car.{h,cpp}, smoke.h
   build_weapons.py    icônes d'armes 6x6 -> gta/weapons_gfx.{h,cpp}
+  build_music.py      pistes chiptune (2 voix) -> gta/music.{h,cpp}
+  build_junk_tiles.py tuiles pixel-art de La Casse -> assets/named/tiles/
+  catalog.py          inventaire des BMP du rip -> assets/catalog.csv + planches-contact
+  curate.py           mappe les ids GTA choisis -> assets/named/** + tileset.csv
+  gbimg.py            helpers de conversion d'images (pipeline Gamebuino)
+  viewer.py           viewer pygame interactif de la ville compilée (debug)
+  preview_slot.py     aperçu de la machine à sous (écran 80x64)
   engine.py / ai.py   "source de vérité" du comportement, en parité avec les .h
   host_test/          Tests natifs g++ (pas de dépendance Gamebuino)
-assets/               PNG sources, tileset.csv, catalogues
-city/                 city.txt (DSL de la ville) + aperçus PNG générés
+  tests/              Tests pytest des générateurs (citygen, citydsl, pois, ai, engine…)
+assets/               PNG sources, tileset.csv, catalogues, sprites/tuiles nommés
+city/                 city.txt (issu de citygen, par seed) + aperçu PNG généré
+campagne/             Scripts narratifs des 18 missions + épilogue (doc, lit le code)
+docs/superpowers/     Specs et plans de conception (un par feature/jalon)
+POI.md                Feuille de route des POI (état d'avancement, économie)
 GTA_textures_LC/      Rip de textures GTA (577 BMP numérotés, non nommés)
 previews/             Rendus PNG de debug (le client n'affiche pas inline)
 ```
@@ -129,24 +177,3 @@ g++ -std=c++11 -I gta tools/host_test/test_engine_host.cpp \
 ```
 
 Tests Python des générateurs : `.venv/bin/pytest`.
-
-## Cabines téléphoniques
-
-Deux familles de cabines, dessinées en pixel-art 8×8 procédural
-(`drawPhoneBooth` dans `gta.ino`), posées sur le **trottoir** le plus proche
-(`findSidewalkSpot`, tuile `TILE_PAVEMENT`) pour rester accessibles à pied :
-
-- **Cabines bleues — missions secondaires** (`PHONES`). Une par mission,
-  réparties en grille. Au repos, la plus proche **sonne** (toit clignotant +
-  ondes) ; décrocher (A) lance la mission associée. Rejouables.
-
-- **Cabines rouges — trame principale** (`STORY_PHONES`). 3-4 dispersées sur la
-  carte. **Muettes pour l'instant** : ce sont des points d'ancrage posés
-  d'avance pour la future mission scénarisée. Quand l'histoire sera branchée,
-  l'une d'elles sonnera et fera avancer la trame principale. On les distingue
-  des cabines de missions par leur couleur rouge, et elles restent visibles en
-  permanence (repères) même pendant une mission.
-
-Pour brancher la trame : donner un état "qui sonne" à une `STORY_PHONES`,
-réutiliser la logique de décrochage des cabines bleues, et déclencher la
-mission scénarisée correspondante.
