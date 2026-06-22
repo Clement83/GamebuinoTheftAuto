@@ -6,6 +6,7 @@ import os
 import csv
 from PIL import Image, ImageDraw, ImageFont
 from tools.citydsl import compile_city, CityError
+from tools import overlay
 
 TILESET_CSV = "assets/tileset.csv"
 CITY_TXT = "city/city.txt"
@@ -167,6 +168,10 @@ def main():
         city = compile_city(text, tile_index, solid_index)
     except CityError as e:
         raise SystemExit("ERREUR city.txt %s" % e)
+    # retouches manuelles (city/overlay.json) appliquees par-dessus la generation
+    n_edits = overlay.apply(city, overlay.params_fingerprint(CITY_TXT))
+    if n_edits:
+        print("overlay: %d retouche(s) manuelle(s) appliquee(s)" % n_edits)
     emit_headers(city, OUT_H, OUT_CPP)
     render_png(city, names, TILES8_DIR, OUT_PNG)  # defini en Task 7
     print("genere: %s, %s, %s (%dx%d, spawn=%s)"
