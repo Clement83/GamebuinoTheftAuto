@@ -81,6 +81,7 @@ void setup() {
     int wy = PLAYER_START_Y * TILE_H + TILE_H / 2;
     int pi = findPoi("Planque");
     if (pi >= 0) { wx = cityPois[pi].tx; wy = cityPois[pi].ty; }
+    wx += 5 * TILE_W;   // decale a l'EST : traverse la route -> trottoir d'en face
     int ox, oy;
     if (findSidewalkSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
     else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
@@ -347,7 +348,13 @@ void loop() {
         if (best == -3 || best >= 0 || best <= -100) { carFuse = 0; carRunaway = false; }
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
-          carColor = MISSION_CAR_COLOR; carIsMission = true; drivingTruck = false;
+          carIsMission = true;
+          if (mCarIsFireTruck) {
+            drivingTruck = true; drivingVariant = TRUCK_FIRE;
+            carColor = TRUCK_VARIANTS[TRUCK_FIRE].body;
+          } else {
+            drivingTruck = false; carColor = MISSION_CAR_COLOR;
+          }
           mCarActive = false; driving = true; carHp = CAR_MAX_HP; carGone = false;
         } else if (best == -1) {
           driving = true; carIsMission = false; drivingTruck = false;  // sa propre voiture : jamais un camion
@@ -621,6 +628,7 @@ void loop() {
   drawPhones(camX, camY);
   drawMarker(camX, camY);
   drawCar(camX, camY);
+  drawPlayerFireJet(camX, camY);             // jet d'eau si camion pompier en mission incendie
   if (!driving) drawPlayer(camX, camY);
   if (!driving && punchTimer > 0) { blitAttackFx(camX, camY); punchTimer--; }
   if (copHitTimer > 0) { blitCopHitFx(camX, camY); copHitTimer--; }   // eclat "coup recu"

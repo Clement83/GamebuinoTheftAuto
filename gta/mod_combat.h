@@ -59,14 +59,21 @@ static void explodeCarAt(int wx, int wy) {
 // Allume un feu au sol en (fx,fy) : pas de degats immediats, juste une zone qui
 // va bruler quelques secondes (cf. updateGroundFires). Recycle le plus vieux
 // slot si le pool est plein.
-static void spawnGroundFire(float fx, float fy) {
+// Pose un feu et retourne le slot alloue, SANS dispatcher de pompier NPC.
+// A utiliser pour les feux de mission (le joueur est le pompier).
+static int8_t spawnGroundFireNoDispatch(float fx, float fy) {
   int slot = -1;
   for (int i = 0; i < NUM_GROUND_FIRES; i++) if (!groundFires[i].active) { slot = i; break; }
   if (slot < 0) slot = 0;
   GroundFire &g = groundFires[slot];
   g.x = fx; g.y = fy; g.life = GROUND_FIRE_LIFE; g.tickTimer = GROUND_FIRE_TICK;
   g.smoking = false; g.active = true;
-  dispatchFireTruck((int)fx, (int)fy, false, (int8_t)slot);   // appel immediat + retentatives via scan mod_ai.h
+  return (int8_t)slot;
+}
+
+static void spawnGroundFire(float fx, float fy) {
+  int8_t slot = spawnGroundFireNoDispatch(fx, fy);
+  dispatchFireTruck((int)fx, (int)fy, false, slot);   // appel immediat + retentatives via scan mod_ai.h
 }
 
 

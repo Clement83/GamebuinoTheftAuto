@@ -624,6 +624,20 @@ static const Objective OBJS_LOST[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Pompiers",
     "Livreur perdu : la planque est pres des Pompiers.", "Trouve ! Enfin." },
 };
+// Mission pompier : recuperer le camion a la caserne, eteindre 3 foyers.
+static const Objective OBJS_FIREFIGHTER[] = {
+  { OBJ_ENTER_CAR,   0, 0,  0, false, EV_NONE, "Pompiers",
+    "Caserne : prends le camion. Il y a des foyers signales en ville !", nullptr },
+  { OBJ_EXTINGUISH,  0, 0, 20, false, EV_NONE, "Le Bar",
+    "Feu signale au Bar ! Fonce avec le camion.",
+    "Foyer eteint. Au suivant !" },
+  { OBJ_EXTINGUISH,  0, 0, 20, false, EV_NONE, "Le Casino",
+    "Autre incendie au Casino ! Depeche-toi.",
+    "Bravo. Encore un foyer !" },
+  { OBJ_EXTINGUISH,  0, 0, 20, false, EV_NONE, "Les Bureaux",
+    "Dernier feu aux Bureaux. Finis le boulot !",
+    "Tout eteint. Beau travail, pompier !" },
+};
 // Livraison de pizza : remplace l'ancienne cabine bleue "Mauvaise affaire"
 // (Marco). Mission jetable, chrono, 0 mecanique nouvelle (cf. campagne.md §9).
 static const Objective OBJS_PIZZA[] = {
@@ -917,6 +931,7 @@ static const MissionDef MISSIONS[] = {
   { "Sabotage",         OBJS_M16,4, 550, true, true },   // index 30 = M16 (caisses de luxe = vehicules requis)
   { "Bruno",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
   { "Le dernier appel", OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
+  { "Alerte incendie",  OBJS_FIREFIGHTER, 4, 300, false, false, false, true },  // index 33 (camion pompier)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
 
@@ -950,6 +965,7 @@ static const PhoneDef PHONES[] = {
   { 22, 125, 12 },  // Vol de caisse
   { 59, 125, 13 },  // Le chauffard
   { 94, 125, 14 },  // Le livreur perdu
+  { 31, 28, 33 },   // Alerte incendie (a cote de la caserne des Pompiers)
 };
 static const int NUM_PHONES = sizeof(PHONES) / sizeof(PHONES[0]);
 static int16_t phonePx[NUM_PHONES], phonePy[NUM_PHONES];   // positions monde (px)
@@ -1144,6 +1160,11 @@ static const uint8_t ENEMY_DOWN_FRAMES = 35;  // duree du splat avant despawn
 static CarState mCar;
 static bool mCarActive = false;           // garee, en attente d'etre prise
 static bool carIsMission = false;         // le joueur conduit la voiture de mission
+static bool mCarIsFireTruck = false;      // la voiture de mission est un camion pompier
+
+// Feu au sol de la mission pompier : slot actif dans groundFires[].
+// -1 = aucun feu de mission actif.
+static int8_t missionFireSlot = -1;
 
 // Marco (passager scenarise). Trois etats successifs :
 //   marcoWaiting : debout au marqueur, attend qu'on l'aborde (TALK / GOTO).

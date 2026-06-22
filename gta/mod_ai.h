@@ -594,9 +594,12 @@ static void aiUpdate(int fcx, int fcy) {
   }
   // Redispatch generique : feux au sol d'abord, puis caisse du joueur, puis caisses IA.
   // dispatchResponder est no-op si un pompier est deja actif -> un seul foyer a la fois.
-  for (int q = 0; q < NUM_GROUND_FIRES; q++)
+  // Le feu de mission pompier (missionFireSlot) est exclu : le joueur est le pompier.
+  for (int q = 0; q < NUM_GROUND_FIRES; q++) {
+    if (q == missionFireSlot) continue;
     if (groundFires[q].active && !groundFires[q].smoking)
       { dispatchFireTruck((int)groundFires[q].x, (int)groundFires[q].y, false, (int8_t)q); break; }
+  }
   if (!carGone && carFuse > 0)
     dispatchFireTruck((int)car.x, (int)car.y, true, -1, -1);
   for (int q = 0; q < NUM_AI_CARS; q++)
@@ -750,7 +753,7 @@ static void responderDraw(int camX, int camY) {
     if (r.kind == RESP_FIRETRUCK && (r.phase == RESP_INBOUND || r.phase == RESP_WORKING)) {
       float ddx = r.car.x - r.tgx, ddy = r.car.y - r.tgy;
       if (ddx * ddx + ddy * ddy < 20.0f * 20.0f)
-        drawWaterJet(camX, camY, r.car, r.tgx, r.tgy);
+        drawWaterJet(camX, camY, r.car.x, r.car.y, r.tgx, r.tgy);
     }
   }
 }

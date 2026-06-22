@@ -28,7 +28,8 @@ static void reviveCommon() {
     marcoWaiting = false; marcoFollow = false; marcoAboard = false;
     allyStands = false; allyDead = false;
     sceneNpcActive = false; sceneNpcDead = false;
-    mCarActive = false; carIsMission = false;
+    mCarActive = false; mCarIsFireTruck = false; carIsMission = false;
+    missionFireSlot = -1;
     storyMissionActive = false; killerChase = false;
     clearEnemies();
     missionFailedTimer = MISSION_FAIL_FRAMES;   // bandeau "MISSION RATEE" apres la TP

@@ -248,6 +248,7 @@ static void buildMissionRuntime(uint8_t m) {
   curDef.isStory = src.isStory;
   curDef.failOnCarLoss = src.failOnCarLoss;
   curDef.failOnAllyDeath = src.failOnAllyDeath;
+  curDef.mCarIsFireTruck = src.mCarIsFireTruck;
 }
 
 
@@ -365,7 +366,11 @@ static void enterObjective() {
   }
   if (o.type == OBJ_ENTER_CAR) {
     mCar.x = o.x; mCar.y = o.y; mCar.angle = 0.0f; mCar.vx = 0.0f; mCar.vy = 0.0f;
+    mCarIsFireTruck = curDef.mCarIsFireTruck;
     mCarActive = true;
+  } else if (o.type == OBJ_EXTINGUISH) {
+    // Pose un feu au sol a la position de l'objectif (sans dispatcher le NPC).
+    missionFireSlot = spawnGroundFireNoDispatch((float)o.x, (float)o.y);
   } else if (o.type == OBJ_KILL && o.enemyCount == 0 && !target.active) {
     // KILL "cible nommee" (pas de gardes) : boss (count>1) ou fugitif ordinaire.
     targetHp = o.count > 1 ? o.count : 1;          // o.count>1 -> BOSS qui encaisse plusieurs coups
@@ -404,7 +409,8 @@ static void startMission(uint8_t m) {
   marcoEmergeDelay = 0;
   allyStands = false; allyDead = false; allyHp = 0;   // allie defendu : remis a zero
   sceneNpcActive = false; sceneNpcDead = false;       // contact de scene : remis a zero
-  mCarActive = false;
+  mCarActive = false; mCarIsFireTruck = false;
+  missionFireSlot = -1;
   killerChase = false;
   clearEnemies();
   // Caisse "compagnon" de Marco : si la mission le ramasse A PIED (EV_MARCO_JOIN
@@ -433,7 +439,8 @@ static void failMission(const char *msg) {
   narrate(msg);
   missionRun.active = false;
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
-  mCarActive = false; carIsMission = false;
+  mCarActive = false; mCarIsFireTruck = false; carIsMission = false;
+  missionFireSlot = -1;
   allyStands = false; allyDead = false;
   sceneNpcActive = false; sceneNpcDead = false;
   killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
@@ -468,6 +475,8 @@ static void finishMission() {
   allyStands = false; allyDead = false;          // allie defendu : fin de mission
   sceneNpcActive = false; sceneNpcDead = false;  // contact de scene : fin de mission
   if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
+  mCarIsFireTruck = false;
+  missionFireSlot = -1;
   addMoney(def.reward);
   missionDoneTimer = MISSION_DONE_FRAMES;
   gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
@@ -813,6 +822,18 @@ static void missionProgress() {
   // mort au volant est deja geree par startEndSeq -> on ne couvre que !driving.
   s.missionCarLost = carIsMission && carGone && !driving;
   s.allyDead = allyDead;
+  // Auto-spray pompier : le joueur conduit le TRUCK_FIRE a portee du feu mission.
+  if (missionFireSlot >= 0 && driving && drivingTruck && drivingVariant == TRUCK_FIRE) {
+    GroundFire &gf = groundFires[missionFireSlot];
+    if (gf.active && !gf.smoking) {
+      float ddx = car.x - gf.x, ddy = car.y - gf.y;
+      if (ddx * ddx + ddy * ddy < 20.0f * 20.0f) {
+        gf.smoking = true; gf.life = GROUND_FIRE_SMOKE;
+      }
+    }
+  }
+  s.fireExtinguished = missionFireSlot >= 0 &&
+                       (!groundFires[missionFireSlot].active || groundFires[missionFireSlot].smoking);
   const Objective &cur = def.objectives[missionRun.step];
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
   if (missionCarLossFail(def, s)) { failMission("La caisse est detruite ! Mission ratee."); return; }
@@ -1019,10 +1040,26 @@ static void drawPhones(int camX, int camY) {
 }
 
 
-// Voiture de mission garee (objectif ENTER_CAR) : orange, orientee est.
+// Voiture de mission garee (objectif ENTER_CAR).
 static void drawMissionCar(int camX, int camY) {
   if (!mCarActive) return;
-  blitCar(camX, camY, (int)mCar.x, (int)mCar.y, AI_CAR_FRAME[DIR_EAST], MISSION_CAR_COLOR);
+  if (mCarIsFireTruck) {
+    const TruckVariant &v = TRUCK_VARIANTS[TRUCK_FIRE];
+    blitTruck(camX, camY, (int)mCar.x, (int)mCar.y, AI_CAR_FRAME[DIR_EAST], v);
+  } else {
+    blitCar(camX, camY, (int)mCar.x, (int)mCar.y, AI_CAR_FRAME[DIR_EAST], MISSION_CAR_COLOR);
+  }
+}
+
+// Jet d'eau du joueur quand il conduit le camion pompier en mission incendie.
+static void drawPlayerFireJet(int camX, int camY) {
+  if (!missionRun.active || missionFireSlot < 0) return;
+  if (!driving || !drivingTruck || drivingVariant != TRUCK_FIRE) return;
+  const GroundFire &gf = groundFires[missionFireSlot];
+  if (!gf.active || gf.smoking) return;
+  float ddx = car.x - gf.x, ddy = car.y - gf.y;
+  if (ddx * ddx + ddy * ddy < 30.0f * 30.0f)
+    drawWaterJet(camX, camY, car.x, car.y, (int)gf.x, (int)gf.y);
 }
 
 
@@ -1049,7 +1086,7 @@ static void drawSceneNpc(int camX, int camY) {
 static void drawMarker(int camX, int camY) {
   if (!missionRun.active) return;
   const Objective &o = curObjs[missionRun.step];
-  if (o.type != OBJ_GOTO && o.type != OBJ_ENTER_CAR && o.type != OBJ_CRUSH) return;
+  if (o.type != OBJ_GOTO && o.type != OBJ_ENTER_CAR && o.type != OBJ_CRUSH && o.type != OBJ_EXTINGUISH) return;
   int sx = o.x - camX, sy = o.y - camY;
   bool blink = ((missionAnim >> 2) & 1);
   for (int dy = -5; dy <= 0; dy++) {             // pilier vertical

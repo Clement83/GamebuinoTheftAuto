@@ -511,14 +511,14 @@ static void drawAiCarSmoke(int camX, int camY) {
 // Jet d'eau du camion de pompiers en action (RESP_WORKING) : degre de bleu/blanc
 // depuis le capot vers la cible, vague laterale sinusoidale via table (sans trig),
 // eclaboussures scintillantes a l'impact. Tout en pixels directs, zero sprite.
-static void drawWaterJet(int camX, int camY, const AiCar &c, int tgx, int tgy) {
+static void drawWaterJet(int camX, int camY, float wx, float wy, int tgx, int tgy) {
   static const int8_t WAVE[8] = { 0, 1, 1, 0, 0, -1, -1, 0 };  // vague douce
-  float dx = (float)tgx - c.x, dy = (float)tgy - c.y;
+  float dx = (float)tgx - wx, dy = (float)tgy - wy;
   float len = sqrtf(dx * dx + dy * dy);
   if (len < 1.0f) return;
   float fdx = dx / len, fdy = dy / len;   // vecteur unitaire camion->feu
   float pdx = -fdy, pdy = fdx;            // perpendiculaire
-  int cx = (int)c.x - camX, cy = (int)c.y - camY;
+  int cx = (int)wx - camX, cy = (int)wy - camY;
   for (int k = 2; k <= 19; k++) {
     int side = WAVE[(missionAnim + k) & 7];
     int x = cx + (int)(fdx * k + pdx * side);

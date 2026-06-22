@@ -152,7 +152,8 @@ enum ObjType {
   OBJ_SURVIVE   = 4,  // tenir `limit` frames (le temps qui s'ecoule remplit l'objectif)
   OBJ_TALK      = 5,  // s'approcher d'un PNJ nomme (a pied, petit rayon) : auto-dialogue
   OBJ_SUBDUE    = 6,  // frapper une cible nommee `count` fois : elle cede (ne meurt pas)
-  OBJ_CRUSH     = 7,  // amener la voiture de mission au broyeur : fini quand l'epave est broyee
+  OBJ_CRUSH      = 7,  // amener la voiture de mission au broyeur : fini quand l'epave est broyee
+  OBJ_EXTINGUISH = 8,  // conduire le camion pompier pres d'un feu au sol et l'eteindre
 };
 
 // Type d'ennemi scenarise (pool d'ennemis de gta.ino). Donnee de mission.
@@ -219,6 +220,9 @@ struct MissionDef {
   bool failOnCarLoss; // vehicule SPECIFIQUE requis : sa destruction echoue la mission
                       //   (ex. caisse des Loups en M7). Hors objectif OBJ_CRUSH (broyage voulu).
   bool failOnAllyDeath; // PNJ allie REQUIS : sa mort echoue la mission (ex. Tony M8, Sarah M14).
+  // Champ ajoute en fin de struct : les anciennes initialisations restent
+  // valides (membre absent -> 0 en initialisation agregat C++).
+  bool mCarIsFireTruck; // la voiture de mission est un camion pompier (TRUCK_FIRE)
 };
 
 struct MissionRun {
@@ -237,9 +241,10 @@ struct MissionState {
   uint16_t elapsed;       // frames ecoulees sur l'objectif courant
   int      subdueCount;   // coups portes a la cible de SUBDUE depuis le debut de l'objectif
   int      enemiesAlive;  // ennemis scenarises encore debout (objectif a ennemis)
-  bool     crushDone;     // la voiture de mission vient d'etre broyee (OBJ_CRUSH)
-  bool     missionCarLost;// le vehicule SPECIFIQUE de la mission a ete detruit (hors broyage)
-  bool     allyDead;      // le PNJ allie REQUIS est tombe
+  bool     crushDone;        // la voiture de mission vient d'etre broyee (OBJ_CRUSH)
+  bool     missionCarLost;   // le vehicule SPECIFIQUE de la mission a ete detruit (hors broyage)
+  bool     allyDead;         // le PNJ allie REQUIS est tombe
+  bool     fireExtinguished; // OBJ_EXTINGUISH : le feu au sol de la mission est eteint
 };
 
 // L'objectif o est-il rempli compte tenu de l'etat s ?
@@ -261,7 +266,8 @@ inline bool missionObjectiveDone(const Objective &o, const MissionState &s) {
       long dx = s.actorCx - o.x, dy = s.actorCy - o.y;
       return dx * dx + dy * dy <= (long)o.radius * o.radius;
     }
-    case OBJ_SUBDUE:    return s.subdueCount >= (int)o.count;
+    case OBJ_SUBDUE:      return s.subdueCount >= (int)o.count;
+    case OBJ_EXTINGUISH:  return s.fireExtinguished;
   }
   return false;
 }
