@@ -433,10 +433,8 @@ def pick_spawn(grid, w, h, solid_index, zone_grid, idx):
     return None
 
 
-def generate_into(city, seed, tile_index, solid_index,
-                  water=0.18, parks=0.10, density=0.85, districts=8):
-    """Genere la ville en couches: zones -> routes -> ponts -> blocs -> routes -> trottoirs -> spawn."""
-    # 1. resolution des tuiles requises
+def resolve_tile_idx(tile_index):
+    """Resout les tuiles de base requises (+ sand optionnelle). Leve si manquante."""
     names = ('grass', 'road_h', 'road_v', 'road_cross', 'pavement',
              'water', 'building_a', 'building_b')
     idx = {}
@@ -446,25 +444,29 @@ def generate_into(city, seed, tile_index, solid_index,
         idx[name] = tile_index[name]
     if 'sand' in tile_index:                    # plage : tuile optionnelle
         idx['sand'] = tile_index['sand']
+    return idx
 
-    # 2. dimensions
+
+def assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
+             district_id, seed_type, density):
+    """Etapes communes APRES terrain+routes : themes -> blocs -> routes ->
+    trottoirs -> tous les POI (stamps/services/casse/chantier) -> spawn.
+
+    Partagee entre le generateur Perlin (generate_into) et les generateurs
+    alternatifs (ex. citygen_marseille) : ils fournissent leur propre terrain
+    (`z`, `sea`, `district_id`, `seed_type`) et leurs routes (`r`, codes
+    '.'/'h'/'v'/'x'), tout le reste (POI, campagne) reste identique.
+    Mute `city.grid` et renseigne city.pois/sprays/ammus/casse/crane/etc.
+    Retourne le spawn."""
     w, h = city.w, city.h
 
-    # 2b. POI : couche optionnelle, pilotee par les tuiles disponibles. Themes
+    # POI : couche optionnelle, pilotee par les tuiles disponibles. Themes
     # (quartiers) et stamps (batiments-reperes) s'activent independamment selon
     # que leurs tuiles existent. Tileset minimal (8 tuiles) -> aucun POI ->
     # generation strictement identique a l'historique.
     from tools import pois
     palettes = pois.resolve_palettes(tile_index)        # {theme_id: palette resolue}
     stamps_avail = pois.has_any_stamp(tile_index)
-
-    # 3. zones + districts (les districts servent aussi au placement POI)
-    district_id, seed_type, _ = voronoi_districts(seed, w, h, districts)
-    z, sea = build_zones(seed, w, h, water, parks, districts)
-
-    # 4. routes + ponts
-    r = draw_roads(z, seed, w, h)
-    r = add_bridges(z, r, seed, w, h)
 
     # 4b. affectation des themes de quartier (avant remplissage des blocs).
     # Le port est restreint a un district borde par la mer cotiere (masque sea).
@@ -573,3 +575,16 @@ def generate_into(city, seed, tile_index, solid_index,
     else:
         city.spawn = pick_spawn(city.grid, w, h, solid_index, z, idx)
     return city.spawn
+
+
+def generate_into(city, seed, tile_index, solid_index,
+                  water=0.18, parks=0.10, density=0.85, districts=8):
+    """Genere la ville en couches: zones -> routes -> ponts -> assemble (POI)."""
+    idx = resolve_tile_idx(tile_index)
+    w, h = city.w, city.h
+    district_id, seed_type, _ = voronoi_districts(seed, w, h, districts)
+    z, sea = build_zones(seed, w, h, water, parks, districts)
+    r = draw_roads(z, seed, w, h)
+    r = add_bridges(z, r, seed, w, h)
+    return assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
+                    district_id, seed_type, density)

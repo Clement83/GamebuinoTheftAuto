@@ -191,12 +191,12 @@ STAMP_NAMES = {
 # Pioche deterministe sans doublon sur une carte. <=12 car. (tient dans le HUD
 # 80 px). Inspires des quartiers de GTA III / Vice City / San Andreas.
 DISTRICT_NAMES = (
-    "Portland", "Staunton", "Shoreside", "Trenton", "Red Light",
-    "Harwood", "Hepburn Hts", "St. Mark's", "Torrington", "Bedford Pt",
-    "Cedar Grove", "Vice Point", "Ocean Beach", "Downtown", "Vinewood",
-    "Idlewood", "Las Colinas", "Rockford", "Verona Bch", "Washington",
-    "Pillbox", "Bayview", "Easton", "Belleville", "Westside",
-    "Little Haiti", "Vespucci", "El Corona", "Hashbury", "Garcia",
+    "Le Panier", "Noailles", "La Joliette", "Endoume", "Le Pharo",
+    "La Plaine", "Quart. Nord", "Vauban", "St-Victor", "Le Camas",
+    "La Belle2Mai", "Castellane", "Baille", "La Plage", "Bonneveine",
+    "Mazargues", "St-Just", "La Rose", "St-Barnabe", "Menpenti",
+    "La Capelet", "Chartreux", "Cinq-Avenue", "Le Cabot", "Bompard",
+    "La Pointe", "St-Lambert", "Le Roucas", "La Timone", "Montredon",
 )
 
 

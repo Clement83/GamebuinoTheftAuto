@@ -5,6 +5,7 @@ Aucune I/O de fichier ici (lecture city.txt + écriture headers/PNG = build_city
 import random
 
 from tools import citygen
+from tools import citygen_marseille
 
 MAX_DIM = 256
 DIRS = {"north": 0, "east": 1, "south": 2, "west": 3}
@@ -252,6 +253,18 @@ def compile_city(text, tile_index, solid_index):
             districts = _int(kv["districts"], line_no, "districts") if "districts" in kv else 8
             citygen.generate_into(city, seed_int, tile_index, solid_index,
                                   water, parks, density, districts)
+
+        elif cmd == "marseille":
+            kv = _kwargs(tok[1:])
+            density = 0.85
+            if "density" in kv:
+                try:
+                    density = float(kv["density"])
+                except ValueError:
+                    raise CityError(line_no, "density: nombre attendu, recu '%s'" % kv["density"])
+            image_path = kv.get("image", citygen_marseille.marseille_map.IMAGE_PATH)
+            citygen_marseille.generate_into(city, seed_int, tile_index,
+                                            solid_index, image_path, density)
 
         else:
             raise CityError(line_no, "commande inconnue: '%s'" % cmd)
