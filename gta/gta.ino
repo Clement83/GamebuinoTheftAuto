@@ -491,7 +491,7 @@ void loop() {
   updateAiCarFuses();                          // meches des caisses IA -> explosion (~10s)
   updateWrecks(focusX, focusY);                // epaves : petit saut puis despawn au loin
   updateSmoke();                               // panaches de fumee d'explosion (~5 s)
-  updateGroundFires();                         // feux au sol : degats legers + extinction
+  updateGroundFires(focusX, focusY);           // feux au sol : ne vivent qu'a proximite (geles au loin)
   updateSequence();                            // avance la cinematique mort/arret/spray
 
   // Pay'n'Spray : entrer en voiture par la porte du garage (case gar_door) et

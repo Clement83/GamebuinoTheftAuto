@@ -59,7 +59,9 @@ static void drawMissionStatus() {
   if (!missionRun.active) return;
   const Objective &o = curObjs[missionRun.step];
   char buf[8];
-  if (o.type == OBJ_BEAT) {
+  if (missionFireTimer > 0) {                          // feu de mission allume : decompte avant echec
+    snprintf(buf, sizeof(buf), "%ds", (missionFireTimer + 24) / 25);   // ~25 fps -> secondes
+  } else if (o.type == OBJ_BEAT) {
     int n = objBeat > o.count ? o.count : objBeat;
     snprintf(buf, sizeof(buf), "%d/%d", n, (int)o.count);
   } else if (o.limit > 0) {

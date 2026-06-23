@@ -470,12 +470,18 @@ static void aiUpdate(int fcx, int fcy) {
         // au-dela, on retombe sur l'ancien despawn par timer).
         if (pendingCorpses < MAX_PENDING_CORPSES) {
           p.state = 4; pendingCorpses++;
+          p.downTimer = CORPSE_WAIT_FRAMES;   // arme le cooldown DUR (~30 s) du corps
           dispatchAmbulance((int)p.x, (int)p.y);
         } else {
           p.active = false;
         }
       }
-    } else if (p.active && p.state != 4) {
+    } else if (p.state == 4) {                // corps en attente : cooldown DUR, jamais recycle par distance
+      if (p.downTimer == 0 || --p.downTimer == 0) {   // 30 s ecoulees, ambulance arrivee ou non : il disparait
+        p.active = false;
+        if (pendingCorpses > 0) pendingCorpses--;
+      }
+    } else if (p.active) {
       int ddx = (int)p.x - fcx, ddy = (int)p.y - fcy;
       if (ddx * ddx + ddy * ddy > rec2) p.active = false;
     }
@@ -697,6 +703,9 @@ static void responderUpdate(int fcx, int fcy) {
           r.medicX = c.x; r.medicY = c.y; r.medicDir = c.dir; r.medicFrame = 0; r.medicAnimTimer = 0;
         } else {
           AiPed &corpse = aiPeds[r.pedIdx];
+          if (!r.medicGoingBack && corpse.state != 4) {  // corps disparu entre-temps (cooldown 30 s) : on renonce
+            r.medicActive = false; continue;
+          }
           if (!r.medicGoingBack) {
             bool arrived = npcWalkToward(r.medicX, r.medicY, r.medicDir, r.medicFrame, r.medicAnimTimer,
                                           corpse.x, corpse.y, AI_PED_SPEED);

@@ -437,7 +437,8 @@ static uint32_t aiRng = 0xC0FFEEu;   // graine PRNG partagee (xorshift32)
 //     il repond a CE pool ET aux caisses en feu, quelle que soit l'origine).
 struct GroundFire { float x, y; uint16_t life; uint8_t tickTimer; bool smoking; bool active; };
 static const int      NUM_GROUND_FIRES   = 4;
-static const uint16_t GROUND_FIRE_LIFE   = 200;  // ~8 s a ~25 fps avant transition en fumee
+static const uint16_t GROUND_FIRE_LIFE   = 700;  // ~28 s a ~25 fps avant transition en fumee (+ fumee ci-dessous
+                                                 // -> ~30 s de cooldown total, aligne sur le corps en attente)
 static const uint16_t GROUND_FIRE_SMOKE  = 50;   // ~2 s de fumee residuelle avant extinction totale
 static const uint8_t  GROUND_FIRE_RADIUS = 10;   // px : rayon de la zone qui brule
 static const uint8_t  GROUND_FIRE_TICK   = 20;   // frames entre deux degats (~0.8 s)
@@ -477,6 +478,10 @@ static const float    RESPONDER_SPEED       = AI_CAR_SPEED;
 static const uint16_t RESPONDER_WORK_FRAMES = 60;  // ~2.4 s sur place (pompier / ramassage par corps)
 static const uint16_t RESP_DISPATCH_DELAY   = 75;  // ~3 s entre l'appel et l'apparition du vehicule
 static const int      MAX_PENDING_CORPSES   = 2;   // au-dela, un corps despawn a l'ancienne (timer)
+static const uint16_t CORPSE_WAIT_FRAMES    = 750; // ~30 s : cooldown DUR du corps en attente -- au-dela il
+                                                   // disparait quoi qu'il arrive (ambulance arrivee ou non),
+                                                   // comme le feu au sol s'eteint tout seul. Jamais recycle
+                                                   // par la distance avant ce delai.
 static Responder responders[NUM_RESPONDERS];
 static int        pendingCorpses = 0;
 
@@ -1165,6 +1170,20 @@ static bool mCarIsFireTruck = false;      // la voiture de mission est un camion
 // Feu au sol de la mission pompier : slot actif dans groundFires[].
 // -1 = aucun feu de mission actif.
 static int8_t missionFireSlot = -1;
+// Objectif OBJ_EXTINGUISH actif mais feu pas encore allume : il se DECLENCHE
+// quand le joueur approche du marqueur (cf. MISSION_FIRE_IGNITE_DIST).
+static bool   missionFireArmed = false;
+static const int MISSION_FIRE_IGNITE_DIST = 32;   // px : rayon d'allumage du feu de mission
+// Une fois le feu de mission allume, le joueur a MISSION_FIRE_FAIL_FRAMES pour
+// l'eteindre (auto-spray du camion) sinon la mission est ratee. 0 = pas de chrono.
+static uint16_t missionFireTimer = 0;
+static const uint16_t MISSION_FIRE_FAIL_FRAMES = 750;  // ~30 s a ~25 fps
+// Arrosage GENERIQUE (tout feu, mission ou non) : un camion de pompier a portee
+// draine la vie du feu FIRE_SPRAY_DRAIN fois plus vite -> ~5 s d'eau pour
+// eteindre un feu neuf (GROUND_FIRE_LIFE / FIRE_SPRAY_DRAIN frames). Le jet d'eau
+// s'affiche pendant tout l'arrosage.
+static const uint16_t FIRE_SPRAY_DRAIN = 6;
+static const float    FIRE_SPRAY_RANGE = 26.0f;        // px : portee du jet d'eau
 
 // Marco (passager scenarise). Trois etats successifs :
 //   marcoWaiting : debout au marqueur, attend qu'on l'aborde (TALK / GOTO).
@@ -1189,6 +1208,14 @@ static const uint16_t TONY_COLOR = 0x07E0;  // vert (Tony, patron du Garage)
 static const float MARCO_FOLLOW_SPEED = 0.55f;  // px/frame (un poil > joueur a pied)
 static const float MARCO_FOLLOW_GAP   = 10.0f;  // px : distance de confort derriere JW
 static const uint16_t MARCO_EMERGE_DELAY = 32;  // frames avant qu'il sorte (laisse lire "j'arrive")
+// Filature : l'allie rejoue le trajet du joueur avec MARCO_TRAIL_LEN frames de
+// retard (joueur ~1 px/frame a pied -> ecart ~ LEN px). Comme le joueur ne
+// traverse jamais les murs, son sillage non plus : l'allie suit les memes
+// mouvements et ne se coince pas. Sillage = centres successifs du joueur.
+static const int MARCO_TRAIL_LEN = 12;
+static int16_t   marcoTrailX[MARCO_TRAIL_LEN];
+static int16_t   marcoTrailY[MARCO_TRAIL_LEN];
+static uint8_t   marcoTrailHead = 0;            // case a (sur)ecrire = la plus ancienne
 
 // Narration : file de messages flash ; bandeau bas auto-time + scroll horizontal.
 static const char *narrQueue[4];

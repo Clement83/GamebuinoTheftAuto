@@ -369,8 +369,10 @@ static void enterObjective() {
     mCarIsFireTruck = curDef.mCarIsFireTruck;
     mCarActive = true;
   } else if (o.type == OBJ_EXTINGUISH) {
-    // Pose un feu au sol a la position de l'objectif (sans dispatcher le NPC).
-    missionFireSlot = spawnGroundFireNoDispatch((float)o.x, (float)o.y);
+    // Le feu ne se pose PAS tout de suite : il se declenche quand le joueur
+    // approche du marqueur (cf. missionFireIgniteCheck). Evite qu'un feu pose
+    // loin se consume avant qu'on arrive.
+    missionFireSlot = -1; missionFireArmed = true;
   } else if (o.type == OBJ_KILL && o.enemyCount == 0 && !target.active) {
     // KILL "cible nommee" (pas de gardes) : boss (count>1) ou fugitif ordinaire.
     targetHp = o.count > 1 ? o.count : 1;          // o.count>1 -> BOSS qui encaisse plusieurs coups
@@ -410,7 +412,7 @@ static void startMission(uint8_t m) {
   allyStands = false; allyDead = false; allyHp = 0;   // allie defendu : remis a zero
   sceneNpcActive = false; sceneNpcDead = false;       // contact de scene : remis a zero
   mCarActive = false; mCarIsFireTruck = false;
-  missionFireSlot = -1;
+  missionFireSlot = -1; missionFireArmed = false; missionFireTimer = 0;
   killerChase = false;
   clearEnemies();
   // Caisse "compagnon" de Marco : si la mission le ramasse A PIED (EV_MARCO_JOIN
@@ -440,7 +442,7 @@ static void failMission(const char *msg) {
   missionRun.active = false;
   target.active = false; marcoWaiting = false; marcoFollow = false; marcoAboard = false;
   mCarActive = false; mCarIsFireTruck = false; carIsMission = false;
-  missionFireSlot = -1;
+  missionFireSlot = -1; missionFireArmed = false; missionFireTimer = 0;
   allyStands = false; allyDead = false;
   sceneNpcActive = false; sceneNpcDead = false;
   killerChase = false; storyMissionActive = false;   // campaignStep inchange -> on rejoue la mission
@@ -476,7 +478,7 @@ static void finishMission() {
   sceneNpcActive = false; sceneNpcDead = false;  // contact de scene : fin de mission
   if (mCarActive) mCarActive = false;            // caisse de mission jamais prise : on la retire
   mCarIsFireTruck = false;
-  missionFireSlot = -1;
+  missionFireSlot = -1; missionFireArmed = false; missionFireTimer = 0;
   addMoney(def.reward);
   missionDoneTimer = MISSION_DONE_FRAMES;
   gb.sound.tone(988, 60); gb.sound.playOK();     // cha-ching de fin de mission
@@ -601,10 +603,21 @@ static void startTauntCut(const char *l1, const char *l2) {
 }
 
 
+// Minuteur generique de phase de cinematique. Une phase ne s'acheve que lorsque
+// la narration en cours est ENTIEREMENT affichee (file videe par narrUpdate) ET
+// que le minimum de frames (cutTimer) est ecoule. Ainsi une replique n'est
+// jamais coupee ni enchainee avant qu'on ait pu la lire. Sans narration en
+// attente, se comporte comme un simple decompte (retro-compatible).
+static bool cutPhaseTick() {
+  if (cutTimer > 0) --cutTimer;
+  return cutTimer == 0 && narrCount == 0;
+}
+
+
 // Avance la cinematique courante (appelee par updateSequence quand SEQ_CUT).
 static void cutsceneUpdate() {
   if (cutKind == CUT_TAUNT) {
-    if (cutTimer > 0 && --cutTimer == 0) {
+    if (cutPhaseTick()) {
       if (cutPhase == 1) { cutPhase = 2; cutTimer = CUT_LINE_FRAMES; if (cutLine2) narrate(cutLine2); }
       else { seqKind = SEQ_NONE; cutKind = CUT_NONE; }   // fin : les ennemis chargent
     }
@@ -627,7 +640,7 @@ static void cutsceneUpdate() {
         break;
       }
       case 1:                                            // replique -> il rentre et disparait
-        if (cutTimer > 0 && --cutTimer == 0) {
+        if (cutPhaseTick()) {
           marcoFollow = false;                           // Marco disparait dans son batiment
           seqKind = SEQ_NONE; cutKind = CUT_NONE;
           finishMission();                               // prime + bandeau "MISSION ACCOMPLIE"
@@ -637,7 +650,7 @@ static void cutsceneUpdate() {
     return;
   }
   if (cutKind == CUT_BOSS_DOWN) {                        // figer sur le boss a terre
-    if (cutTimer > 0 && --cutTimer == 0) {
+    if (cutPhaseTick()) {
       seqKind = SEQ_NONE; cutKind = CUT_NONE;
       if (missionRun.active) enterObjective();
       else                   finishMission();
@@ -661,13 +674,13 @@ static void cutsceneUpdate() {
           break;
         }
         case 1:
-          if (cutTimer > 0 && --cutTimer == 0) {
+          if (cutPhaseTick()) {
             cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
             if (cutLine2) narrate(cutLine2);
           }
           break;
         case 2:
-          if (cutTimer > 0 && --cutTimer == 0) {
+          if (cutPhaseTick()) {
             sceneNpcActive = false;
             seqKind = SEQ_NONE; cutKind = CUT_NONE;
             if (cutEndText) narrate(cutEndText);
@@ -694,13 +707,13 @@ static void cutsceneUpdate() {
         break;
       }
       case 1:                                            // replique du contact
-        if (cutTimer > 0 && --cutTimer == 0) {
+        if (cutPhaseTick()) {
           cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
           if (cutLine2) narrate(cutLine2);
         }
         break;
       case 2:                                            // -> le compagnon repart
-        if (cutTimer > 0 && --cutTimer == 0) cutPhase = 3;
+        if (cutPhaseTick()) cutPhase = 3;
         break;
       case 3: {                                          // retour au point de depart (caisse ou joueur)
         float dx = sceneHomeX - marcoX, dy = sceneHomeY - marcoY;
@@ -739,13 +752,13 @@ static void cutsceneUpdate() {
       break;
     }
     case 1:                                              // replique 1 : le deal vire a l'execution
-      if (cutTimer > 0 && --cutTimer == 0) {
+      if (cutPhaseTick()) {
         cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
         narrate("L'acheteur sort un flingue. Desole, Marco. Rien de personnel.");
       }
       break;
     case 2:                                              // replique 2 -> il fait feu
-      if (cutTimer > 0 && --cutTimer == 0) {
+      if (cutPhaseTick()) {
         cutPhase = 3; cutTimer = CUT_SHOOT_FRAMES;
         gb.sound.tone(140, 60); gb.sound.tone(90, 130);  // coup de feu
         marcoFollow = false; marcoAboard = false;        // Marco tombe comme un PNJ
@@ -755,7 +768,7 @@ static void cutsceneUpdate() {
       }
       break;
     case 3:                                              // temps sur le corps -> reprise
-      if (cutTimer > 0 && --cutTimer == 0) {
+      if (cutPhaseTick()) {
         seqKind = SEQ_NONE; cutKind = CUT_NONE;
         killerChase = true; target.chase = true;         // le tueur prend la fuite : a rattraper
         objElapsed = 0;
@@ -797,6 +810,21 @@ static void applyMissionScriptFx(const Objective &done, const char *title) {
 // transition (Marco monte / meurt) puis active l'objectif suivant, ou termine.
 static void missionProgress() {
   if (!missionRun.active || seqKind == SEQ_CUT) return;
+  // Feu de mission a declenchement de proximite : tant qu'il n'est pas allume,
+  // on attend que le joueur approche du marqueur d'objectif pour le poser.
+  if (missionFireArmed) {
+    const Objective &fo = curObjs[missionRun.step];
+    int pcx = driving ? (int)car.x : playerX + PLAYER_W / 2;
+    int pcy = driving ? (int)car.y : playerY + PLAYER_H / 2;
+    int fdx = (int)fo.x - pcx, fdy = (int)fo.y - pcy;
+    if (fdx * fdx + fdy * fdy <= MISSION_FIRE_IGNITE_DIST * MISSION_FIRE_IGNITE_DIST) {
+      missionFireSlot = spawnGroundFireNoDispatch((float)fo.x, (float)fo.y);
+      missionFireArmed = false;
+      missionFireTimer = MISSION_FIRE_FAIL_FRAMES;   // 30 s pour l'eteindre, sinon echec
+      narrate("Le feu prend ! Eteins-le, vite !");
+      gb.sound.tone(330, 80); gb.sound.tone(440, 120);
+    }
+  }
   // Echec de trame : un TUEUR (KILL en mode poursuite) qui sort des limites monde.
   if (target.active && killerChase && curObjs[missionRun.step].type == OBJ_KILL) {
     const int M = 8;  // marge px
@@ -822,14 +850,16 @@ static void missionProgress() {
   // mort au volant est deja geree par startEndSeq -> on ne couvre que !driving.
   s.missionCarLost = carIsMission && carGone && !driving;
   s.allyDead = allyDead;
-  // Auto-spray pompier : le joueur conduit le TRUCK_FIRE a portee du feu mission.
-  if (missionFireSlot >= 0 && driving && drivingTruck && drivingVariant == TRUCK_FIRE) {
-    GroundFire &gf = groundFires[missionFireSlot];
-    if (gf.active && !gf.smoking) {
-      float ddx = car.x - gf.x, ddy = car.y - gf.y;
-      if (ddx * ddx + ddy * ddy < 20.0f * 20.0f) {
-        gf.smoking = true; gf.life = GROUND_FIRE_SMOKE;
-      }
+  // Extinction par l'eau : geree de maniere GENERIQUE dans updateGroundFires
+  // (tout feu, mission ou non, arrose par un camion de pompier a portee).
+  // Chrono du feu de mission : une fois allume, 30 s pour l'eteindre sinon echec.
+  if (missionFireTimer > 0 && missionFireSlot >= 0) {
+    GroundFire &mf = groundFires[missionFireSlot];
+    if (!mf.active || mf.smoking) {                  // eteint a temps : on coupe le chrono
+      missionFireTimer = 0;
+    } else {
+      if (missionFireTimer <= 125 && (missionFireTimer % 25) == 0) gb.sound.tone(880, 60);  // bip des 5 dernieres s
+      if (--missionFireTimer == 0) { failMission("Le feu s'est propage ! Mission ratee."); return; }
     }
   }
   s.fireExtinguished = missionFireSlot >= 0 &&
@@ -942,10 +972,23 @@ static void missionUpdate(int fcx, int fcy) {
     return;
   }
 
-  if (target.chase) {
+  if (target.chase && killerChase) {
+    // Tueur de Marco : il PREND LA FUITE a pied (cf. "Le tueur file ! Rattrape-le !").
+    // Il suit les rues -- la fuite ne vise jamais qu'une tuile ADJACENTE
+    // franchissable (route/trottoir/herbe), donc jamais de ligne droite a travers
+    // les murs. On arme la direction de fuite a l'entree ; missionFleeStep la
+    // reactualise ensuite a chaque tuile atteinte. Pas de corps-a-corps : il fuit.
+    if (target.phase != T_FLEE) {
+      target.phase = T_FLEE;
+      missionFleeRetarget(cityMap, CITY_W, CITY_H, target.x, target.y,
+                          target.dir, target.tgtx, target.tgty, fcx, fcy, aiRng);
+    }
+    missionFleeStep(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
+                    target.tgtx, target.tgty, TARGET_FLEE_SPEED, fcx, fcy, aiRng);
+  } else if (target.chase) {
     missionChaseStep(cityMap, CITY_W, CITY_H, target.x, target.y, target.dir,
                      target.tgtx, target.tgty, TARGET_CHASE_SPEED, fcx, fcy, aiRng);
-    // Tueur / boss AGRESSIF : frappe le joueur au corps-a-corps.
+    // Boss AGRESSIF : fonce et frappe le joueur au corps-a-corps.
     float kdx = (float)fcx - target.x, kdy = (float)fcy - target.y;
     if (!driving && targetAtkTimer == 0 &&
         kdx * kdx + kdy * kdy < (float)(ENEMY_MELEE_DIST * ENEMY_MELEE_DIST)) {
@@ -1013,17 +1056,31 @@ static void marcoUpdate(int fcx, int fcy) {
     gb.sound.playOK();
     return;
   }
-  float dx = (float)fcx - marcoX, dy = (float)fcy - marcoY;
-  float d2 = dx * dx + dy * dy;
-  if (d2 > MARCO_FOLLOW_GAP * MARCO_FOLLOW_GAP) {  // trop loin : il avance vers nous
-    float d = sqrtf(d2);
-    float step = (d > 40.0f) ? MARCO_FOLLOW_SPEED * 2.0f : MARCO_FOLLOW_SPEED;  // rattrapage
-    marcoX += dx / d * step; marcoY += dy / d * step;
-    if (fabsf(dx) > fabsf(dy)) marcoDir = (dx > 0) ? DIR_EAST : DIR_WEST;
-    else                       marcoDir = (dy > 0) ? DIR_SOUTH : DIR_NORTH;
+  // Filature : l'allie REJOUE le trajet du joueur avec MARCO_TRAIL_LEN frames de
+  // retard. Il fait donc exactement les memes mouvements -- jamais a travers un
+  // mur (le joueur n'en traverse pas) et jamais coince. marcoX/Y = centre.
+  uint8_t prev = (uint8_t)((marcoTrailHead + MARCO_TRAIL_LEN - 1) % MARCO_TRAIL_LEN);
+  if (marcoTrailX[prev] == (int16_t)fcx && marcoTrailY[prev] == (int16_t)fcy) {
+    marcoFrame = 0;                                // joueur immobile : l'allie attend (garde l'ecart)
+    return;
+  }
+  int16_t px = marcoTrailX[marcoTrailHead], py = marcoTrailY[marcoTrailHead];  // JW il y a LEN frames
+  float jx = (float)px - marcoX, jy = (float)py - marcoY;
+  if (jx * jx + jy * jy > 20.0f * 20.0f) {         // discontinuite (debut, sortie de caisse, post-cutscene) : resync
+    for (int i = 0; i < MARCO_TRAIL_LEN; i++) { marcoTrailX[i] = (int16_t)marcoX; marcoTrailY[i] = (int16_t)marcoY; }
+    px = (int16_t)marcoX; py = (int16_t)marcoY;
+  }
+  float ndx = (float)px - marcoX, ndy = (float)py - marcoY;  // pas effectif de l'allie
+  marcoX = (float)px; marcoY = (float)py;          // il se pose sur le point du sillage
+  marcoTrailX[marcoTrailHead] = (int16_t)fcx;      // on enregistre la position courante du joueur
+  marcoTrailY[marcoTrailHead] = (int16_t)fcy;
+  marcoTrailHead = (uint8_t)((marcoTrailHead + 1) % MARCO_TRAIL_LEN);
+  if (ndx != 0.0f || ndy != 0.0f) {
+    if (fabsf(ndx) > fabsf(ndy)) marcoDir = (ndx > 0) ? DIR_EAST : DIR_WEST;
+    else                         marcoDir = (ndy > 0) ? DIR_SOUTH : DIR_NORTH;
     if (++marcoAnimTimer >= AI_PED_ANIM) { marcoAnimTimer = 0; marcoFrame ^= 1; }
   } else {
-    marcoFrame = 0;                                // a l'arret : pose neutre
+    marcoFrame = 0;
   }
 }
 
@@ -1051,15 +1108,18 @@ static void drawMissionCar(int camX, int camY) {
   }
 }
 
-// Jet d'eau du joueur quand il conduit le camion pompier en mission incendie.
+// Jet d'eau du joueur des qu'il conduit un camion pompier a portee d'un feu (en
+// mission OU en roue libre) : meme rendu pour tous les feux qu'on arrose.
 static void drawPlayerFireJet(int camX, int camY) {
-  if (!missionRun.active || missionFireSlot < 0) return;
   if (!driving || !drivingTruck || drivingVariant != TRUCK_FIRE) return;
-  const GroundFire &gf = groundFires[missionFireSlot];
-  if (!gf.active || gf.smoking) return;
-  float ddx = car.x - gf.x, ddy = car.y - gf.y;
-  if (ddx * ddx + ddy * ddy < 30.0f * 30.0f)
-    drawWaterJet(camX, camY, car.x, car.y, (int)gf.x, (int)gf.y);
+  const float spray2 = FIRE_SPRAY_RANGE * FIRE_SPRAY_RANGE;
+  for (int i = 0; i < NUM_GROUND_FIRES; i++) {
+    const GroundFire &gf = groundFires[i];
+    if (!gf.active || gf.smoking) continue;
+    float ddx = car.x - gf.x, ddy = car.y - gf.y;
+    if (ddx * ddx + ddy * ddy < spray2)
+      drawWaterJet(camX, camY, car.x, car.y, (int)gf.x, (int)gf.y);
+  }
 }
 
 

@@ -84,15 +84,38 @@ static void spawnGroundFire(float fx, float fy) {
 // joueur (a pied ou en caisse), PNJ (un passant pris dans les flammes tombe,
 // comme un coup fatal) et voitures du trafic (degats cumulatifs -> explosent
 // a 0 PV). En fumee : plus aucun degat, juste l'animation qui s'estompe.
-static void updateGroundFires() {
+static void updateGroundFires(int fcx, int fcy) {
+  const int rec2 = RECYCLE_DIST * RECYCLE_DIST;
+  // Camion de pompier au volant (en mission OU en roue libre) : son jet draine la
+  // vie des feux a portee -> extinction generique, partout, de la meme maniere.
+  bool truck = driving && drivingTruck && drivingVariant == TRUCK_FIRE;
+  const float spray2 = FIRE_SPRAY_RANGE * FIRE_SPRAY_RANGE;
   for (int i = 0; i < NUM_GROUND_FIRES; i++) {
     GroundFire &g = groundFires[i];
     if (!g.active) continue;
-    if (g.smoking) {
+    bool isMission = (i == missionFireSlot);
+    // Feu AMBIANT : supprime des que le joueur s'eloigne (pas de feu fantome hors
+    // ecran). Le feu d'OBJECTIF persiste (sinon s'eloigner validerait l'objectif
+    // tout seul) ; il est borne par son propre chrono d'echec de 30 s.
+    if (!isMission) {
+      int ddx = (int)g.x - fcx, ddy = (int)g.y - fcy;
+      if (ddx * ddx + ddy * ddy > rec2) { g.active = false; continue; }
+    }
+    if (g.smoking) {                                 // deja eteint : la fumee s'estompe puis disparait
       if (g.life == 0 || --g.life == 0) g.active = false;
       continue;
     }
-    if (g.life == 0 || --g.life == 0) { g.smoking = true; g.life = GROUND_FIRE_SMOKE; continue; }
+    bool wet = truck && ((car.x - g.x) * (car.x - g.x) + (car.y - g.y) * (car.y - g.y) < spray2);
+    // Consumation : feu ambiant -> ~30 s tout seul (base 1) ; feu de mission ->
+    // ne s'eteint pas seul (base 0, sinon l'objectif se validerait sans rien faire ;
+    // il echoue via son chrono). L'eau accelere fortement pour TOUS (~5 s d'arrosage).
+    uint16_t drain = wet ? FIRE_SPRAY_DRAIN : (isMission ? 0 : 1);
+    if (drain > 0 && g.life <= drain) {              // le feu cede : passe en fumee
+      g.smoking = true; g.life = GROUND_FIRE_SMOKE;
+      if (wet) { gb.sound.tone(220, 60); gb.sound.tone(160, 120); }   // pschitt d'extinction
+      continue;
+    }
+    g.life -= drain;
     if (g.tickTimer > 0 && --g.tickTimer > 0) continue;
     g.tickTimer = GROUND_FIRE_TICK;
     fireProximityTick(g.x, g.y);

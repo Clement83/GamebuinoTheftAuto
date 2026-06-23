@@ -98,7 +98,7 @@ static void updateCarFuse();
 static void updateRunawayCar();
 static int8_t spawnGroundFireNoDispatch(float fx, float fy);
 static void spawnGroundFire(float fx, float fy);
-static void updateGroundFires();
+static void updateGroundFires(int fcx, int fcy);
 
 // --- mission ---
 static bool spawnTargetWander(int pcx, int pcy);
