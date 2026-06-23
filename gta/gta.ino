@@ -357,7 +357,10 @@ void loop() {
           }
           mCarActive = false; driving = true; carHp = CAR_MAX_HP; carGone = false;
         } else if (best == -1) {
-          driving = true; carIsMission = false; drivingTruck = false;  // sa propre voiture : jamais un camion
+          // Remonte dans SA caisse : on garde son type (camion/variante) et sa
+          // couleur tels quels. Une caisse volee (camion pompier, ambulance...)
+          // devenue voiture perso reste ce qu'elle est -- pas de reset en voiture rouge.
+          driving = true; carIsMission = false;
         } else if (best >= 0) {
           AiCar &c = aiCars[best];           // vol : un conducteur (s'il y en a un) tombe au sol puis fuit
           if (c.driver) aiEjectDriver((int)c.x, (int)c.y, true, false, c.dir);  // caisse vide -> personne a ejecter
