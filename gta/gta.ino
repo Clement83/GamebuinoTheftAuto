@@ -70,7 +70,7 @@ void setup() {
     int wy = PHONES[i].ty * TILE_H + TILE_H / 2;
     int ox, oy;
     if (findSidewalkSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
-    else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
+    else if (findDryFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
     phonePx[i] = wx; phonePy[i] = wy;
   }
 
@@ -85,7 +85,7 @@ void setup() {
     wx += 5 * TILE_W;   // decale a l'EST : traverse la route -> trottoir d'en face
     int ox, oy;
     if (findSidewalkSpot(wx, wy, ox, oy)) { wx = ox; wy = oy; }
-    else if (findFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
+    else if (findDryFootSpot(wx, wy, ox, oy)) { wx = ox + PLAYER_W / 2; wy = oy + PLAYER_H / 2; }
     storyPx[0] = wx; storyPy[0] = wy;
   }
 

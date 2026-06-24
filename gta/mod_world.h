@@ -25,12 +25,37 @@ static bool findFootSpot(int cx, int cy, int &ox, int &oy) {
 }
 
 
+// Comme findFootSpot mais REFUSE l'eau et le sable : repli pour les cabines
+// telephoniques, qui doivent rester sur la terre ferme (jamais en mer/sur la
+// plage) quand aucun trottoir n'est trouve a proximite. Rayon plus large que
+// findFootSpot car le point vise peut etre en pleine eau.
+static bool findDryFootSpot(int cx, int cy, int &ox, int &oy) {
+  for (int r = 0; r <= 16; r++) {
+    for (int dy = -r; dy <= r; dy++) {
+      for (int dx = -r; dx <= r; dx++) {
+        if (r > 0 && abs(dx) != r && abs(dy) != r) continue; // anneau
+        int tx = (cx >> 3) + dx, ty = (cy >> 3) + dy;
+        if (tx < 0 || tx >= CITY_W || ty < 0 || ty >= CITY_H) continue;
+        uint8_t t = cityMap[ty * CITY_W + tx];
+        if (t == TILE_WATER || t == TILE_SAND) continue;       // jamais mer/plage
+        int px = cx - PLAYER_W / 2 + dx * TILE_W;
+        int py = cy - PLAYER_H / 2 + dy * TILE_H;
+        if (!boxHitsSolid(px, py)) { ox = px; oy = py; return true; }
+      }
+    }
+  }
+  return false;
+}
+
+
 // Cherche le centre (px monde) d'une tuile trottoir (PAVEMENT) proche de
 // (cx,cy), en spirale. Les cabines doivent etre POSEES sur un trottoir pour
 // rester accessibles a pied. Renvoie false si aucun trottoir dans le rayon.
 static bool findSidewalkSpot(int cx, int cy, int &ox, int &oy) {
   int ctx = cx >> 3, cty = cy >> 3;
-  for (int r = 0; r <= 14; r++) {
+  // Rayon large (carte cotiere) : un point de grille tombe en mer -> on remonte
+  // jusqu'au trottoir cotier le plus proche plutot que d'echouer (-> repli sable).
+  for (int r = 0; r <= 48; r++) {
     for (int dy = -r; dy <= r; dy++) {
       for (int dx = -r; dx <= r; dx++) {
         if (r > 0 && abs(dx) != r && abs(dy) != r) continue;   // anneau

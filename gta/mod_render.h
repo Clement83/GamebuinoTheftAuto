@@ -24,11 +24,19 @@ static void drawTile(uint8_t id, int sx, int sy) {
 
 // Blit recolore d'un sprite voiture : frame de rotation frameIdx, centre en
 // (worldCx,worldCy) px monde. KEY de carrosserie -> color. Framebuffer direct.
+// Couleur arc-en-ciel d'un pixel-cle (rx,ry) dans le repere du sprite : bandes
+// diagonales (rx+ry) qui DEFILENT via le compteur d'anim global (missionAnim).
+// Utilisee par la livree rainbow ultra-rare (cf. RAINBOW_LUT dans game_state.h).
+static inline uint16_t rainbowPx(int rx, int ry) {
+  return RAINBOW_LUT[(rx + ry + (missionAnim >> 1)) & (RAINBOW_N - 1)];
+}
+
 static void blitCar(int camX, int camY, int worldCx, int worldCy,
                     int frameIdx, uint16_t color) {
   const uint16_t *src = carFrames[frameIdx];
   int ox = worldCx - camX - CAR_BOX / 2;
   int oy = worldCy - camY - CAR_BOX / 2;
+  bool rainbow = (color == RAINBOW_COLOR);
   for (int ry = 0; ry < CAR_BOX; ry++) {
     int y = oy + ry;
     if (y < 0 || y >= SCREEN_H) continue;
@@ -37,7 +45,7 @@ static void blitCar(int camX, int camY, int worldCx, int worldCy,
     for (int rx = 0; rx < CAR_BOX; rx++) {
       uint16_t c = srow[rx];
       if (c == CAR_TRANSPARENT) continue;
-      if (c == CAR_BODY_KEY) c = color;
+      if (c == CAR_BODY_KEY) c = rainbow ? rainbowPx(rx, ry) : color;
       int x = ox + rx;
       if (x >= 0 && x < SCREEN_W) row[x] = c;
     }
@@ -61,7 +69,11 @@ static void blitTruck(int camX, int camY, int worldCx, int worldCy,
     for (int rx = 0; rx < TRUCK_BOX; rx++) {
       uint16_t c = srow[rx];
       if (c == TRUCK_TRANSPARENT) continue;
-      if (c == TRUCK_BODY_KEY) c = v.body;
+      if (v.rainbow) {
+        if (c == TRUCK_BODY_KEY || c == TRUCK_CAB_KEY ||
+            c == TRUCK_WINDOW_KEY || c == TRUCK_LADDER_KEY) c = rainbowPx(rx, ry);
+      }
+      else if (c == TRUCK_BODY_KEY) c = v.body;
       else if (c == TRUCK_CAB_KEY) c = v.cab;
       else if (c == TRUCK_WINDOW_KEY) c = v.window;
       else if (c == TRUCK_LADDER_KEY) c = v.ladder;
@@ -88,7 +100,11 @@ static void blitBoat(int camX, int camY, int worldCx, int worldCy,
     for (int rx = 0; rx < BOAT_BOX; rx++) {
       uint16_t c = srow[rx];
       if (c == BOAT_TRANSPARENT) continue;
-      if (c == BOAT_HULL_KEY) c = v.hull;
+      if (v.rainbow) {
+        if (c == BOAT_HULL_KEY || c == BOAT_DECK_KEY ||
+            c == BOAT_TRIM_KEY) c = rainbowPx(rx, ry);
+      }
+      else if (c == BOAT_HULL_KEY) c = v.hull;
       else if (c == BOAT_DECK_KEY) c = v.deck;
       else if (c == BOAT_TRIM_KEY) c = v.trim;
       int x = ox + rx;

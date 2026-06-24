@@ -6,6 +6,7 @@
 // --- world ---
 static int freeRam();
 static bool findFootSpot(int cx, int cy, int &ox, int &oy);
+static bool findDryFootSpot(int cx, int cy, int &ox, int &oy);
 static bool findSidewalkSpot(int cx, int cy, int &ox, int &oy);
 static bool findBuildingTileNear(int cx, int cy, int &ox, int &oy);
 static bool findRoadSpotNear(int cx, int cy, int &ox, int &oy);

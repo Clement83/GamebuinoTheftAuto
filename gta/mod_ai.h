@@ -71,7 +71,10 @@ static bool aiTrySpawnBoat(AiCar &c, int ccx, int ccy) {
   }
   if (!found) return false;
   c.isBoat = true; c.isTruck = false; c.isPolice = false;
-  c.variant = (uint8_t)(aiRngNext(aiRng) % BOAT_KIND_N);
+  // ~1 % rainbow (hors plage uniforme), sinon une des livrees normales.
+  c.variant = (aiRngNext(aiRng) % 100 == 0)
+              ? (uint8_t)BOAT_RAINBOW
+              : (uint8_t)(aiRngNext(aiRng) % BOAT_REAL_N);
   c.color = BOAT_VARIANTS[c.variant].hull;
   c.hp = CAR_MAX_HP;
   c.fleeing = false; c.fleeTimer = 0; c.brakeReact = 0; c.backoff = 0;
@@ -102,10 +105,18 @@ static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
     // Police et camion s'excluent : un camion n'est jamais une voiture de police.
     c.isTruck = !c.isPolice && ((int)(aiRngNext(aiRng) % 100) < TRUCK_SPAWN_PCT);
     if (c.isTruck) {
-      c.variant = (uint8_t)(aiRngNext(aiRng) % TRUCK_KIND_N);
+      // ~1 % rainbow (hors plage uniforme), sinon une des livrees normales.
+      c.variant = (aiRngNext(aiRng) % 100 == 0)
+                  ? (uint8_t)TRUCK_RAINBOW
+                  : (uint8_t)(aiRngNext(aiRng) % TRUCK_REAL_N);
       c.color = TRUCK_VARIANTS[c.variant].body;
+    } else if (c.isPolice) {
+      c.color = POLICE_BLUE;
     } else {
-      c.color = c.isPolice ? POLICE_BLUE : AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
+      // ~1 % rainbow (sentinelle), sinon teinte unie tiree dans la palette.
+      c.color = (aiRngNext(aiRng) % 100 == 0)
+                ? RAINBOW_COLOR
+                : AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
     }
     c.hp = CAR_MAX_HP;
     c.driver = true;                       // trafic = voiture avec conducteur

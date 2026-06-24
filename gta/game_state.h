@@ -331,6 +331,21 @@ static const uint16_t AI_PALETTE[] = {
 };
 static const int AI_PALETTE_N = sizeof(AI_PALETTE) / sizeof(AI_PALETTE[0]);
 
+// --- Livree "rainbow" ultra-rare (~1 % des spawns, cf. mod_ai.h) : purement
+//     cosmetique. Les pixels recolores affichent un arc-en-ciel diagonal qui
+//     DEFILE (cf. rainbowPx / blitCar/Truck/Boat dans mod_render.h), au lieu
+//     d'une couleur unie. Marquage : voitures -> couleur sentinelle RAINBOW_COLOR
+//     dans AiCar.color (se propage gratuitement a carColor au vol) ; camions/
+//     bateaux -> variante dediee (TRUCK_RAINBOW / BOAT_RAINBOW, champ .rainbow).
+static const uint16_t RAINBOW_COLOR = 0x0001;   // sentinelle (hors AI_PALETTE/cles/transparence)
+// 16 teintes RGB565 (puissance de 2 -> modulo en masque). Couleur d'un pixel-cle
+// = RAINBOW_LUT[(rx + ry + scroll) & (RAINBOW_N - 1)].
+static const uint16_t RAINBOW_LUT[] = {
+  0xF800, 0xFB00, 0xFDE0, 0xDFE0, 0x87E0, 0x27E0, 0x07E8, 0x07F3,
+  0x07FF, 0x04FF, 0x021F, 0x201F, 0x801F, 0xD81F, 0xF817, 0xF80C,
+};
+static const int RAINBOW_N = sizeof(RAINBOW_LUT) / sizeof(RAINBOW_LUT[0]);
+
 // Teintes fixes du joueur (sprites partages, recolores comme les IA).
 static const uint16_t PLAYER_BODY_COLOR = 0xC800;  // rouge (perso a pied)
 static const uint16_t PLAYER_CAR_COLOR  = 0xC800;  // rouge (voiture de depart)
@@ -341,18 +356,23 @@ static uint16_t carColor = PLAYER_CAR_COLOR;
 //     en recolorant 4 cles (corps/cabine/fenetres/echelle) -- cf. build_truck.py.
 //     Le gyrophare reste un overlay anime (drawGyro), pas une couleur bakee.
 enum TruckKind : uint8_t {
-  TRUCK_SCHOOLBUS, TRUCK_BUS, TRUCK_FIRE, TRUCK_AMBULANCE, TRUCK_DUMP, TRUCK_KIND_N
+  TRUCK_SCHOOLBUS, TRUCK_BUS, TRUCK_FIRE, TRUCK_AMBULANCE, TRUCK_DUMP,
+  TRUCK_RAINBOW,            // livree ultra-rare (cf. RAINBOW_LUT) -- hors tirage uniforme
+  TRUCK_KIND_N
 };
+static const int TRUCK_REAL_N = TRUCK_RAINBOW;   // nb de livrees "normales" (plage du tirage uniforme)
 struct TruckVariant {
   uint16_t body, cab, window, ladder;  // couleurs de recolorisation des 4 cles
   bool hasGyro; uint16_t gyroL, gyroR; // gyrophare gauche/droite (anime), ou absent
+  bool rainbow;                        // true : les 4 cles affichent l'arc-en-ciel defilant
 };
 static const TruckVariant TRUCK_VARIANTS[TRUCK_KIND_N] = {
-  { 0xFFE0, 0xFFE0, 0x5ADB, 0xFFE0, false, 0, 0 },                 // bus scolaire (jaune, fenetres bleu-gris)
-  { 0x051F, 0x051F, 0x051F, 0x051F, false, 0, 0 },                 // bus de ville (bleu uni)
-  { 0xF800, 0xF800, 0xF800, 0xC618, true,  0xF800, 0xFFE0 },       // pompier (rouge, echelle argent, gyro rouge/jaune)
-  { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, true,  0xF800, 0x001F },       // ambulance (blanc, gyro rouge/bleu)
-  { 0xFD20, 0x8410, 0xFD20, 0xFD20, false, 0, 0 },                 // benne chantier (orange, cabine grise)
+  { 0xFFE0, 0xFFE0, 0x5ADB, 0xFFE0, false, 0, 0, false },          // bus scolaire (jaune, fenetres bleu-gris)
+  { 0x051F, 0x051F, 0x051F, 0x051F, false, 0, 0, false },          // bus de ville (bleu uni)
+  { 0xF800, 0xF800, 0xF800, 0xC618, true,  0xF800, 0xFFE0, false },// pompier (rouge, echelle argent, gyro rouge/jaune)
+  { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, true,  0xF800, 0x001F, false },// ambulance (blanc, gyro rouge/bleu)
+  { 0xFD20, 0x8410, 0xFD20, 0xFD20, false, 0, 0, false },          // benne chantier (orange, cabine grise)
+  { RAINBOW_COLOR, RAINBOW_COLOR, RAINBOW_COLOR, RAINBOW_COLOR, false, 0, 0, true }, // RAINBOW (cles ignorees, rendu LUT)
 };
 static const int TRUCK_SPAWN_PCT = 5;   // % de chance qu'un (re)spawn de trafic soit un camion plutot qu'une voiture
 
@@ -361,19 +381,24 @@ static const int TRUCK_SPAWN_PCT = 5;   // % de chance qu'un (re)spawn de trafic
 //     prennent un slot du POOL voiture (aiCars) ; pres de l'eau, un (re)spawn de
 //     trafic peut devenir un bateau plutot qu'une voiture. Conduite = eau only.
 enum BoatKind : uint8_t {
-  BOAT_VEDETTE, BOAT_YACHT, BOAT_PECHE, BOAT_ZODIAC, BOAT_TAXI, BOAT_POLICE, BOAT_KIND_N
+  BOAT_VEDETTE, BOAT_YACHT, BOAT_PECHE, BOAT_ZODIAC, BOAT_TAXI, BOAT_POLICE,
+  BOAT_RAINBOW,            // livree ultra-rare (cf. RAINBOW_LUT) -- hors tirage uniforme
+  BOAT_KIND_N
 };
+static const int BOAT_REAL_N = BOAT_RAINBOW;     // nb de livrees "normales" (plage du tirage uniforme)
 struct BoatVariant {
   uint16_t hull, deck, trim;           // couleurs de recolorisation des 3 cles
   bool hasGyro; uint16_t gyroL, gyroR; // gyrophare (police maritime), ou absent
+  bool rainbow;                        // true : les 3 cles affichent l'arc-en-ciel defilant
 };
 static const BoatVariant BOAT_VARIANTS[BOAT_KIND_N] = {
-  { 0xD145, 0xF716, 0xFFFF, false, 0, 0 },        // vedette_rouge
-  { 0xF79E, 0xBCAB, 0x118F, false, 0, 0 },        // yacht_blanc
-  { 0x1BC8, 0x7BD0, 0xFCA3, false, 0, 0 },        // peche_vert (coque verte, liseree orange)
-  { 0x424A, 0x18E4, 0x94D4, false, 0, 0 },        // zodiac_gris (semi-rigide)
-  { 0xFE60, 0x2105, 0x10A3, false, 0, 0 },        // taxi_jaune
-  { 0x114D, 0xEF5D, 0xFFFF, true,  0x01FF, 0xEF5D }, // police_maritime (gyro bleu/blanc)
+  { 0xD145, 0xF716, 0xFFFF, false, 0, 0, false },     // vedette_rouge
+  { 0xF79E, 0xBCAB, 0x118F, false, 0, 0, false },     // yacht_blanc
+  { 0x1BC8, 0x7BD0, 0xFCA3, false, 0, 0, false },     // peche_vert (coque verte, liseree orange)
+  { 0x424A, 0x18E4, 0x94D4, false, 0, 0, false },     // zodiac_gris (semi-rigide)
+  { 0xFE60, 0x2105, 0x10A3, false, 0, 0, false },     // taxi_jaune
+  { 0x114D, 0xEF5D, 0xFFFF, true,  0x01FF, 0xEF5D, false }, // police_maritime (gyro bleu/blanc)
+  { RAINBOW_COLOR, RAINBOW_COLOR, RAINBOW_COLOR, false, 0, 0, true }, // RAINBOW (cles ignorees, rendu LUT)
 };
 // % de chance qu'un (re)spawn de trafic devienne un bateau SI de l'eau est
 // proche (sinon : toujours une voiture). Sur la moitie des bateaux : amarre vide
