@@ -19,33 +19,34 @@ from tools.citygen import (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL, Z_SAND,
 
 # Quartiers ancres (fraction x,y de la carte, downtown?). Issus des libelles de
 # l'illustration. Les centraux sont denses (downtown), la peripherie residentielle.
+# (fx, fy, downtown?, libelle HUD <=12 car.). Ancres aux vrais quartiers.
 DISTRICT_SEEDS = [
-    ("estaque",   0.22, 0.12, False),
-    ("stantoine", 0.40, 0.10, False),
-    ("larose",    0.65, 0.09, False),
-    ("laviste",   0.33, 0.20, False),
-    ("stjerome",  0.47, 0.21, False),
-    ("standre",   0.62, 0.25, False),
-    ("gombert",   0.80, 0.28, False),
-    ("allauch",   0.90, 0.42, False),
-    ("stcharles", 0.42, 0.33, True),
-    ("belledmai", 0.55, 0.38, True),
-    ("blancarde", 0.66, 0.37, True),
-    ("sthenri",   0.33, 0.40, False),
-    ("panier",    0.35, 0.46, True),
-    ("plaine",    0.55, 0.46, True),
-    ("stbarnabe", 0.66, 0.46, False),
-    ("timone",    0.63, 0.52, True),
-    ("vieuxport", 0.38, 0.54, True),
-    ("corniche",  0.25, 0.58, False),
-    ("prado",     0.52, 0.60, True),
-    ("stemarg",   0.62, 0.62, False),
-    ("vivaux",    0.78, 0.55, False),
-    ("roucas",    0.45, 0.68, False),
-    ("mazargues", 0.55, 0.72, False),
-    ("sttronc",   0.78, 0.70, False),
-    ("goudes",    0.12, 0.65, False),
-    ("calanques", 0.62, 0.82, False),
+    (0.22, 0.12, False, "L'Estaque"),
+    (0.40, 0.10, False, "St-Antoine"),
+    (0.65, 0.09, False, "La Rose"),
+    (0.33, 0.20, False, "La Viste"),
+    (0.47, 0.21, False, "St-Jerome"),
+    (0.62, 0.25, False, "St-Andre"),
+    (0.80, 0.28, False, "Gombert"),
+    (0.90, 0.42, False, "Allauch"),
+    (0.42, 0.33, True,  "St-Charles"),
+    (0.55, 0.38, True,  "Belle 2Mai"),
+    (0.66, 0.37, True,  "Blancarde"),
+    (0.33, 0.40, False, "St-Henri"),
+    (0.35, 0.46, True,  "Le Panier"),
+    (0.55, 0.46, True,  "La Plaine"),
+    (0.66, 0.46, False, "St-Barnabe"),
+    (0.63, 0.52, True,  "La Timone"),
+    (0.38, 0.54, True,  "Vieux-Port"),
+    (0.25, 0.58, False, "La Corniche"),
+    (0.52, 0.60, True,  "Le Prado"),
+    (0.62, 0.62, False, "Ste-Marg."),
+    (0.78, 0.55, False, "Pont-Vivaux"),
+    (0.45, 0.68, False, "Roucas-Bl."),
+    (0.55, 0.72, False, "Mazargues"),
+    (0.78, 0.70, False, "St-Tronc"),
+    (0.12, 0.65, False, "Les Goudes"),
+    (0.62, 0.82, False, "Calanques"),
 ]
 
 BEACH_W = 2            # largeur de plage (sable) le long de la mer
@@ -80,9 +81,9 @@ def build_terrain(seed, w, h, sea, road, park):
             z[i] = Z_SAND
 
     # districts (Voronoi sur graines ancrees ; eau ignoree au remplissage)
-    seeds = [(int(fx * w), int(fy * h)) for (_, fx, fy, _) in DISTRICT_SEEDS]
+    seeds = [(int(fx * w), int(fy * h)) for (fx, fy, _, _) in DISTRICT_SEEDS]
     seed_type = [Z_DOWNTOWN if dt else Z_RESIDENTIAL
-                 for (_, _, _, dt) in DISTRICT_SEEDS]
+                 for (_, _, dt, _) in DISTRICT_SEEDS]
     district_id = [0] * (w * h)
     for y in range(h):
         for x in range(w):
@@ -110,10 +111,10 @@ def _local_streets(mask, w, h, z, seed):
             if not base[i] or z[i] == Z_WATER:
                 continue
             dense = z[i] == Z_DOWNTOWN
-            if rng.random() > (0.14 if dense else 0.05):
+            if rng.random() > (0.04 if dense else 0.02):
                 continue
             ang = rng.uniform(0, math.pi)
-            length = (4 if dense else 3) + int(nf[y][x] * (8 if dense else 5))
+            length = (4 if dense else 3) + int(nf[y][x] * (6 if dense else 4))
             px, py = x + 0.0, y + 0.0
             lx, ly = x, y
             for k in range(length):
@@ -241,12 +242,29 @@ def _classify(mask, w, h):
     return r
 
 
+def _neighborhood_streets(mask, w, h, z, spacing=14):
+    """Petites rues DROITES (H/V) traversant les quartiers batis, pour les rendre
+    carrossables. Tracees uniquement sur la terre urbaine (interrompues par mer/
+    parc/plage) ; elles coupent les axes existants -> restent connectees."""
+    urban = Z_DOWNTOWN          # toute la terre batie (cf. build_terrain)
+    off = spacing // 2
+    for x in range(off, w, spacing):              # rues verticales
+        for y in range(h):
+            if z[y * w + x] == urban:
+                mask[y * w + x] = True
+    for y in range(off, h, spacing):              # rues horizontales
+        for x in range(w):
+            if z[y * w + x] == urban:
+                mask[y * w + x] = True
+
+
 def build_roads(seed, w, h, z, road):
-    """Codes routes depuis le masque extrait + rues locales + connexite."""
+    """Codes routes : axes image (affines) + rues droites de quartier + connexite."""
     mask = [bool(road[i]) and z[i] != Z_WATER for i in range(w * h)]
     _thin(mask, w, h)                       # axes epais de l'image -> 1 tuile
     _orthogonalize(mask, w, h)              # squelette 8-connexe -> 4-connexe
-    _local_streets(mask, w, h, z, seed)     # eperons (deja fins) greffes dessus
+    _neighborhood_streets(mask, w, h, z)    # rues droites traversant les quartiers
+    _local_streets(mask, w, h, z, seed)     # eperons organiques greffes dessus
     _keep_main_component(mask, w, h)
     return _classify(mask, w, h)
 
@@ -256,10 +274,14 @@ def build_roads(seed, w, h, z, road):
 def generate_into(city, seed, tile_index, solid_index,
                   image_path=marseille_map.IMAGE_PATH, density=0.85):
     """Genere la carte Marseille depuis l'image puis delegue a citygen.assemble."""
+    from tools import pois
     idx = citygen.resolve_tile_idx(tile_index)
     w, h = city.w, city.h
     sea, road, park = marseille_map.extract(image_path, w, h)
     z, sea, district_id, seed_type = build_terrain(seed, w, h, sea, road, park)
     r = build_roads(seed, w, h, z, road)
+    base_names = {d: s[3] for d, s in enumerate(DISTRICT_SEEDS)}   # vrais quartiers
     return citygen.assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
-                            district_id, seed_type, density)
+                            district_id, seed_type, density,
+                            exclude_themes={pois.THEME_CHINATOWN},
+                            district_base_names=base_names)

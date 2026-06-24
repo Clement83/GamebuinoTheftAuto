@@ -200,19 +200,23 @@ DISTRICT_NAMES = (
 )
 
 
-def assign_district_names(seed, assign, num_districts):
+def assign_district_names(seed, assign, num_districts, base_names=None):
     """Nom d'affichage pour CHAQUE district -> {district_id: nom}.
 
-    District theme -> nom du theme (Chinatown, Les Quais...) ; les autres ->
-    nom 'GTA' pioche dans DISTRICT_NAMES (deterministe, sans doublon). Garantit
+    District theme -> nom du theme (Les Quais...) ; sinon, si `base_names` fournit
+    un nom pour ce district (carte ancree, ex. Marseille) on l'utilise, faute de
+    quoi on pioche dans DISTRICT_NAMES (deterministe, sans doublon). Garantit
     qu'on est toujours dans un quartier nomme."""
     rng = random.Random(seed + 60)
     pool = list(DISTRICT_NAMES)
     rng.shuffle(pool)
+    base_names = base_names or {}
     names, pi = {}, 0
     for d in range(num_districts):
         if d in assign:
             names[d] = THEME_NAMES[assign[d]]
+        elif d in base_names:
+            names[d] = base_names[d]
         else:
             names[d] = pool[pi % len(pool)]
             pi += 1

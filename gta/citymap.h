@@ -5,8 +5,8 @@
 
 #define CITY_W 240
 #define CITY_H 160
-#define PLAYER_START_X 41
-#define PLAYER_START_Y 10
+#define PLAYER_START_X 234
+#define PLAYER_START_Y 22
 #define PLAYER_START_DIR DIR_SOUTH
 
 #define CITY_NUM_POIS 35
@@ -32,7 +32,7 @@ extern const CityService citySprays[CITY_NUM_SPRAYS];
 extern const CityService cityAmmus[CITY_NUM_AMMUS];
 
 #define CITY_HAS_CASSE 1
-#define CITY_CASSE_TX 860
-#define CITY_CASSE_TY 180
-#define CITY_CRANE_TX 860
-#define CITY_CRANE_TY 164
+#define CITY_CASSE_TX 1252
+#define CITY_CASSE_TY 1012
+#define CITY_CRANE_TX 1252
+#define CITY_CRANE_TY 996

@@ -448,7 +448,8 @@ def resolve_tile_idx(tile_index):
 
 
 def assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
-             district_id, seed_type, density):
+             district_id, seed_type, density, exclude_themes=None,
+             district_base_names=None):
     """Etapes communes APRES terrain+routes : themes -> blocs -> routes ->
     trottoirs -> tous les POI (stamps/services/casse/chantier) -> spawn.
 
@@ -456,6 +457,8 @@ def assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
     alternatifs (ex. citygen_marseille) : ils fournissent leur propre terrain
     (`z`, `sea`, `district_id`, `seed_type`) et leurs routes (`r`, codes
     '.'/'h'/'v'/'x'), tout le reste (POI, campagne) reste identique.
+    `exclude_themes` : themes a ne pas placer (ex. Chinatown sur Marseille).
+    `district_base_names` : {district_id: nom} pour les libelles ancres.
     Mute `city.grid` et renseigne city.pois/sprays/ammus/casse/crane/etc.
     Retourne le spawn."""
     w, h = city.w, city.h
@@ -466,6 +469,8 @@ def assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
     # generation strictement identique a l'historique.
     from tools import pois
     palettes = pois.resolve_palettes(tile_index)        # {theme_id: palette resolue}
+    if exclude_themes:
+        palettes = {k: v for k, v in palettes.items() if k not in exclude_themes}
     stamps_avail = pois.has_any_stamp(tile_index)
 
     # 4b. affectation des themes de quartier (avant remplissage des blocs).
@@ -513,7 +518,8 @@ def assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
     # 8d. POI exportables (nom + bbox + point-cible) pour le HUD et les missions.
     # Chaque district recoit un nom (theme ou nom 'GTA') -> on est toujours dans
     # un quartier nomme cote HUD. city.districts sert au libelle sur le PNG.
-    district_names = pois.assign_district_names(seed, assign, len(seed_type))
+    district_names = pois.assign_district_names(seed, assign, len(seed_type),
+                                                base_names=district_base_names)
     city.pois = pois.collect_pois(city.grid, theme, assign, placed_stamps, sea,
                                   tile_index, solid_index, w, h,
                                   district_id=district_id, names=district_names)
