@@ -58,7 +58,7 @@ disparaît silencieusement. Table titres :
 
 | Index | Ancien titre | Nouveau titre |
 |---|---|---|
-| 1  | Le dernier trajet | **Le dernier trajet** (inchangé) |
+| 1  | Le dernier trajet | **Le chantier de l'Estaque** |
 | 16 | Premier jour | **Le colis du port** |
 | 17 | Les assurances | **Les protections** |
 | 18 | Mauvaise dette | **Le cousin Remi** |
@@ -77,27 +77,44 @@ disparaît silencieusement. Table titres :
 | 31 | Bruno | **Paulo** |
 | 32 | Le dernier appel | **Le Vieux-Port** |
 
-Clés `strcmp` à mettre à jour : `bossTauntLines` (« Rico le Loup »→« Le
-Sanglier », « Bruno »→« Paulo », « Le dernier appel »→« Le Vieux-Port ») ;
-`ambushTauntLines` (« Les assurances »→« Les protections », « Mauvaise
-dette »→« Le cousin Remi », « Message aux Loups »→« Les Nordistes »,
-« L'entrepot » idem, « Embuscade »→« La cabane », « Les dossiers »→« Les
-papiers ») ; `deliveryLines` (« Voiture volee »→« Le fourgon », « Les
-assurances »→« Les protections ») ; fail M9 (« Tournee de Marco »→« La tournee
-de Marius »).
+**Inventaire EXHAUSTIF des `strcmp(title, ...)` à mettre à jour** (tous dans
+`mod_mission.h` ; vérifié par grep). Certains ne sont **pas** que cosmétiques —
+ils pilotent la couleur d'allié, le niveau de recherche, les fails :
 
-## 3. Carte : turf du gang « Quartiers Nord »
+| Ligne | Fonction / effet | Clé actuelle → nouvelle |
+|---|---|---|
+| 259 | bossTaunt | `Rico le Loup` → `Le Sanglier` |
+| 263 | bossTaunt | `Bruno` → `Paulo` |
+| 267 | bossTaunt | `Le dernier appel` → `Le Vieux-Port` |
+| 280 | ambushTaunt | `Les assurances` → `Les protections` |
+| 284 | ambushTaunt | `Mauvaise dette` → `Le cousin Remi` |
+| 288 | ambushTaunt | `Message aux Loups` → `Les Nordistes` |
+| 292 | ambushTaunt | `L'entrepot` *(inchangé)* |
+| 296 | ambushTaunt | `Embuscade` → `La cabane` |
+| 300 | ambushTaunt | `Les dossiers` → `Les papiers` |
+| **338** | **allyColor (Sarah vs Tony)** | `Embuscade` → `La cabane` |
+| 581 | deliveryLines | `Voiture volee` → `Le fourgon` |
+| 586 | deliveryLines | `Les assurances` → `Les protections` |
+| 636 | cutscene départ | `Premier jour` → `Le colis du port` |
+| **795** | **effet système (BEAT)** | `Message aux Loups` → `Les Nordistes` |
+| **802** | **wanted lvl (ENTER_CAR)** | `Sabotage` → `Le sabotage` |
+| **871** | **fail allié** | `Embuscade` → `La cabane` |
+| **876** | **fail racket/client** | `Les assurances` → `Les protections` |
+| **877** | **fail racket/client** | `Tournee de Marco` → `La tournee de Marius` |
+
+> `Le chantier de l'Estaque` (ex-`Le dernier trajet`), `Le cousin Remi`,
+> `Dede le PMU`, `Riton` : **aucun `strcmp`** → renommage sans risque.
+
+## 3. Carte : turf du gang → `La Rose`
 
 - L'ancien `Chinatown` était au **centre** de carte (centre px ~812,436) → pas
   « au nord ». Le vrai nord = bande tile y 0–32.
-- **Décision** : on rebaptise le slot POI **`La Rose`** (`citymap_data.cpp:173`,
-  coords `126,0,198,32`, centre `1284,100` — une cité bien au nord) en
-  **`Cite Nord`** (libellé court qui tient à l'écran ; la narration dit « les
-  quartiers nord » en toutes lettres). Tous les objectifs ex-`Chinatown` pointent
-  désormais sur `Cite Nord` → ils remontent au nord.
-- `music_data.cpp:70` : zone `"Chinatown"` → `"Cite Nord"`.
-- À vérifier en implémentation : `city/overlay.json` (libellé `La Rose` éventuel)
-  et largeur du libellé sur la carte.
+- **Décision** : on **garde le libellé `La Rose`** (`citymap_data.cpp:173`,
+  coords `126,0,198,32`, centre `1284,100` — un vrai quartier nord, cité bien au
+  nord). Tous les objectifs ex-`Chinatown` pointent désormais sur `La Rose` → ils
+  remontent au nord. **Aucune édition de `citymap_data.cpp` ni de la carte.** La
+  narration dit « les quartiers nord » / « La Rose » selon le contexte.
+- `music_data.cpp:70` : zone `"Chinatown"` → `"La Rose"`.
 
 > NB : le POI `Le Casino` reste tel quel (utilisé par M16 et la mission pompier
 > secondaire) ; seul M18 est repointé sur `Vieux-Port`.
@@ -106,7 +123,7 @@ de Marius »).
 
 Format : `O# TYPE [POI]` → `text` / `doneText`.
 
-### M4 — OBJS_DEAL « Le dernier trajet » (la mort de Marius)
+### M4 — OBJS_DEAL « Le chantier de l'Estaque » (la mort de Marius)
 - O1 GOTO Le Garage (join) → « Marius : un dernier rendez-vous, ce soir. Passe me prendre au garage du cousin. » / « Marius : direction le chantier de l'Estaque. »
 - O2 GOTO Chantier (die) → « Emmene Marius au chantier. Il est nerveux ce soir. » / « Le chantier. Marius descend, mefiant... une silhouette l'attend dans l'ombre. »
 - O3 KILL Chantier → « Le tueur fonce sur toi. Le laisse pas filer, vé ! » / « Justice est faite. ...pour l'instant. »
@@ -131,9 +148,9 @@ Format : `O# TYPE [POI]` → `text` / `doneText`.
 ### M3 — OBJS_M3 « Le cousin Remi »
 - O1 GOTO Le Garage → « Le cousin Remi doit du fric et fait le mort. Marius veut un exemple. Va le chercher au garage. »
 - O2 TALK (join) → « Marius : deux secondes minot, j'arrive ! » / « Marius : ce Remi se fout de nous depuis trop longtemps. Suis-moi. »
-- O3 GOTO Cite Nord → « Remi se planque aux quartiers nord, entoure de ses gros bras. Approche. »
-- O4 BEAT Cite Nord → « Ecarte ses hommes de main. » / « La voie est libre. Reste Remi. »
-- O5 KILL Cite Nord → « Il detale, le fada ! Rattrape-le. » / « Dette reglee. Marius : il s'en souviendra... si sa tete s'en souvient. »
+- O3 GOTO La Rose → « Remi se planque aux quartiers nord, entoure de ses gros bras. Approche. »
+- O4 BEAT La Rose → « Ecarte ses hommes de main. » / « La voie est libre. Reste Remi. »
+- O5 KILL La Rose → « Il detale, le fada ! Rattrape-le. » / « Dette reglee. Marius : il s'en souviendra... si sa tete s'en souvient. »
 - O6 GOTO Le Garage (leave) → « C'est fait. Ramene Marius au garage. »
 
 ### M5 — OBJS_M5 « Dede le PMU »
@@ -141,8 +158,8 @@ Format : `O# TYPE [POI]` → `text` / `doneText`.
 - O2 SUBDUE Le Bar → « Dede crane devant ses copains de comptoir et te bouscule. Secoue-le, sans le tuer. » / « Ses copains se debinent. Dede : les Nordistes cherchent un type depuis des semaines... c'est eux. »
 
 ### M6 — OBJS_M6 « Les Nordistes »
-- O1 GOTO Cite Nord → « Inconnu : envoie-leur un message. Monte dans les quartiers nord. » / « Les voila, accoudes au mur. Ils t'ont calcule. »
-- O2 BEAT Cite Nord → « Mets trois Nordistes au tapis. Qu'ils comprennent. » / « Ca devrait les remuer. Inconnu : bien joue, minot. »
+- O1 GOTO La Rose → « Inconnu : envoie-leur un message. Monte dans les quartiers nord. » / « Les voila, accoudes au mur. Ils t'ont calcule. »
+- O2 BEAT La Rose → « Mets trois Nordistes au tapis. Qu'ils comprennent. » / « Ca devrait les remuer. Inconnu : bien joue, minot. »
 
 ### M7 — OBJS_M7 « Le fourgon »
 - O1 GOTO Les Quais → « Jeannot - l'inconnu a un nom : un fourgon des Nordistes dort aux quais. » / « Deux gardes armes le surveillent. »
@@ -171,16 +188,16 @@ Format : `O# TYPE [POI]` → `text` / `doneText`.
 - O3 KILL Chantier → « Le Sanglier est coriace. Acharne-toi. » / « Le Sanglier, a terre : on a jamais touche Marius, minot. Tu bosses pour le vrai coupable... Costa. »
 
 ### M12 — OBJS_M12 « La glaciere »
-- O1 GOTO Cite Nord → « Sonia (numero inconnu) : je peux prouver ce qu'a dit le Sanglier. Une glaciere, planquee aux quartiers nord. » / « Un homme mort, une glaciere pres du corps. Mais t'es pas seul... »
-- O2 KILL Cite Nord → « Des nettoyeurs viennent pour la glaciere. Prends-les de vitesse. » / « Les nettoyeurs sont a terre. La glaciere est restee pres du corps. »
-- O3 GOTO Cite Nord → « Marche jusqu'au corps et empoigne la glaciere. » / « Tu empoignes la glaciere. Maintenant file a la planque. »
+- O1 GOTO La Rose → « Sonia (numero inconnu) : je peux prouver ce qu'a dit le Sanglier. Une glaciere, planquee aux quartiers nord. » / « Un homme mort, une glaciere pres du corps. Mais t'es pas seul... »
+- O2 KILL La Rose → « Des nettoyeurs viennent pour la glaciere. Prends-les de vitesse. » / « Les nettoyeurs sont a terre. La glaciere est restee pres du corps. »
+- O3 GOTO La Rose → « Marche jusqu'au corps et empoigne la glaciere. » / « Tu empoignes la glaciere. Maintenant file a la planque. »
 - O4 GOTO Planque → « Rapporte la glaciere a la planque. » / « Sonia : c'est bien ce que je craignais. Faut qu'on se voie. »
 
 ### M13 — OBJS_M13 « La comptable » (escorte Sonia)
 - O1 GOTO Le Bar → « Sonia, l'ancienne comptable de Costa, t'attend au Bar. Vas-y a pied. »
 - O2 TALK (join Sonia, count=1) → « Sonia : Costa a peur, il efface les preuves. Sors-moi d'ici. » / « Sonia monte. Direction la cabane, et vite. »
-- O3 GOTO Cite Nord → « Prends une caisse et file a la planque en passant par les quartiers nord. » / « Une berline pile en travers. Embuscade ! »
-- O4 KILL Cite Nord → « Les hommes de Costa ont repere Sonia ! Ecarte-les. » / « La voie est libre. Sonia, tassee sur le siege : roule, roule ! »
+- O3 GOTO La Rose → « Prends une caisse et file a la planque en passant par les quartiers nord. » / « Une berline pile en travers. Embuscade ! »
+- O4 KILL La Rose → « Les hommes de Costa ont repere Sonia ! Ecarte-les. » / « La voie est libre. Sonia, tassee sur le siege : roule, roule ! »
 - O5 GOTO Planque → « Reprends la route vers la cabane, vite ! » / « Sonia est a l'abri. Pour l'instant. »
 
 ### M14 — OBJS_M14 « La cabane » (défense Sonia)
@@ -195,7 +212,7 @@ Format : `O# TYPE [POI]` → `text` / `doneText`.
 - O4 BEAT Les Bureaux → « Des renforts te coupent la sortie. Force le passage. » / « Sonia : 'Costa a commande le meurtre de Marius.' On le tient. »
 
 ### M16 — OBJS_M16 « Le sabotage »
-- O1 ENTER_CAR Cite Nord → « Jeannot : on va lui faire mal au portefeuille. Vole sa caisse de luxe, aux quartiers nord. »
+- O1 ENTER_CAR La Rose → « Jeannot : on va lui faire mal au portefeuille. Vole sa caisse de luxe, aux quartiers nord. »
 - O2 CRUSH La Casse → « Amene-la a la casse. Descends pres de la grue et fais-la BROYER. » / « Une de moins. Jeannot : ca pique, hein Costa ? »
 - O3 ENTER_CAR Le Casino → « Encore une, garee devant le Casino. »
 - O4 CRUSH La Casse → « Rebelote : au broyeur, et reste pres de la grue jusqu'au bout. » / « Jeannot : ca va le rendre chevre. »
@@ -212,13 +229,13 @@ Format : `O# TYPE [POI]` → `text` / `doneText`.
 
 ## 5. Réécritures — missions secondaires (`game_state.h`)
 
-Renommages POI `Chinatown`→`Cite Nord` + accent léger ; noms swappés si présents.
+Renommages POI `Chinatown`→`La Rose` + accent léger ; noms swappés si présents.
 - **OBJS_JOE** « Joe »→« Riton » : « Riton se planque aux quais. Retrouve-le et fais-le taire. » / « Beau boulot. Riton parlera plus. »
-- **OBJS_VENGEANCE** (POI→Cite Nord) : « Il se cache aux quartiers nord. Fais-lui la peau. » / « Vengeance accomplie. »
-- **OBJS_RACE** O3 (POI→Cite Nord) : « Checkpoint 2 : quartiers nord. »
-- **OBJS_DEBT** (POI→Cite Nord ×2) : « Un mauvais payeur traine aux quartiers nord. Va le voir. » / « Le voila. » ; « Fais-lui cracher la dette : tabasse-le. » / « Il paiera, crois-moi. »
-- **OBJS_RACKET** O1 (POI→Cite Nord) : « Tournee de protection. Commerce 1 : quartiers nord. »
-- **OBJS_PIZZA** O2 (POI→Cite Nord) : « Livre la pizza avant qu'elle refroidisse ! »
+- **OBJS_VENGEANCE** (POI→La Rose) : « Il se cache aux quartiers nord. Fais-lui la peau. » / « Vengeance accomplie. »
+- **OBJS_RACE** O3 (POI→La Rose) : « Checkpoint 2 : quartiers nord. »
+- **OBJS_DEBT** (POI→La Rose ×2) : « Un mauvais payeur traine aux quartiers nord. Va le voir. » / « Le voila. » ; « Fais-lui cracher la dette : tabasse-le. » / « Il paiera, crois-moi. »
+- **OBJS_RACKET** O1 (POI→La Rose) : « Tournee de protection. Commerce 1 : quartiers nord. »
+- **OBJS_PIZZA** O2 (POI→La Rose) : « Livre la pizza avant qu'elle refroidisse ! »
 - Autres secondaires (Nettoyage, Temoin genant, Taxi, Cavale, Chauffard, Livreur perdu, Alerte incendie) : passage d'accent léger, aucun nom de perso de trame → simples retouches optionnelles.
 
 ## 6. Réécritures — `gta/mod_mission.h`
@@ -264,8 +281,8 @@ Renommages POI `Chinatown`→`Cite Nord` + accent léger ; noms swappés si pré
 
 ## 8. Carte & musique
 
-- `citymap_data.cpp:173` : `"La Rose"` → `"Cite Nord"`.
-- `music_data.cpp:70` : `"Chinatown"` → `"Cite Nord"`.
+- `citymap_data.cpp:173` : `"La Rose"` → `"La Rose"`.
+- `music_data.cpp:70` : `"Chinatown"` → `"La Rose"`.
 - Vérifier `city/overlay.json` (libellé `La Rose`) en implémentation.
 
 ## 9. Checklist build/test
