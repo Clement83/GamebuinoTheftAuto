@@ -14,7 +14,7 @@ isolee ici ; le generateur reste sinon pur. Deterministe.
 """
 import colorsys
 
-IMAGE_PATH = "marseille_hight_contrast.png"
+IMAGE_PATH = "city/sources/marseille_hight_contrast.png"
 
 MIN_PARK_BLOB = 16        # composantes vertes plus petites = pastilles de label
 

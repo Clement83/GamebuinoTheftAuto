@@ -1,4 +1,4 @@
-"""Generateur de carte "Marseille" pilote par l'illustration marseille_simple.png.
+"""Generateur de carte "Marseille" pilote par l'illustration city/sources/marseille_hight_contrast.png.
 
 Pipeline :
   1. tools.marseille_map.extract -> masques MER + ROUTE (vraie geographie).

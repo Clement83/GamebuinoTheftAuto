@@ -1,8 +1,8 @@
-; Marseille (demake) — carte derivee de l'illustration marseille_hight_contrast.png.
+; Marseille (demake) — carte derivee de l'illustration city/sources/marseille_hight_contrast.png.
 ; Genere par tools/citygen_marseille.py (commande DSL 'marseille') :
 ;   vraie cote + Vieux-Port + calanques + iles, vrais axes routiers extraits de
 ;   l'image, collines (parcs) sur les massifs, rues locales organiques.
 ; Tous les POI de campagne restent places (chaine tools/pois.py).
 size 240 160
 seed 7
-marseille image marseille_hight_contrast.png density 0.92
+marseille image city/sources/marseille_hight_contrast.png density 0.92
