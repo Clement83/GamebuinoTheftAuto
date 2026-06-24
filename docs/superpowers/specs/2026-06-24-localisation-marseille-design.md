@@ -22,7 +22,7 @@ souci de parité).
 **Choix de fidélité assumés (on s'écarte volontairement du script fourni) :**
 - Les dernières paroles de Marius (« César… c'est César… ») **ne sont PAS
   ajoutées** à la mort en M4. La campagne existante construit la vérité
-  progressivement (le joueur est manipulé contre les Nordistes, puis le Sanglier
+  progressivement (le joueur est manipulé contre les Chouf, puis le Sanglier
   l'envoie vers Costa). Nommer Costa dès M4 casserait ce mystère. La révélation
   reste celle du code actuel (M11 le Sanglier → Costa).
 - La « glacière sur les plages » (script M12) et « la cabane aux Goudes »
@@ -41,7 +41,7 @@ souci de parité).
 | Nico | **Dédé** | indic du PMU |
 | Sarah | **Sonia** | ex-comptable de Costa (plus « journaliste ») |
 | Tony | **Jeannot** | le mécano, patron du garage |
-| « les Loups » / « un Loup » | **les Nordistes / un Nordiste** | gang |
+| « les Loups » / « un Loup » | **les Chouf / un Chouf** | gang |
 | « petit » / « gamin » | **minot** | le joueur (Alex « le Minot ») |
 | Joe (mission secondaire) | **Riton** | évite la confusion avec Jo le Sanglier |
 | « journaliste » | **comptable** | rôle de Sonia |
@@ -63,7 +63,7 @@ disparaît silencieusement. Table titres :
 | 17 | Les assurances | **Les protections** |
 | 18 | Mauvaise dette | **Le cousin Remi** |
 | 19 | Un nom | **Dede le PMU** |
-| 20 | Message aux Loups | **Les Nordistes** |
+| 20 | Message aux Loups | **Les Chouf** |
 | 21 | Voiture volee | **Le fourgon** |
 | 22 | Represailles | **Le garage attaque** |
 | 23 | Tournee de Marco | **La tournee de Marius** |
@@ -88,7 +88,7 @@ ils pilotent la couleur d'allié, le niveau de recherche, les fails :
 | 267 | bossTaunt | `Le dernier appel` → `Le Vieux-Port` |
 | 280 | ambushTaunt | `Les assurances` → `Les protections` |
 | 284 | ambushTaunt | `Mauvaise dette` → `Le cousin Remi` |
-| 288 | ambushTaunt | `Message aux Loups` → `Les Nordistes` |
+| 288 | ambushTaunt | `Message aux Loups` → `Les Chouf` |
 | 292 | ambushTaunt | `L'entrepot` *(inchangé)* |
 | 296 | ambushTaunt | `Embuscade` → `La cabane` |
 | 300 | ambushTaunt | `Les dossiers` → `Les papiers` |
@@ -96,7 +96,7 @@ ils pilotent la couleur d'allié, le niveau de recherche, les fails :
 | 581 | deliveryLines | `Voiture volee` → `Le fourgon` |
 | 586 | deliveryLines | `Les assurances` → `Les protections` |
 | 636 | cutscene départ | `Premier jour` → `Le colis du port` |
-| **795** | **effet système (BEAT)** | `Message aux Loups` → `Les Nordistes` |
+| **795** | **effet système (BEAT)** | `Message aux Loups` → `Les Chouf` |
 | **802** | **wanted lvl (ENTER_CAR)** | `Sabotage` → `Le sabotage` |
 | **871** | **fail allié** | `Embuscade` → `La cabane` |
 | **876** | **fail racket/client** | `Les assurances` → `Les protections` |
@@ -155,35 +155,35 @@ Format : `O# TYPE [POI]` → `text` / `doneText`.
 
 ### M5 — OBJS_M5 « Dede le PMU »
 - O1 GOTO Le Bar → « Inconnu (au tel) : tu veux savoir pour Marius ? Trouve Dede. Il traine au PMU, devant le Bar. »
-- O2 SUBDUE Le Bar → « Dede crane devant ses copains de comptoir et te bouscule. Secoue-le, sans le tuer. » / « Ses copains se debinent. Dede : les Nordistes cherchent un type depuis des semaines... c'est eux. »
+- O2 SUBDUE Le Bar → « Dede crane devant ses copains de comptoir et te bouscule. Secoue-le, sans le tuer. » / « Ses copains se debinent. Dede : les Chouf cherchent un type depuis des semaines... c'est eux. »
 
-### M6 — OBJS_M6 « Les Nordistes »
+### M6 — OBJS_M6 « Les Chouf »
 - O1 GOTO La Rose → « Inconnu : envoie-leur un message. Monte dans les quartiers nord. » / « Les voila, accoudes au mur. Ils t'ont calcule. »
-- O2 BEAT La Rose → « Mets trois Nordistes au tapis. Qu'ils comprennent. » / « Ca devrait les remuer. Inconnu : bien joue, minot. »
+- O2 BEAT La Rose → « Mets trois Chouf au tapis. Qu'ils comprennent. » / « Ca devrait les remuer. Inconnu : bien joue, minot. »
 
 ### M7 — OBJS_M7 « Le fourgon »
-- O1 GOTO Les Quais → « Jeannot - l'inconnu a un nom : un fourgon des Nordistes dort aux quais. » / « Deux gardes armes le surveillent. »
+- O1 GOTO Les Quais → « Jeannot - l'inconnu a un nom : un fourgon des Chouf dort aux quais. » / « Deux gardes armes le surveillent. »
 - O2 KILL Les Quais → « Occupe-toi des deux gardes. » / « La voie est libre. Le fourgon est a toi. »
-- O3 ENTER_CAR Les Quais → « Embarque le fourgon des Nordistes. »
+- O3 ENTER_CAR Les Quais → « Embarque le fourgon des Chouf. »
 - O4 GOTO Commissariat (delivery) → « Planque-le derriere le commissariat. Roule peinard. » / « Jeannot : parfait. Tu montes en grade, minot. »
 
 ### M8 — OBJS_M8 « Le garage attaque »
-- O1 GOTO Le Garage → « Jeannot : ils ont retrouve la planque ! Ramene-toi, et arme-toi en chemin. » / « Les Nordistes debarquent. Tiens bon. »
+- O1 GOTO Le Garage → « Jeannot : ils ont retrouve la planque ! Ramene-toi, et arme-toi en chemin. » / « Les Chouf debarquent. Tiens bon. »
 - O2 BEAT Le Garage → « Premiere vague : repousse-les ! » / « Ca se calme... oh non, ils reviennent ! »
 - O3 BEAT Le Garage → « Deuxieme vague, et ils sont armes. Couvre-toi ! » / « Jeannot : ils deviennent nerveux. Merci, minot. »
 
 ### M9 — OBJS_M9 « La tournee de Marius »
 - O1 GOTO Commerces (client) → « Jeannot : reprends la tournee de Marius aux commerces. C'est toi le patron, maintenant. » / « Un commercant : c'est toi qui passes ? ...Desole, pour Marius. C'etait un brave. »
-- O2 BEAT Commerces → « Des Nordistes sont venus se servir. Renvoie-les chez eux. » / « Pour toi, Marius. »
-- O3 GOTO Le Bar (client) → « Le vieux du Bar a vu quelque chose. Va l'ecouter. » / « Le vieux : un type chic donnait des ordres aux Nordistes... va savoir qui. »
+- O2 BEAT Commerces → « Des Chouf sont venus se servir. Renvoie-les chez eux. » / « Pour toi, Marius. »
+- O3 GOTO Le Bar (client) → « Le vieux du Bar a vu quelque chose. Va l'ecouter. » / « Le vieux : un type chic donnait des ordres aux Chouf... va savoir qui. »
 
 ### M10 — OBJS_M10 « L'entrepot »
-- O1 GOTO Les Quais → « Jeannot : on a trouve le stock des Nordistes, aux entrepots des quais. » / « Des gardes verrouillent l'entree. »
+- O1 GOTO Les Quais → « Jeannot : on a trouve le stock des Chouf, aux entrepots des quais. » / « Des gardes verrouillent l'entree. »
 - O2 KILL Les Quais → « Force le passage : deux gardes armes a la porte. » / « Entree degagee. »
-- O3 KILL Les Quais → « Nettoie l'entrepot. Que personne ressorte. » / « Le patron des Nordistes va nous tuer pour ca... tant pis. »
+- O3 KILL Les Quais → « Nettoie l'entrepot. Que personne ressorte. » / « Le patron des Chouf va nous tuer pour ca... tant pis. »
 
 ### M11 — OBJS_M11 « Le Sanglier » (boss, PV=5)
-- O1 GOTO Chantier → « Jeannot : Jo le Sanglier, le chef des Nordistes, se terre a la vieille usine. Finis-le. » / « Ses hommes te coupent la route. »
+- O1 GOTO Chantier → « Jeannot : Jo le Sanglier, le chef des Chouf, se terre a la vieille usine. Finis-le. » / « Ses hommes te coupent la route. »
 - O2 BEAT Chantier → « Ecarte sa garde rapprochee. » / « Reste le Sanglier. Il tombera pas en un coup. »
 - O3 KILL Chantier → « Le Sanglier est coriace. Acharne-toi. » / « Le Sanglier, a terre : on a jamais touche Marius, minot. Tu bosses pour le vrai coupable... Costa. »
 
@@ -248,13 +248,13 @@ Renommages POI `Chinatown`→`La Rose` + accent léger ; noms swappés si prése
 **ambushTauntLines** (clés mises à jour) :
 - `Les protections` → « Le type : Marius t'envoie au charbon, hein minot ? Mauvaise pioche. » / « Marius : c'est un piege ! Sors les poings, vite ! »
 - `Le cousin Remi` → « Marius : tu sais pourquoi on est la, Remi. Paie tes dettes. » / « Remi : ...emboucanez-le, les collegues ! »
-- `Les Nordistes` → « Un Nordiste, cacou : t'es perdu, collegue ? C'est pas ton quartier. » / « Un autre : ve, regarde-le... il va comprendre. Chopez-le ! »
+- `Les Chouf` → « Un Chouf, cacou : t'es perdu, collegue ? C'est pas ton quartier. » / « Un autre : ve, regarde-le... il va comprendre. Chopez-le ! »
 - `L'entrepot` → « Un garde : personne entre ici. Fais demi-tour, tant que tu peux. » / « L'autre arme son flingue. Trop tard pour causer, ve. »
 - `La cabane` → « Un homme de Costa : la comptable est la ! On la veut vivante. » / « Sonia : ils sont partout ! Les laisse pas approcher ! »
 - `Les papiers` → « Un garde : t'as rien a faire dans les bureaux de M. Costa. » / « Il degaine. Les autres rappliquent. »
 
 **deliveryLines** (clés mises à jour) :
-- `Le fourgon` → « Le receleur : le fourgon des Nordistes... beau bebe. Jeannot sera content. » / « Le receleur : file, minot. Je m'occupe de lui. »
+- `Le fourgon` → « Le receleur : le fourgon des Chouf... beau bebe. Jeannot sera content. » / « Le receleur : file, minot. Je m'occupe de lui. »
 - `Les protections` → « Marius : tu connais la chanson. La protection. » / « Le commercant : ...tiens. C'est tout ce que j'ai, peuchere. »
 - défaut (M1) → « Marius : tiens, le paquet. C'est tout bon. » / « Le docker : t'es en retard, peuchere. Filez avant les flics. »
 

@@ -356,10 +356,42 @@ static const TruckVariant TRUCK_VARIANTS[TRUCK_KIND_N] = {
 };
 static const int TRUCK_SPAWN_PCT = 5;   // % de chance qu'un (re)spawn de trafic soit un camion plutot qu'une voiture
 
-// Vehicule actuellement pilote par le joueur : voiture (forme/boite carFrames)
-// ou camion (truckFrames) -- determine le sprite et la cle de couleur a utiliser.
+// --- Bateaux : une seule coque partagee (boatFrames), 6 livrees obtenues en
+//     recolorant 3 cles (coque/pont/liseree) -- cf. build_boat.py. Les bateaux
+//     prennent un slot du POOL voiture (aiCars) ; pres de l'eau, un (re)spawn de
+//     trafic peut devenir un bateau plutot qu'une voiture. Conduite = eau only.
+enum BoatKind : uint8_t {
+  BOAT_VEDETTE, BOAT_YACHT, BOAT_PECHE, BOAT_ZODIAC, BOAT_TAXI, BOAT_POLICE, BOAT_KIND_N
+};
+struct BoatVariant {
+  uint16_t hull, deck, trim;           // couleurs de recolorisation des 3 cles
+  bool hasGyro; uint16_t gyroL, gyroR; // gyrophare (police maritime), ou absent
+};
+static const BoatVariant BOAT_VARIANTS[BOAT_KIND_N] = {
+  { 0xD145, 0xF716, 0xFFFF, false, 0, 0 },        // vedette_rouge
+  { 0xF79E, 0xBCAB, 0x118F, false, 0, 0 },        // yacht_blanc
+  { 0x1BC8, 0x7BD0, 0xFCA3, false, 0, 0 },        // peche_vert (coque verte, liseree orange)
+  { 0x424A, 0x18E4, 0x94D4, false, 0, 0 },        // zodiac_gris (semi-rigide)
+  { 0xFE60, 0x2105, 0x10A3, false, 0, 0 },        // taxi_jaune
+  { 0x114D, 0xEF5D, 0xFFFF, true,  0x01FF, 0xEF5D }, // police_maritime (gyro bleu/blanc)
+};
+// % de chance qu'un (re)spawn de trafic devienne un bateau SI de l'eau est
+// proche (sinon : toujours une voiture). Sur la moitie des bateaux : amarre vide
+// a un quai (sans conducteur) ; l'autre moitie : a conducteur, navigue au large.
+static const int BOAT_SPAWN_PCT = 55;
+// Frame de rotation bateau par direction cardinale (N E S W) -- BOAT_FRAMES=16 :
+// E=0, S=4, W=8, N=12.
+static const uint8_t AI_BOAT_FRAME[4] = { 12, 0, 4, 8 };
+
+// Vehicule actuellement pilote par le joueur : voiture (forme/boite carFrames),
+// camion (truckFrames) ou bateau (boatFrames) -- determine sprite, cle(s) de
+// couleur et mode de collision (bateau = eau only).
 static bool drivingTruck = false;
+static bool drivingBoat = false;
 static uint8_t drivingVariant = 0;
+// Joueur a pied dans l'eau : nage (plus lent, sprite mi-immerge). Mis a jour
+// chaque frame dans la boucle a pied.
+static bool playerSwimming = false;
 
 struct AiCar {
   float x, y;          // centre, px monde
@@ -377,7 +409,8 @@ struct AiCar {
                        // de poursuivre/forcer -- arme apres un choc ou en panique
   bool active;
   bool isTruck;        // sprite/boite truckFrames au lieu de carFrames (cf. TruckVariant)
-  uint8_t variant;     // index dans TRUCK_VARIANTS, valide seulement si isTruck
+  bool isBoat;         // sprite boatFrames + navigation eau ; exclut isTruck/isPolice
+  uint8_t variant;     // index dans TRUCK_VARIANTS (isTruck) ou BOAT_VARIANTS (isBoat)
   // --- en feu (cf. CAR_FUSE_FRAMES) : meme meche que la caisse du joueur --
   // contact direct (tir/explosion a 0 PV) ou propagation (cf. fireProximityTick).
   // fireHopx/y + fireCredit sont captures a l'allumage et rejoues a l'explosion
@@ -450,7 +483,7 @@ static GroundFire groundFires[NUM_GROUND_FIRES];
 //     existante (policeCarStep / aiCarStepAway) sur un AiCar embarque. Volables a
 //     tout moment comme une voiture normale (cf. scan de vol dans gta.ino) ; le
 //     vol annule l'intervention (la cible reste en attente, sera redispatchee). ---
-enum ResponderKind  : uint8_t { RESP_AMBULANCE = 0, RESP_FIRETRUCK = 1 };
+enum ResponderKind  : uint8_t { RESP_AMBULANCE = 0, RESP_FIRETRUCK = 1, RESP_LIFEBOAT = 2 };
 enum ResponderPhase : uint8_t {
   RESP_PENDING = 0,   // appel passe, vehicule pas encore materialise (cooldown avant spawn)
   RESP_INBOUND = 1,   // roule vers la cible (corps ou feu)
@@ -473,7 +506,7 @@ struct Responder {
   int8_t   pedIdx;     // ambulance seulement : index aiPeds du corps en cours de ramassage
   bool     active;
 };
-static const int      NUM_RESPONDERS        = 2;   // 1 ambulance + 1 pompier max en meme temps
+static const int      NUM_RESPONDERS        = 3;   // 1 ambulance + 1 pompier + 1 vedette de sauvetage max
 static const float    RESPONDER_SPEED       = AI_CAR_SPEED;
 static const uint16_t RESPONDER_WORK_FRAMES = 60;  // ~2.4 s sur place (pompier / ramassage par corps)
 static const uint16_t RESP_DISPATCH_DELAY   = 75;  // ~3 s entre l'appel et l'apparition du vehicule
@@ -533,8 +566,8 @@ static uint8_t ringStep = 0, ringTimer = 0;
 // limit en frames (~25/s) : SURVIVE = duree a tenir ; sinon delai max (fail).
 static const Objective OBJS_JOE[] = {
   { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Les Quais",
-    "Joe se planque aux Quais. Retrouve-le et fais-le taire.",
-    "Beau boulot. Joe parlera plus." },
+    "Riton se planque aux quais. Retrouve-le et fais-le taire.",
+    "Beau boulot. Riton parlera plus." },
 };
 // M4 (trame) : reutilise la mecanique Marco passager -> mort -> tueur qui fonce.
 // Comme M1/M2, la caisse est OPTIONNELLE (EV_MARCO_JOIN sans requireCar) : la
@@ -542,73 +575,73 @@ static const Objective OBJS_JOE[] = {
 // si le joueur monte en route.
 static const Objective OBJS_DEAL[] = {
   { OBJ_GOTO,      0, 0, 14, false, EV_MARCO_JOIN,  "Le Garage",
-    "Marco : un dernier rendez-vous, ce soir. Passe le prendre au Garage.",
-    "Marco : direction le Chantier." },
+    "Marius : un dernier rendez-vous, ce soir. Passe me prendre au garage du cousin.",
+    "Marius : direction le chantier de l'Estaque." },
   { OBJ_GOTO,      0, 0, 16, false, EV_MARCO_DIE,   "Chantier",
-    "Emmene Marco au Chantier. Il est nerveux ce soir.",
-    "Le Chantier. Marco descend, mefiant... une silhouette l'attend dans l'ombre." },
+    "Emmene Marius au chantier. Il est nerveux ce soir.",
+    "Le chantier. Marius descend, mefiant... une silhouette l'attend dans l'ombre." },
   { OBJ_KILL,      0, 0,  0, false, EV_NONE,        "Chantier",
-    "Le tueur fonce sur toi. Pas question de le laisser filer !",
+    "Le tueur fonce sur toi. Le laisse pas filer, ve !",
     "Justice est faite. ...pour l'instant.", 3, 0 },
 };
 // --- Combat ---
 static const Objective OBJS_FIGHT[] = {
   { OBJ_BEAT, 0, 0, 0, false, EV_NONE, nullptr,
-    "Bagarre ! Mets 3 gars au tapis.", "Personne te cherche plus.", 3, 0 },
+    "Ca chambre dur. Mets 3 collegues au tapis.", "Personne te cherche plus, minot.", 3, 0 },
 };
 static const Objective OBJS_VENGEANCE[] = {
-  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Chinatown",
-    "Il se cache a Chinatown. Fais-lui la peau.", "Vengeance accomplie." },
+  { OBJ_KILL, 0, 0, 0, false, EV_NONE, "La Rose",
+    "Il se planque aux quartiers nord. Fais-lui la peau, ve.", "Vengeance accomplie." },
 };
 static const Objective OBJS_CLEAN[] = {
   { OBJ_GOTO, 0, 0, 24, false, EV_NONE, "Chantier",
-    "Le Chantier grouille de fouineurs. Fonce.", "Maintenant, nettoie." },
+    "Le chantier grouille de fouineurs. Fonce, minot.", "Maintenant, nettoie." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chantier",
-    "Vire-en 5 du quartier.", "Le coin est calme.", 5, 0 },
+    "Vires-en 5 du quartier, allez degun.", "Le coin est calme.", 5, 0 },
 };
 static const Objective OBJS_WITNESS[] = {
   { OBJ_KILL, 0, 0, 0, false, EV_NONE, "Hopital",
-    "Un temoin tourne pres de l'Hopital. Reduis-le au silence.",
+    "Un temoin traine pres de l'Hopital. Fais-le taire, peuchere.",
     "Plus de temoin." },
 };
 // --- Conduite ---
 static const Objective OBJS_TAXI[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Taxi clandestin : prends la caisse a la Casse.", nullptr },
+    "Taxi clando : prends la caisse a la Casse, collegue.", nullptr },
   { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Hopital",
-    "Depose le client a l'Hopital, et vite !", "Course payee !", 0, 1100 },
+    "Depose le client a l'Hopital, et vite minot !", "Course payee !", 0, 1100 },
 };
 static const Objective OBJS_RACE[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Au volant ! Le chrono tourne.", nullptr },
+    "Au volant, fada ! Le chrono tourne.", nullptr },
   { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Chantier",
     "Checkpoint 1 : le Chantier.", "1/3 !", 0, 800 },
-  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Chinatown",
-    "Checkpoint 2 : Chinatown.", "2/3 !", 0, 800 },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "La Rose",
+    "Checkpoint 2 : quartiers nord.", "2/3 !", 0, 800 },
   { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Les Quais",
     "Checkpoint 3 : les Quais.", "Record battu !", 0, 800 },
 };
 static const Objective OBJS_DELIVERY[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Un colis a livrer. Prends le vehicule.", nullptr },
+    "Un colis a livrer. Prends la caisse, minot.", nullptr },
   { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Les Quais",
-    "Livre le colis aux Quais avant la fin.", "Colis livre !", 0, 1100 },
+    "Livre le colis aux quais avant la fin, ve !", "Colis livre !", 0, 1100 },
 };
 static const Objective OBJS_RUN[] = {
   { OBJ_SURVIVE, 0, 0, 0, false, EV_NONE, nullptr,
-    "Alerte ! Sème-le et tiens 30 secondes.", "Tu l'as seme. Tranquille.",
+    "Alerte ! Seme les poulets et tiens 30 secondes.", "Tu les as semes. Peinard, collegue.",
     0, 750 },
 };
 // --- Criminel ---
 static const Objective OBJS_DEBT[] = {
-  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Chinatown",
-    "Un mauvais payeur traine a Chinatown. Va le voir.", "Le voila." },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
-    "Fais-lui cracher la dette : tabasse-le.", "Il paiera, crois-moi." },
+  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "La Rose",
+    "Un mauvais payeur traine aux quartiers nord. Va le voir.", "Le voila." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "La Rose",
+    "Fais-lui cracher la dette : secoue-le, fada.", "Il paiera, crois-moi." },
 };
 static const Objective OBJS_RACKET[] = {
-  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Chinatown",
-    "Tournee de racket. Commerce 1 : Chinatown.", "1 encaisse." },
+  { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "La Rose",
+    "Tournee de protection. Commerce 1 : quartiers nord.", "1 encaisse." },
   { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Chantier",
     "Commerce 2 : le Chantier.", "2 encaisses." },
   { OBJ_GOTO, 0, 0, 20, false, EV_NONE, "Les Quais",
@@ -616,55 +649,55 @@ static const Objective OBJS_RACKET[] = {
 };
 static const Objective OBJS_STEAL[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Vol de caisse : repère-la a la Casse et embarque.", nullptr },
+    "Vol de caisse : reperes-la a la Casse et embarque, minot.", nullptr },
   { OBJ_GOTO,      0, 0, 18, true,  EV_NONE, "Commissariat",
-    "Ramène-la planquee derriere le Commissariat.", "Beau brelan." },
+    "Rapporte-la planquee derriere le Commissariat.", "Beau brelan." },
 };
 // --- Humour ---
 static const Objective OBJS_ROADHOG[] = {
   { OBJ_BEAT, 0, 0, 0, true, EV_NONE, nullptr,
-    "Le chauffard : ecrase 10 pietons !", "Carnage total. Bravo (?).", 10, 0 },
+    "Le chauffard : ecrase 10 pietons, fada !", "Carnage total. Bravo (?).", 10, 0 },
 };
 static const Objective OBJS_LOST[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Pompiers",
-    "Livreur perdu : la planque est pres des Pompiers.", "Trouve ! Enfin." },
+    "Livreur paume : la planque est pres des Pompiers, peuchere.", "Trouve ! Enfin." },
 };
 // Mission pompier : recuperer le camion a la caserne, eteindre 3 foyers.
 static const Objective OBJS_FIREFIGHTER[] = {
   { OBJ_ENTER_CAR,   0, 0,  0, false, EV_NONE, "Pompiers",
-    "Caserne : prends le camion. Il y a des foyers signales en ville !", nullptr },
+    "Caserne : prends le camion, ca crame en ville, collegue !", nullptr },
   { OBJ_EXTINGUISH,  0, 0, 20, false, EV_NONE, "Le Bar",
-    "Feu signale au Bar ! Fonce avec le camion.",
+    "Ca crame au Bar ! Fonce avec le camion, minot.",
     "Foyer eteint. Au suivant !" },
   { OBJ_EXTINGUISH,  0, 0, 20, false, EV_NONE, "Le Casino",
-    "Autre incendie au Casino ! Depeche-toi.",
+    "Encore un feu au Casino ! Depeche, fada.",
     "Bravo. Encore un foyer !" },
   { OBJ_EXTINGUISH,  0, 0, 20, false, EV_NONE, "Les Bureaux",
     "Dernier feu aux Bureaux. Finis le boulot !",
-    "Tout eteint. Beau travail, pompier !" },
+    "Tout eteint. Beau boulot, pompier !" },
 };
 // Livraison de pizza : remplace l'ancienne cabine bleue "Mauvaise affaire"
 // (Marco). Mission jetable, chrono, 0 mecanique nouvelle (cf. campagne.md §9).
 static const Objective OBJS_PIZZA[] = {
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Pizza Express : prends la caisse.", nullptr },
-  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "Chinatown",
-    "Livre la pizza avant qu'elle refroidisse !",
+    "Pizza Express : prends la caisse, minot.", nullptr },
+  { OBJ_GOTO,      0, 0, 16, true,  EV_NONE, "La Rose",
+    "Livre la pizza avant qu'elle refroidisse, ve !",
     "Pizza livree, pourboire empoche !", 0, 1100 },
 };
 // --- Trame Acte I ---
 static const Objective OBJS_M1[] = {
   { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Garage",
-    "Premier jour. Marco, le bras droit du patron, t'attend au Garage. Vas-y a pied.",
+    "Premier jour, minot. Marius, le bras droit du patron, t'attend au garage du cousin. Vas-y a pied.",
     nullptr },
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Garage",
-    "Marco : deux secondes petit, j'arrive !",
-    "Marco : la caisse est garee a cote. Embarque, on a un colis a livrer." },
+    "Marius : deux secondes minot, j'arrive !",
+    "Marius : la caisse est garee a cote. Monte, on a un colis a prendre aux quais." },
   { OBJ_GOTO, 0, 0, 16, true,  EV_DELIVERY,     "Les Quais",
-    "En route pour les Quais. Roule peinard, attire pas les flics.",
-    "Colis livre. Marco : nickel. Maintenant ramene-moi chez moi, petit." },
+    "Direction les quais. Roule peinard, mefi aux flics.",
+    "Colis pris. Marius : nickel, minot. Maintenant ramene-moi." },
   { OBJ_GOTO, 0, 0, 14, true,  EV_MARCO_LEAVE,  "Le Garage",
-    "Ramene Marco au Garage.",
+    "Ramene Marius au garage du cousin.",
     nullptr },
 };
 // M2 : tournee de racket AVEC Marco compagnon a pied. On va le chercher au
@@ -674,29 +707,29 @@ static const Objective OBJS_M1[] = {
 // qu'en M4.
 static const Objective OBJS_M2[] = {
   { OBJ_GOTO,   0, 0, 12, false, EV_NONE,       "Le Garage",
-    "Jour de tournee. Marco t'attend au Garage. Vas-y a pied le chercher.", nullptr },
+    "Jour de tournee. Marius t'attend au garage. Vas-y a pied le chercher.", nullptr },
   { OBJ_TALK,   0, 0,  8, false, EV_MARCO_JOIN, "Le Garage",
-    "Marco : deux secondes petit, j'arrive !",
-    "Marco : la tournee du loyer. Tu regardes et t'apprends. Suis-moi." },
+    "Marius : deux secondes minot, j'arrive !",
+    "Marius : la tournee des protections. Tu regardes et t'apprends. Suis-moi." },
   { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Commerces",
-    "Premier client : les Commerces. Regarde Marco faire.",
-    "Marco : tu vois ? Facile. ...Le suivant, lui, fait le difficile." },
+    "Premier commerce. Regarde Marius faire.",
+    "Marius : tu vois ? Facile. Lui au moins il comprend vite." },
   { OBJ_GOTO,   0, 0, 14, false, EV_NONE,       "Les Bureaux",
-    "Le difficile tient un bureau aux Bureaux. Rejoins-le avec Marco.", nullptr },
+    "Le suivant fait le difficile, aux bureaux. Rejoins Marius.", nullptr },
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE,       "Les Bureaux",
-    "Ce gerant-la refuse et te saute dessus. Mate-le, mais le tue pas.",
-    "Il crache l'argent. Marco : voila comment on fait.", 3, 0 },
+    "Ce gerant refuse et te saute dessus. Mate-le, le tue pas.",
+    "Il crache les sous. Marius : voila comment on fait, minot.", 3, 0 },
   { OBJ_GOTO,   0, 0, 14, false, EV_DELIVERY,   "Le Bar",
     "Encore un : le vieux du Bar paie toujours rubis sur l'ongle.",
-    "Le vieux paie et t'offre un verre. Ca requinque : pleine forme !" },
+    "Le vieux paie et t'offre le pastaga. Ca requinque : pleine forme !" },
   { OBJ_GOTO,   0, 0, 14, false, EV_NONE,       "Chantier",
-    "Dernier client, au Chantier. Marco : celui-la... je le sens pas. Avance, doucement.",
+    "Dernier client, au chantier. Marius : celui-la... je le sens pas. Doucement.",
     nullptr },
   { OBJ_BEAT,   0, 0,  0, false, EV_NONE,       "Chantier",
     "Un type t'attend, plante entre deux gros bras.",
-    "Marco : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_PRESENT, 1 },
+    "Marius : quelqu'un nous a vendus. On reglera ca.", 0, 0, 3, EK_THUG, SP_PRESENT, 1 },
   { OBJ_GOTO,   0, 0, 14, false, EV_MARCO_LEAVE,"Le Garage",
-    "Tournee finie. Ramene Marco au Garage.", nullptr },
+    "Tournee finie. Ramene Marius au garage.", nullptr },
 };
 // M3 : Marco veut faire un exemple d'un mauvais payeur. Comme M1/M2 (Acte I), on
 // va CHERCHER Marco au Garage (TALK -> il suit a pied, en retrait), confrontation
@@ -705,202 +738,202 @@ static const Objective OBJS_M2[] = {
 // RAMENE Marco (EV_MARCO_LEAVE). Marco invulnerable (pas de failOnAllyDeath).
 static const Objective OBJS_M3[] = {
   { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Garage",
-    "Un mauvais payeur fait le mort. Marco veut un exemple. Va le chercher au Garage.",
+    "Le cousin Remi doit du fric et fait le mort. Marius veut un exemple. Va le chercher au garage.",
     nullptr },
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN, "Le Garage",
-    "Marco : deux secondes petit, j'arrive !",
-    "Marco : ce gars-la rit de nous depuis trop longtemps. Suis-moi." },
-  { OBJ_GOTO, 0, 0, 16, false, EV_NONE,       "Chinatown",
-    "Le payeur se planque a Chinatown, entoure de ses gros bras. Approche.",
+    "Marius : deux secondes minot, j'arrive !",
+    "Marius : ce Remi se fout de nous depuis trop longtemps. Suis-moi." },
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE,       "La Rose",
+    "Remi se planque aux quartiers nord, entoure de ses gros bras. Approche.",
     nullptr },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE,       "Chinatown",
-    "Ecarte ses hommes de main.", "La voie est libre. Reste le payeur.",
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE,       "La Rose",
+    "Ecarte ses hommes de main.", "La voie est libre. Reste Remi.",
     0, 0, 2, EK_THUG, SP_PRESENT, 1 },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE,       "Chinatown",
-    "Il detale ! Rattrape-le.",
-    "Dette reglee. Marco : il s'en souviendra... s'il s'en souvient encore.", 1, 0 },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE,       "La Rose",
+    "Il detale, le fada ! Rattrape-le.",
+    "Dette reglee. Marius : il s'en souviendra... si sa tete s'en souvient.", 1, 0 },
   { OBJ_GOTO, 0, 0, 14, false, EV_MARCO_LEAVE,"Le Garage",
-    "C'est fait. Ramene Marco au Garage.", nullptr },
+    "C'est fait. Ramene Marius au garage.", nullptr },
 };
 // --- Trame Acte II : la vengeance manipulee (les Loups) ---
 static const Objective OBJS_M5[] = {
   { OBJ_GOTO,   0, 0, 12, false, EV_NONE, "Le Bar",
-    "Inconnu : tu veux savoir pour Marco ? Trouve Nico. Il traine au Bar.",
+    "Inconnu : tu veux savoir pour Marius ? Trouve Dede. Il traine au PMU, devant le Bar.",
     nullptr },
   { OBJ_SUBDUE, 0, 0,  0, false, EV_NONE, "Le Bar",
-    "Nico crane devant ses deux copains de comptoir et te bouscule. Secoue-le, sans le tuer.",
-    "Ses copains se sont debines. Nico : les Loups cherchent un type depuis des semaines... c'est eux.",
+    "Dede crane devant ses copains de comptoir et te bouscule. Secoue-le, sans le tuer.",
+    "Ses copains se debinent. Dede : les Chouf cherchent un type depuis des semaines... c'est eux.",
     3, 0 },
 };
 static const Objective OBJS_M6[] = {
-  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chinatown",
-    "Inconnu : envoie-leur un message. Va dans le quartier des Loups.",
-    "Les voila, accoudes au mur. Ils t'ont vu." },
-  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chinatown",
-    "Mets trois Loups au tapis. Qu'ils comprennent.",
-    "Ca devrait attirer leur attention. Inconnu : bien joue.",
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "La Rose",
+    "Inconnu : envoie-leur un message. Monte dans les quartiers nord.",
+    "Les voila, accoudes au mur. Ils t'ont calcule." },
+  { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "La Rose",
+    "Mets trois Chouf au tapis. Qu'ils comprennent.",
+    "Ca devrait les remuer. Inconnu : bien joue, minot.",
     0, 0, 3, EK_THUG, SP_PRESENT, 1 },
 };
 static const Objective OBJS_M7[] = {
   { OBJ_GOTO,      0, 0, 18, false, EV_NONE, "Les Quais",
-    "Tony - oui, l'Inconnu a un nom : une caisse des Loups dort aux Quais.",
-    "Deux gardes armes la surveillent." },
+    "Jeannot - l'inconnu a un nom : un fourgon des Chouf dort aux quais.",
+    "Deux gardes armes le surveillent." },
   { OBJ_KILL,      0, 0,  0, false, EV_NONE, "Les Quais",
-    "Occupe-toi des deux gardes.", "La voie est libre. La caisse est a toi.",
+    "Occupe-toi des deux gardes.", "La voie est libre. Le fourgon est a toi.",
     0, 0, 2, EK_GUNNER, SP_PRESENT },
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Les Quais",
-    "Embarque la caisse des Loups.", nullptr },
+    "Embarque le fourgon des Chouf.", nullptr },
   { OBJ_GOTO,      0, 0, 18, true,  EV_DELIVERY, "Commissariat",
-    "Planque-la derriere le Commissariat. Roule peinard.",
-    "Tony : parfait. Tu montes en grade, petit." },
+    "Planque-le derriere le commissariat. Roule peinard.",
+    "Jeannot : parfait. Tu montes en grade, minot." },
 };
 static const Objective OBJS_M8[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Le Garage",
-    "Tony : ils ont retrouve mon Garage ! Ramene-toi, et arme-toi en chemin.",
-    "Les Loups debarquent. Tiens bon." },
+    "Jeannot : ils ont retrouve la planque ! Ramene-toi, et arme-toi en chemin.",
+    "Les Chouf debarquent. Tiens bon." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Le Garage",
-    "Premiere vague : repousse-les !", "Ca se calme... non, ils reviennent !",
+    "Premiere vague : repousse-les !", "Ca se calme... oh non, ils reviennent !",
     0, 0, 3, EK_THUG, SP_PRESENT },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Le Garage",
     "Deuxieme vague, et ils sont armes. Couvre-toi !",
-    "Tony : ils deviennent nerveux. Merci, petit.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
+    "Jeannot : ils deviennent nerveux. Merci, minot.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
 };
 static const Objective OBJS_M9[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_CLIENT, "Commerces",
-    "Tony : reprends la tournee de Marco aux Commerces. C'est toi, le patron, maintenant.",
-    "Un commercant : c'est toi qui passes, desormais ? ...Desole, pour Marco." },
+    "Jeannot : reprends la tournee de Marius aux commerces. C'est toi le patron, maintenant.",
+    "Un commercant : c'est toi qui passes ? ...Desole, pour Marius. C'etait un brave." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Commerces",
-    "Des Loups sont venus se servir. Renvoie-les chez eux.",
-    "Pour toi, Marco.", 0, 0, 3, EK_THUG, SP_PRESENT },
+    "Des Chouf sont venus se servir. Renvoie-les chez eux.",
+    "Pour toi, Marius.", 0, 0, 3, EK_THUG, SP_PRESENT },
   { OBJ_GOTO, 0, 0, 14, false, EV_CLIENT, "Le Bar",
     "Le vieux du Bar a vu quelque chose. Va l'ecouter.",
-    "Le vieux : un type chic donnait des ordres aux Loups... Va savoir qui." },
+    "Le vieux : un type chic donnait des ordres aux Chouf... va savoir qui." },
 };
 static const Objective OBJS_M10[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Les Quais",
-    "Tony : on a trouve le stock des Loups, aux entrepots des Quais.",
+    "Jeannot : on a trouve le stock des Chouf, aux entrepots des quais.",
     "Des gardes verrouillent l'entree." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Quais",
     "Force le passage : deux gardes armes a la porte.", "Entree degagee.",
     0, 0, 2, EK_GUNNER, SP_PRESENT, 1 },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Quais",
-    "Nettoie l'entrepot. Que personne ne ressorte.",
-    "Le patron des Loups va nous tuer pour ca... tant pis.", 0, 0, 3, EK_THUG, SP_AMBUSH },
+    "Nettoie l'entrepot. Que personne ressorte.",
+    "Le patron des Chouf va nous tuer pour ca... tant pis.", 0, 0, 3, EK_THUG, SP_AMBUSH },
 };
 // M11 : boss (KILL count>1 -> encaisse plusieurs coups). Pivot de la campagne.
 static const Objective OBJS_M11[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Chantier",
-    "Tony : Rico, le lieutenant des Loups, se terre a l'ancienne usine. Finis-le.",
+    "Jeannot : Jo le Sanglier, le chef des Chouf, se terre a la vieille usine. Finis-le.",
     "Ses hommes te coupent la route." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Chantier",
-    "Ecarte sa garde rapprochee.", "Reste Rico. Il ne tombera pas en un coup.",
+    "Ecarte sa garde rapprochee.", "Reste le Sanglier. Il tombera pas en un coup.",
     0, 0, 2, EK_GUNNER, SP_PRESENT },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chantier",
-    "Rico est coriace. Acharne-toi.",
-    "Rico, a terre : tu crois qu'on a tue Marco ? Tu bosses pour le vrai coupable...",
+    "Le Sanglier est coriace. Acharne-toi.",
+    "Le Sanglier, a terre : on a jamais touche Marius, minot. Cherche du cote de Costa...",
     5, 0 },
 };
 // --- Trame Acte III : la verite (Sarah, les preuves) ---
 static const Objective OBJS_M12[] = {
-  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Chinatown",
-    "Sarah (numero inconnu) : je peux prouver ce que Rico a dit. Un parking, a Chinatown.",
-    "Un homme mort, une mallette pres du corps. Mais tu n'es pas seul..." },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Chinatown",
-    "Des nettoyeurs viennent pour la mallette. Prends-les de vitesse.",
-    "Les nettoyeurs sont a terre. La mallette est restee pres du corps.",
+  { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "La Rose",
+    "Sonia (numero inconnu) : je peux prouver ce qu'a dit le Sanglier. Une glaciere, planquee aux quartiers nord.",
+    "Un homme mort, une glaciere pres du corps. Mais t'es pas seul..." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "La Rose",
+    "Des nettoyeurs viennent pour la glaciere. Prends-les de vitesse.",
+    "Les nettoyeurs sont a terre. La glaciere est restee pres du corps.",
     0, 0, 2, EK_GUNNER, SP_AMBUSH },
-  { OBJ_GOTO, 0, 0, 10, false, EV_NONE, "Chinatown",
-    "Marche jusqu'au corps et empoigne la mallette.",
-    "Tu empoignes la mallette. Maintenant, file a la Planque." },
+  { OBJ_GOTO, 0, 0, 10, false, EV_NONE, "La Rose",
+    "Marche jusqu'au corps et empoigne la glaciere.",
+    "Tu empoignes la glaciere. Maintenant, file a la planque." },
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Planque",
-    "Rapporte la mallette a la Planque.",
-    "Sarah : c'est bien ce que je craignais. Il faut qu'on se voie." },
+    "Rapporte la glaciere a la planque.",
+    "Sonia : c'est bien ce que je craignais. Faut qu'on se voie." },
 };
 // M13 : escorte de Sarah. Le JOIN (objectif 1, count==1) la fait apparaitre en
 // magenta et monter -- meme mecanique que Marco, allie different.
 static const Objective OBJS_M13[] = {
   { OBJ_GOTO, 0, 0, 12, false, EV_NONE,       "Le Bar",
-    "Sarah, la journaliste, t'attend au Bar. Vas-y a pied.", nullptr },
+    "Sonia, l'ancienne comptable de Costa, t'attend au Bar. Vas-y a pied.", nullptr },
   { OBJ_TALK, 0, 0,  8, false, EV_MARCO_JOIN,  "Le Bar",
-    "Sarah : Victor a peur, il efface les preuves. Sors-moi d'ici.",
-    "Sarah monte. Direction la planque, et vite.", 1, 0 },
-  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Chinatown",
-    "Prends une caisse et file vers la planque en passant par Chinatown.",
-    "Une berline pile en travers de la route. Embuscade !" },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE,        "Chinatown",
-    "Les hommes de Victor ont repere Sarah ! Ecarte-les.",
-    "La voie est libre. Sarah, tassee sur le siege : roule, roule !",
+    "Sonia : Costa a peur, il efface les preuves. Sors-moi d'ici.",
+    "Sonia monte. Direction la cabane, et vite.", 1, 0 },
+  { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "La Rose",
+    "Prends une caisse et file a la planque en passant par les quartiers nord.",
+    "Une berline pile en travers. Embuscade !" },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE,        "La Rose",
+    "Les hommes de Costa ont repere Sonia ! Ecarte-les.",
+    "La voie est libre. Sonia, tassee sur le siege : roule, roule !",
     0, 0, 2, EK_GUNNER, SP_AMBUSH },
   { OBJ_GOTO, 0, 0, 16, true,  EV_NONE,        "Planque",
-    "Reprends la route vers la planque, vite !",
-    "Sarah est a l'abri. Pour l'instant." },
+    "Reprends la route vers la cabane, vite !",
+    "Sonia est a l'abri. Pour l'instant." },
 };
 static const Objective OBJS_M14[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Planque",
-    "Sarah : ils nous ont trouves ! Reviens a la planque, vite !",
-    "Les hommes de Victor encerclent la planque." },
+    "Sonia : ils nous ont trouves ! Reviens a la cabane, vite !",
+    "Les hommes de Costa encerclent la cabane." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
-    "Defends Sarah : premiere vague !", "Ils refluent... non, d'autres arrivent !",
+    "Defends Sonia : premiere vague !", "Ils refluent... non, d'autres arrivent !",
     0, 0, 3, EK_THUG, SP_PRESENT, 1 },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Planque",
     "Des tireurs, cette fois. Tiens bon !",
-    "Sarah : je sais ou il garde les dossiers. Ses Bureaux.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
+    "Sonia : je sais ou il garde les dossiers. Ses bureaux.", 0, 0, 2, EK_GUNNER, SP_AMBUSH },
 };
 static const Objective OBJS_M15[] = {
   { OBJ_GOTO, 0, 0, 14, false, EV_NONE, "Les Bureaux",
-    "Les Bureaux de Victor. Les preuves sont a l'interieur. Entre.",
+    "Les bureaux de Costa. Les preuves sont dedans. Entre.",
     "Des gardes patrouillent le hall." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Les Bureaux",
     "Neutralise les gardes du hall.", "Hall degage. Les dossiers sont dans le coffre.",
     0, 0, 2, EK_GUNNER, SP_PRESENT, 1 },
   { OBJ_GOTO, 0, 0, 10, false, EV_NONE, "Les Bureaux",
-    "Rafle les dossiers de Victor.", "Tu rafles les dossiers. Maintenant, sors." },
+    "Rafle les papiers de Costa.", "Tu rafles les dossiers. Maintenant, sors." },
   { OBJ_BEAT, 0, 0,  0, false, EV_NONE, "Les Bureaux",
     "Des renforts te coupent la sortie. Force le passage.",
-    "Sarah : 'Victor a ordonne l'assassinat de Marco.' On le tient.",
+    "Sonia : 'Costa a commande le meurtre de Marius.' On le tient.",
     0, 0, 3, EK_THUG, SP_AMBUSH },
 };
 // --- Trame Acte IV : Victor ---
 static const Objective OBJS_M16[] = {
-  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Chinatown",
-    "Tony : on va lui faire mal au portefeuille. Vole sa voiture de luxe, a Chinatown.",
+  { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "La Rose",
+    "Jeannot : on va lui faire mal au portefeuille. Vole sa caisse de luxe, aux quartiers nord.",
     nullptr },
   { OBJ_CRUSH,     0, 0, 14, true,  EV_NONE, "La Casse",
-    "Amene-la a la Casse. Descends pres de la grue et fais-la BROYER.",
-    "Une de moins. Tony : ca pique, hein Victor ?" },
+    "Amene-la a la casse. Descends pres de la grue et fais-la BROYER.",
+    "Une de moins. Jeannot : ca pique, hein Costa ?" },
   { OBJ_ENTER_CAR, 0, 0,  0, false, EV_NONE, "Le Casino",
     "Encore une, garee devant le Casino.", nullptr },
   { OBJ_CRUSH,     0, 0, 14, true,  EV_NONE, "La Casse",
     "Rebelote : au broyeur, et reste pres de la grue jusqu'au bout.",
-    "Tony : ca va le rendre fou." },
+    "Jeannot : ca va le rendre chevre." },
 };
 static const Objective OBJS_M17[] = {
   { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "La Casse",
-    "Tony : Bruno, l'homme de Victor, surveille la Casse. Descends-le.",
-    "Bruno et ses hommes t'attendent." },
+    "Jeannot : Paulo, le bras droit de Costa, surveille la casse. Descends-le.",
+    "Paulo et ses hommes t'attendent." },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Ses gardes d'abord.", "Reste Bruno. Il ne lachera pas facilement.",
+    "Ses gardes d'abord.", "Reste Paulo. Il lachera pas facilement.",
     0, 0, 2, EK_THUG, SP_PRESENT },
   { OBJ_KILL, 0, 0,  0, false, EV_NONE, "La Casse",
-    "Bruno encaisse. Ne le lache pas.",
-    "Bruno, mourant : le vieux casino... Victor t'y attend.", 5, 0 },
+    "Paulo encaisse. Le lache pas.",
+    "Paulo, mourant : le patron... il t'attend au Vieux-Port.", 5, 0 },
 };
 // M18 : boss final. Victor est le plus coriace (KILL count=7).
 static const Objective OBJS_M18[] = {
-  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Le Casino",
-    "Victor : je t'attends au Casino. Viens donc, petit.",
-    "Victor : tu es alle trop loin. Messieurs, occupez-vous de lui." },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Le Casino",
-    "Ses gardes du corps t'attaquent ! Ouvre-toi un chemin jusqu'a Victor.",
-    "La voie est libre. Reste Victor.", 0, 0, 4, EK_GUNNER, SP_PRESENT },
-  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Le Casino",
-    "Victor est coriace et bien protege. Acharne-toi.",
-    "Tout ca... pour un ami. C'est fini, Victor.", 7, 0 },
+  { OBJ_GOTO, 0, 0, 16, false, EV_NONE, "Vieux-Port",
+    "Costa : je t'attends au Vieux-Port, minot. Viens donc.",
+    "Costa : t'es alle trop loin. Messieurs, occupez-vous de lui." },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Vieux-Port",
+    "Ses gardes du corps t'attaquent ! Ouvre-toi un chemin jusqu'a Costa.",
+    "La voie est libre. Reste Costa.", 0, 0, 4, EK_GUNNER, SP_PRESENT },
+  { OBJ_KILL, 0, 0,  0, false, EV_NONE, "Vieux-Port",
+    "Costa est coriace et bien protege. Acharne-toi.",
+    "Tout ca... pour un ami. C'est fini, Costa.", 7, 0 },
 };
 // Le 4e champ = prime en $ versee a la reussite (selon la longueur/risque).
 static const MissionDef MISSIONS[] = {
-  { "Joe",              OBJS_JOE,      1, 150 },
-  { "Le dernier trajet", OBJS_DEAL,    3, 250, true },   // index 1 = M4 (trame)
+  { "Riton",            OBJS_JOE,      1, 150 },
+  { "Le chantier de l'Estaque", OBJS_DEAL, 3, 250, true },   // index 1 = M4 (trame)
   { "Bagarre de rue",   OBJS_FIGHT,    1, 120 },
   { "Vengeance",        OBJS_VENGEANCE,1, 200 },
   { "Nettoyage",        OBJS_CLEAN,    2, 300 },
@@ -919,23 +952,23 @@ static const MissionDef MISSIONS[] = {
   // a aucune cabine : sa mecanique Marco est conservee pour la trame principale
   // (cf. campagne.md, mission M4).
   { "Livraison de pizza", OBJS_PIZZA,  2, 200 },
-  { "Premier jour",     OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
-  { "Les assurances",   OBJS_M2, 9, 150, true },   // index 17 = M2 (trame ; Marco compagnon a pied)
-  { "Mauvaise dette",   OBJS_M3, 6, 180, true },   // index 18 = M3 (trame ; Marco compagnon a pied)
-  { "Un nom",           OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
-  { "Message aux Loups",OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
-  { "Voiture volee",    OBJS_M7, 4, 350, true, true },   // index 21 = M7 (trame ; caisse des Loups = vehicule requis)
-  { "Represailles",     OBJS_M8, 3, 350, true, false, true },   // index 22 = M8 (trame ; Tony defendu)
-  { "Tournee de Marco", OBJS_M9, 3, 300, true },   // index 23 = M9 (trame)
+  { "Le colis du port", OBJS_M1, 4, 120, true },   // index 16 = M1 (trame)
+  { "Les protections",  OBJS_M2, 9, 150, true },   // index 17 = M2 (trame ; Marius compagnon a pied)
+  { "Le cousin Remi",   OBJS_M3, 6, 180, true },   // index 18 = M3 (trame ; Marius compagnon a pied)
+  { "Dede le PMU",      OBJS_M5, 2, 200, true },   // index 19 = M5 (trame)
+  { "Les Chouf",    OBJS_M6, 2, 250, true },   // index 20 = M6 (trame)
+  { "Le fourgon",       OBJS_M7, 4, 350, true, true },   // index 21 = M7 (trame ; fourgon des Chouf = vehicule requis)
+  { "Le garage attaque",OBJS_M8, 3, 350, true, false, true },   // index 22 = M8 (trame ; Jeannot defendu)
+  { "La tournee de Marius", OBJS_M9, 3, 300, true },   // index 23 = M9 (trame)
   { "L'entrepot",       OBJS_M10,3, 400, true },   // index 24 = M10 (trame)
-  { "Rico le Loup",     OBJS_M11,3, 450, true },   // index 25 = M11 (trame, boss)
-  { "La mallette",      OBJS_M12,4, 350, true },   // index 26 = M12 (trame ; ramassage mallette scripte)
-  { "Le temoin",        OBJS_M13,5, 400, true },   // index 27 = M13 (trame, escorte + embuscade en route)
-  { "Embuscade",        OBJS_M14,3, 450, true, false, true },   // index 28 = M14 (trame ; Sarah defendue)
-  { "Les dossiers",     OBJS_M15,4, 500, true },   // index 29 = M15 (trame ; ramassage dossiers scripte)
-  { "Sabotage",         OBJS_M16,4, 550, true, true },   // index 30 = M16 (caisses de luxe = vehicules requis)
-  { "Bruno",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
-  { "Le dernier appel", OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
+  { "Le Sanglier",      OBJS_M11,3, 450, true },   // index 25 = M11 (trame, boss)
+  { "La glaciere",      OBJS_M12,4, 350, true },   // index 26 = M12 (trame ; ramassage glaciere scripte)
+  { "La comptable",     OBJS_M13,5, 400, true },   // index 27 = M13 (trame, escorte + embuscade en route)
+  { "La cabane",        OBJS_M14,3, 450, true, false, true },   // index 28 = M14 (trame ; Sonia defendue)
+  { "Les papiers",      OBJS_M15,4, 500, true },   // index 29 = M15 (trame ; ramassage dossiers scripte)
+  { "Le sabotage",      OBJS_M16,4, 550, true, true },   // index 30 = M16 (caisses de luxe = vehicules requis)
+  { "Paulo",            OBJS_M17,3, 600, true },   // index 31 = M17 (trame, boss)
+  { "Le Vieux-Port",    OBJS_M18,3, 800, true },   // index 32 = M18 (trame, boss final)
   { "Alerte incendie",  OBJS_FIREFIGHTER, 4, 300, false, false, false, true },  // index 33 (camion pompier)
 };
 static const int NUM_MISSIONS = sizeof(MISSIONS) / sizeof(MISSIONS[0]);
@@ -1279,39 +1312,39 @@ static const int32_t HOSP_BILL = 100;
 // --- Videurs du casino : entrer ARME a la porte = expulsion musclee ----------
 // Punch lines GTA, ton rigolard. Tirees au hasard a chaque expulsion.
 static const char *BOUNCER_ARMED_LINES[6] = {
-  "Le videur: range ton flingue, ducon, ici on parie pas sa peau!",
-  "Le videur: une arme au casino? La maison aime pas. Dehors!",
-  "Le videur: tu comptes braquer la banque tout seul? Mignon. Sors.",
-  "Le videur: pas d'acier sur le tapis vert. On va t'apprendre les manieres.",
+  "Le videur: range ton flingue, fada, ici on parie pas sa peau!",
+  "Le videur: une arme au casino? La maison aime pas. Degage!",
+  "Le videur: tu braques la banque tout seul, minot? Mignon. Sors.",
+  "Le videur: pas d'acier sur le tapis vert. On va t'apprendre, ve.",
   "Le videur: le seul pigeon qu'on plume ici, c'est l'arme au poing.",
-  "Le videur: ton calibre reste au vestiaire... ou c'est toi qu'on plie.",
+  "Le videur: ton calibre au vestiaire... ou c'est toi qu'on plie, collegue.",
 };
 
 // --- Le Bar : tournee du vieux poivrot --------------------------------------
 // Presser A dans la bbox "Le Bar" : -10 $ et une replique au hasard (univers
 // GTA, ton rigolard). Si trop fauche : pas de verre.
 static const char *BAR_LINES[10] = {
-  "Le vieux: repeins ta caisse au Pay'n'Spray, les poulets te calculent plus!",
-  "Le vieux: a ton age je braquais 3 superettes avant le cafe.",
-  "Le vieux: la Casse paye bien... surtout les caisses qui sont pas a toi.",
-  "Le vieux: un bazooka a l'AMU Nation, moins cher qu'un bon dentiste.",
+  "Le vieux: repeins ta caisse au Pay'n'Spray, minot, les poulets te calculent plus!",
+  "Le vieux: a ton age je braquais 3 superettes avant le pastaga.",
+  "Le vieux: la Casse paye bien... surtout les caisses qui sont pas a toi, ve.",
+  "Le vieux: un bazooka a l'AMU Nation, moins cher qu'un bon dentiste, peuchere.",
   "Le vieux: les poulets courent vite, mais pas plus qu'une bonne caisse.",
-  "Le vieux: paie-moi un coup et je te dis ou est planque le fric... j'ai oublie.",
-  "Le vieux: dors a la planque gamin, meme les durs ont besoin d'un dodo.",
-  "Le vieux: j'ai vu un gus sauter par-dessus 3 bagnoles. C'etait toi?",
+  "Le vieux: paie-moi un canon et je te dis ou est le fric... j'ai oublie.",
+  "Le vieux: dors a la planque minot, meme les durs ont besoin d'un dodo.",
+  "Le vieux: j'ai vu un fada sauter par-dessus 3 bagnoles. C'etait toi?",
   "Le vieux: le casino t'aime pas, la maison gagne toujours. Crois le vieux.",
-  "Le vieux: sante! A la tienne et a celle des pigeons du parc.",
+  "Le vieux: sante! A la tienne et a l'OM, collegue!",
 };
 
 // --- Les Bureaux : selon l'arme tenue ---------------------------------------
 // Repliques quand on entre les mains vides (le type refuse de "bosser").
 static const char *BUREAU_REFUSALS[6] = {
-  "Je vais quand meme pas me mettre au vert.",
-  "Les horaires de bureau, tres peu pour moi.",
-  "Costard-cravate ? Plutot crever.",
-  "Bosser huit heures par jour ? T'es malade.",
-  "La paperasse, c'est pas pour les types comme moi.",
-  "Pointer a la machine a cafe ? Sans facon.",
+  "Me mettre au vert ? Plutot crever, ve.",
+  "Les horaires de bureau, tres peu pour moi, peuchere.",
+  "Costard-cravate ? C'est pour les santons, pas pour moi.",
+  "Bosser huit heures par jour ? T'es fada.",
+  "La paperasse, c'est pas pour un minot comme moi.",
+  "Pointer a la machine a cafe ? Sans facon, collegue.",
 };
 
 // Motifs 5x5 (cœur, etoile).
@@ -1340,10 +1373,10 @@ static const char *const SLOT_SPRITE[SYM_COUNT][11] = {
 
 // Repliques du videur quand on tente de jouer sans un rond.
 static const char *BOUNCER_LINES[6] = {
-  "Le videur: pas de fric, pas de jackpot. Dehors!",
-  "Le videur: reviens quand t'auras de quoi miser, clodo.",
-  "Le videur: ici c'est pas la soupe populaire. Ouste!",
-  "Le videur: tu mises avec quoi, des boutons? Dehors!",
-  "Le videur: les fauches, c'est sur le trottoir. Allez!",
-  "Le videur: la maison gagne, toi tu perds meme l'entree.",
+  "Le videur: pas de fric, pas de jackpot. Degage!",
+  "Le videur: reviens quand t'auras de quoi miser, fada.",
+  "Le videur: ici c'est pas la soupe populaire. Ouste, ve!",
+  "Le videur: tu mises avec quoi, des boutons? Dehors minot!",
+  "Le videur: les fauches, c'est sur le trottoir. Allez, degun!",
+  "Le videur: la maison gagne, toi tu perds meme l'entree, peuchere.",
 };

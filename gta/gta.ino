@@ -25,6 +25,7 @@
 #include "engine.h"
 #include "car.h"
 #include "truck.h"
+#include "boat.h"
 #include "smoke.h"
 #include "player.h"
 #include "ai.h"
@@ -198,7 +199,7 @@ void loop() {
     int step = (int)playerJumpAcc;
     if (step > 0) {
       playerJumpAcc -= step;
-      tryMove(playerX, playerY, AI_DX[playerDir] * step, AI_DY[playerDir] * step);  // les murs stoppent quand meme
+      tryMoveSwim(playerX, playerY, AI_DX[playerDir] * step, AI_DY[playerDir] * step);  // les murs stoppent ; l'eau non (plonge)
     }
     if (++animTimer >= ANIM_PERIOD) { animTimer = 0; playerFrame ^= 1; }
     if (playerJump == 0) { playerJumpCool = JUMP_COOLDOWN; playerJumpAcc = 0.0f; }  // atterrissage
@@ -214,12 +215,18 @@ void loop() {
     }
     int dx, dy;
     readFootInput(dx, dy);
+    // Nage : si le joueur est sur une tuile d'eau. Vitesse reduite (1 frame sur
+    // 2) et l'eau devient franchissable (tryMoveSwim) -- les batiments bloquent.
+    playerSwimming = isWaterAt((playerX + PLAYER_W / 2) >> 3, (playerY + PLAYER_H / 2) >> 3);
+    static uint8_t swimPhase = 0;
     if (dx != 0 || dy != 0) {
       int ox = playerX, oy = playerY;
-      tryMove(playerX, playerY, dx, dy);
+      if (!playerSwimming || (++swimPhase & 1)) tryMoveSwim(playerX, playerY, dx, dy);
       int mx = playerX - ox, my = playerY - oy;
       if (mx != 0) playerDir = (mx > 0) ? DIR_EAST : DIR_WEST;
       else if (my != 0) playerDir = (my > 0) ? DIR_SOUTH : DIR_NORTH;
+      else if (dx != 0) playerDir = (dx > 0) ? DIR_EAST : DIR_WEST;   // frame de nage sautee : garder le cap
+      else if (dy != 0) playerDir = (dy > 0) ? DIR_SOUTH : DIR_NORTH;
       if (++animTimer >= ANIM_PERIOD) { animTimer = 0; playerFrame ^= 1; }
     } else {
       playerFrame = 0; animTimer = 0;
@@ -297,10 +304,10 @@ void loop() {
             storyMissionActive = true;
             startMission(STORY_SEQ[campaignStep]);
           } else if (campaignStep == STORY_LEN) {
-            // Epilogue : on decroche une derniere fois -- la voix de Sarah, la
-            // journaliste sauvee, qui remercie. Puis la ligne coupe pour de bon.
-            narrate("Sarah : c'est sorti ce matin. Tout le monde sait, pour Victor. Pour Marco.");
-            narrate("Sarah : t'aurais pu finir comme lui. Prends soin de toi, petit. *clic* FIN.");
+            // Epilogue : on decroche une derniere fois. Le port au petit matin,
+            // un dernier appel anonyme... puis la ligne coupe pour de bon.
+            narrate("Le port, au petit matin. Tout le monde sait, pour Costa. Pour Marius.");
+            narrate("Le telephone sonne. Tu decroches. Un silence... puis : 'Allo minot ?' *clic* FIN.");
             campaignStep++;
             gb.sound.playCancel();
           } else {
@@ -348,7 +355,7 @@ void loop() {
         if (best == -3 || best >= 0 || best <= -100) { carFuse = 0; carRunaway = false; }
         if (best == -3) {                   // voiture de mission au parking
           car = mCar; car.vx = 0.0f; car.vy = 0.0f;
-          carIsMission = true;
+          carIsMission = true; drivingBoat = false;
           if (mCarIsFireTruck) {
             drivingTruck = true; drivingVariant = TRUCK_FIRE;
             carColor = TRUCK_VARIANTS[TRUCK_FIRE].body;
@@ -363,11 +370,12 @@ void loop() {
           driving = true; carIsMission = false;
         } else if (best >= 0) {
           AiCar &c = aiCars[best];           // vol : un conducteur (s'il y en a un) tombe au sol puis fuit
-          if (c.driver) aiEjectDriver((int)c.x, (int)c.y, true, false, c.dir);  // caisse vide -> personne a ejecter
+          if (c.driver) aiEjectDriver((int)c.x, (int)c.y, true, false, c.dir, c.isBoat);  // au large : naufrage + vedette
           car.x = c.x; car.y = c.y; car.vx = 0.0f; car.vy = 0.0f;
-          car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
+          car.angle = c.isBoat ? AI_BOAT_FRAME[c.dir] * (TWO_PI / BOAT_FRAMES)
+                               : AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
           carColor = c.color; carIsMission = false;
-          drivingTruck = c.isTruck; drivingVariant = c.variant;
+          drivingTruck = c.isTruck; drivingBoat = c.isBoat; drivingVariant = c.variant;
           carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;   // herite de l'usure de la caisse volee
           if (c.isPolice) {                  // voiture de police : gilet enfile + pompe a bord
             giveBodyArmor();
@@ -395,7 +403,7 @@ void loop() {
           car.x = c.x; car.y = c.y; car.vx = 0.0f; car.vy = 0.0f;
           car.angle = AI_CAR_FRAME[c.dir] * (TWO_PI / CAR_FRAMES);
           carColor = c.color; carIsMission = false;
-          drivingTruck = true; drivingVariant = c.variant;
+          drivingTruck = true; drivingBoat = false; drivingVariant = c.variant;
           carHp = c.hp > 0 ? c.hp : CAR_MAX_HP;
           c.active = false; r.active = false;     // intervention annulee : corps/feu reste en attente (redispatch plus tard)
           driving = true; carGone = false;
@@ -425,13 +433,17 @@ void loop() {
       else throttle = -1.0f;                     // ~arrete -> marche arriere
     }
     bool drift = brakeBtn && steer != 0.0f && fwd > CAR_DRIFT_MIN;
-    carUpdate(car, throttle, steer, drift, brake);
+    carUpdate(car, throttle, steer, drift, brake, drivingBoat);  // bateau : collision eau-only
     // Descendre (MENU) : poser le perso sur une case libre a cote. A vitesse,
     // c'est un SAUT en marche : -1 coeur et la caisse continue sur sa lancee
     // (runaway) -> elle explose plus loin si elle est en feu.
     if (gb.buttons.pressed(BUTTON_MENU)) {
       int ox, oy;
-      if (findFootSpot((int)car.x, (int)car.y, ox, oy)) {
+      bool got = findFootSpot((int)car.x, (int)car.y, ox, oy);
+      if (!got && drivingBoat) {                 // pleine mer : on plonge et on nage
+        ox = (int)car.x - PLAYER_W / 2; oy = (int)car.y - PLAYER_H / 2; got = true;
+      }
+      if (got) {
         playerX = ox; playerY = oy; driving = false;
         playerFrame = 0; animTimer = 0;
         if (marcoAboard) {            // le compagnon descend AVEC le joueur

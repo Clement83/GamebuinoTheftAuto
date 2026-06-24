@@ -34,11 +34,70 @@ static inline int policeCarPct(uint8_t level) {
 }
 
 
+// 4x4 d'eau autour de (tx,ty) : eau ouverte requise pour un bateau A CONDUCTEUR
+// (cf. demande : « au moins un carre de 4x4 eau autour »).
+static bool aiWater4x4(int tx, int ty) {
+  for (int yy = ty - 1; yy <= ty + 2; yy++)
+    for (int xx = tx - 1; xx <= tx + 2; xx++)
+      if (!aiIsNavigable(cityMap, CITY_W, CITY_H, xx, yy)) return false;
+  return true;
+}
+
+// Tuile d'eau bordant un quai (TILE_DOCK) : point d'amarrage d'un bateau VIDE.
+static bool aiWaterByDock(int tx, int ty) {
+  if (!aiIsNavigable(cityMap, CITY_W, CITY_H, tx, ty)) return false;
+  for (int i = 0; i < 4; i++) {
+    int nx = tx + AI_DX[i], ny = ty + AI_DY[i];
+    if (aiInBounds(CITY_W, CITY_H, nx, ny) && cityMap[ny * CITY_W + nx] == TILE_DOCK) return true;
+  }
+  return false;
+}
+
+// Tente de (re)spawner ce slot en BATEAU dans l'anneau autour de (ccx,ccy).
+// Moitie des cas : bateau vide amarre a un quai (immobile, embarcable) ; moitie :
+// bateau a conducteur sur eau ouverte (4x4) qui navigue comme le trafic.
+// Retourne false si aucune tuile d'eau adequate -> l'appelant retombe sur une voiture.
+static bool aiTrySpawnBoat(AiCar &c, int ccx, int ccy) {
+  bool empty = (aiRngNext(aiRng) & 1) != 0;
+  int tx = 0, ty = 0; bool found = false;
+  for (int i = 0; i < 60 && !found; i++) {
+    uint32_t r = aiRngNext(aiRng);
+    int dx = (int)(r % (2 * RING_MAX + 1)) - RING_MAX;
+    int dy = (int)((r >> 16) % (2 * RING_MAX + 1)) - RING_MAX;
+    int d2 = dx * dx + dy * dy;
+    if (d2 < RING_MIN * RING_MIN || d2 > RING_MAX * RING_MAX) continue;
+    int cx = (ccx + dx) >> 3, cy = (ccy + dy) >> 3;
+    if (empty ? aiWaterByDock(cx, cy) : aiWater4x4(cx, cy)) { tx = cx; ty = cy; found = true; }
+  }
+  if (!found) return false;
+  c.isBoat = true; c.isTruck = false; c.isPolice = false;
+  c.variant = (uint8_t)(aiRngNext(aiRng) % BOAT_KIND_N);
+  c.color = BOAT_VARIANTS[c.variant].hull;
+  c.hp = CAR_MAX_HP;
+  c.fleeing = false; c.fleeTimer = 0; c.brakeReact = 0; c.backoff = 0;
+  c.fuse = 0; c.fireTick = 0;
+  c.active = true;
+  if (empty) {                              // amarre : immobile, embarcable depuis le quai
+    c.driver = false;
+    int px, py; aiLanePoint(tx, ty, DIR_N, px, py);
+    c.x = (float)px; c.y = (float)py; c.dir = DIR_N; c.tgtx = px; c.tgty = py;
+  } else {                                  // a conducteur : navigue sur l'eau ouverte
+    c.driver = true;
+    aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
+            tx, ty, aiIsNavigable, aiRng);
+  }
+  return true;
+}
+
 static void aiRespawnCar(AiCar &c, int ccx, int ccy) {
+  // Pres de l'eau, une partie du trafic devient un bateau ; sinon (interieur des
+  // terres : aiTrySpawnBoat echoue) on retombe sur une voiture/camion.
+  if ((int)(aiRngNext(aiRng) % 100) < BOAT_SPAWN_PCT && aiTrySpawnBoat(c, ccx, ccy)) return;
   int tx, ty;
   if (aiFindTileInRing(ccx, ccy, RING_MIN, RING_MAX, aiIsDrivable, tx, ty)) {
     aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
             tx, ty, aiIsDrivable, aiRng);
+    c.isBoat = false;
     c.isPolice = ((int)(aiRngNext(aiRng) % 100) < policeCarPct(wanted.level));   // part du trafic = police (croit avec les etoiles)
     // Police et camion s'excluent : un camion n'est jamais une voiture de police.
     c.isTruck = !c.isPolice && ((int)(aiRngNext(aiRng) % 100) < TRUCK_SPAWN_PCT);
@@ -100,11 +159,33 @@ static bool aiFindWalkTileNear(int cx, int cy, int &otx, int &oty) {
 //  - knockedDown : il tombe d'abord au sol (etat 3) puis se relevera et fuira
 //    (vol de voiture) ; sinon il detale tout de suite (voiture mitraillee).
 //  - asCop : c'est un policier (voiture de police) qui sort pour arreter/tirer.
-static void aiEjectDriver(int atx_px, int aty_px, bool knockedDown, bool asCop, uint8_t carDir) {
+static void aiEjectDriver(int atx_px, int aty_px, bool knockedDown, bool asCop, uint8_t carDir, bool inWater) {
   int slot = -1;
   for (int i = 0; i < NUM_AI_PEDS; i++) if (!aiPeds[i].active) { slot = i; break; }
   if (slot < 0) slot = 0;                  // pool plein : ecrase le premier
   AiPed &p = aiPeds[slot];
+  // Vol de BATEAU : le conducteur saute A COTE de la coque, DANS l'eau (jamais
+  // teleporte sur une tuile marchable lointaine). Il se met a nager (state 6) et
+  // une vedette vient le chercher. On essaie la portiere (gauche) puis les autres
+  // cotes pour trouver une tuile d'eau ; au pire, sur place (le bateau le pousse).
+  if (inWater) {
+    const uint8_t order[4] = { AI_LEFT[carDir], AI_RIGHT[carDir], carDir, AI_BACK[carDir] };
+    int ex = atx_px, ey = aty_px;
+    for (int i = 0; i < 4; i++) {
+      int wx = atx_px + AI_DX[order[i]] * DRIVER_DOOR_OFFSET;
+      int wy = aty_px + AI_DY[order[i]] * DRIVER_DOOR_OFFSET;
+      if (isWaterAt(wx >> 3, wy >> 3)) { ex = wx; ey = wy; break; }
+    }
+    p.x = (float)ex; p.y = (float)ey; p.dir = carDir; p.tgtx = ex; p.tgty = ey;
+    p.frame = 0; p.animTimer = 0; p.panicTimer = 0; p.meleeTimer = 0;
+    p.hp = 3; p.isCop = false; p.shootTimer = COP_SHOOT_PERIOD;
+    p.color = AI_PALETTE[aiRngNext(aiRng) % AI_PALETTE_N];
+    p.state = 6;                            // nage, attend la vedette de sauvetage
+    p.downTimer = CORPSE_WAIT_FRAMES;        // delai dur : disparait s'il n'est pas secouru
+    p.active = true;
+    dispatchLifeboat(ex, ey, (int8_t)slot);
+    return;
+  }
   bool placed = false;
   // Vol de voiture : le conducteur tombe a cote de SA portiere (cote gauche du
   // sens de la caisse), un peu en retrait pour ne pas etre ecrase au demarrage.
@@ -375,7 +456,9 @@ static void aiUpdate(int fcx, int fcy) {
         c.backoff--;
         aiCarStepAway(c, fcx, fcy);
       } else if (!blocked) {
-        if (pursue) policeCarStep(c, fcx, fcy);   // poursuite routiere du joueur
+        if (c.isBoat) aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
+                             AI_CAR_SPEED, aiIsNavigable, aiRng);   // navigue sur l'eau
+        else if (pursue) policeCarStep(c, fcx, fcy);   // poursuite routiere du joueur
         else aiStep(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty,
                     c.fleeing ? CAR_FLEE_SPEED : AI_CAR_SPEED, aiIsDrivable, aiRng);
       }
@@ -481,6 +564,9 @@ static void aiUpdate(int fcx, int fcy) {
         p.active = false;
         if (pendingCorpses > 0) pendingCorpses--;
       }
+    } else if (p.state == 6) {                // NAUFRAGE : nage sur place, attend la vedette
+      if (++p.animTimer >= AI_PED_ANIM) { p.animTimer = 0; p.frame ^= 1; }
+      if (p.downTimer == 0 || --p.downTimer == 0) p.active = false;  // delai dur (jamais bloque)
     } else if (p.active) {
       int ddx = (int)p.x - fcx, ddy = (int)p.y - fcy;
       if (ddx * ddx + ddy * ddy > rec2) p.active = false;
@@ -488,7 +574,7 @@ static void aiUpdate(int fcx, int fcy) {
     // Plus de recherche : les flics debout redeviennent de simples passants.
     if (p.isCop && wanted.level == 0 && p.state == 0) { p.active = false; aiRespawnPed(p, fcx, fcy); continue; }
     if (!p.active) { aiRespawnPed(p, fcx, fcy); continue; }
-    if (p.state == 1 || p.state == 4) continue;   // mort/renverse, ou corps en attente : immobile
+    if (p.state == 1 || p.state == 4 || p.state == 6) continue;   // mort/renverse, corps en attente, ou naufrage : immobile
     if (p.state == 3) {                        // AU SOL RECUPERABLE : se releve puis fuit
       if (p.downTimer == 0 || --p.downTimer == 0)
         startPanic(p, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2);   // debout -> panique
@@ -598,6 +684,10 @@ static void aiUpdate(int fcx, int fcy) {
     for (int q = 0; q < NUM_AI_PEDS; q++)
       if (aiPeds[q].state == 4) { dispatchAmbulance((int)aiPeds[q].x, (int)aiPeds[q].y); break; }
   }
+  // Redispatch vedette de sauvetage : un naufragé sans vedette en route -> on
+  // retente (no-op si une vedette est deja en mission).
+  for (int q = 0; q < NUM_AI_PEDS; q++)
+    if (aiPeds[q].state == 6) { dispatchLifeboat((int)aiPeds[q].x, (int)aiPeds[q].y, (int8_t)q); break; }
   // Redispatch generique : feux au sol d'abord, puis caisse du joueur, puis caisses IA.
   // dispatchResponder est no-op si un pompier est deja actif -> un seul foyer a la fois.
   // Le feu de mission pompier (missionFireSlot) est exclu : le joueur est le pompier.
@@ -622,17 +712,17 @@ static void aiUpdate(int fcx, int fcy) {
 // spawner, pour simuler un temps de reaction sans le faire apparaitre trop
 // loin (un anneau plus large faisait parfois echouer aiFindTileInRing -> le
 // secours n'arrivait jamais).
-static void dispatchResponder(uint8_t kind, int tx, int ty, bool fireIsCar, int8_t fireSlot, int8_t fireCarIdx) {
+static void dispatchResponder(uint8_t kind, int tx, int ty, bool fireIsCar, int8_t fireSlot, int8_t fireCarIdx, int8_t pedIdx = -1) {
   for (int i = 0; i < NUM_RESPONDERS; i++)
     if (responders[i].active && responders[i].kind == kind) return;   // deja un de ce type en mission/en attente
   int slot = -1;
   for (int i = 0; i < NUM_RESPONDERS; i++) if (!responders[i].active) { slot = i; break; }
-  if (slot < 0) return;                       // les 2 places sont prises par l'autre type
+  if (slot < 0) return;                       // toutes les places sont prises
   Responder &r = responders[slot];
   r.kind = kind; r.phase = RESP_PENDING; r.tgx = (int16_t)tx; r.tgy = (int16_t)ty;
   r.workTimer = RESP_DISPATCH_DELAY; r.fireIsCar = fireIsCar; r.fireSlot = fireSlot;
   r.fireCarIdx = fireCarIdx;
-  r.medicActive = false; r.pedIdx = -1; r.active = true;
+  r.medicActive = false; r.pedIdx = pedIdx; r.active = true;
   r.car.active = false;
 }
 
@@ -642,10 +732,21 @@ static void dispatchResponder(uint8_t kind, int tx, int ty, bool fireIsCar, int8
 static void responderSpawnCar(Responder &r) {
   AiCar &c = r.car;
   int spx, spy;
+  if (r.kind == RESP_LIFEBOAT) {            // vedette : spawn sur l'eau pres du naufrage
+    if (!aiFindTileInRing(r.tgx, r.tgy, RING_MIN, RING_MAX, aiIsNavigable, spx, spy)) { r.active = false; return; }
+    aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty, spx, spy, aiIsNavigable, aiRng);
+    c.hp = CAR_MAX_HP; c.driver = true; c.fleeing = false; c.fleeTimer = 0;
+    c.brakeReact = 0; c.backoff = 0; c.isPolice = false; c.isTruck = false; c.isBoat = true;
+    c.fuse = 0; c.fireTick = 0;
+    c.variant = BOAT_POLICE; c.color = BOAT_VARIANTS[BOAT_POLICE].hull;
+    c.active = true;
+    r.phase = RESP_INBOUND; r.workTimer = 0;
+    return;
+  }
   if (!aiFindTileInRing(r.tgx, r.tgy, RING_MIN, RING_MAX, aiIsDrivable, spx, spy)) { r.active = false; return; }
   aiPlace(cityMap, CITY_W, CITY_H, c.x, c.y, c.dir, c.tgtx, c.tgty, spx, spy, aiIsDrivable, aiRng);
   c.hp = CAR_MAX_HP; c.driver = true; c.fleeing = false; c.fleeTimer = 0;
-  c.brakeReact = 0; c.backoff = 0; c.isPolice = false; c.isTruck = true;
+  c.brakeReact = 0; c.backoff = 0; c.isPolice = false; c.isTruck = true; c.isBoat = false;
   c.fuse = 0; c.fireTick = 0;
   c.variant = (r.kind == RESP_AMBULANCE) ? TRUCK_AMBULANCE : TRUCK_FIRE;
   c.color = TRUCK_VARIANTS[c.variant].body;
@@ -656,6 +757,18 @@ static void responderSpawnCar(Responder &r) {
 static void dispatchAmbulance(int x, int y) { dispatchResponder(RESP_AMBULANCE, x, y, false, -1, -1); }
 static void dispatchFireTruck(int x, int y, bool fireIsCar, int8_t fireSlot, int8_t fireCarIdx) {
   dispatchResponder(RESP_FIRETRUCK, x, y, fireIsCar, fireSlot, fireCarIdx);
+}
+static void dispatchLifeboat(int x, int y, int8_t pedIdx) {
+  dispatchResponder(RESP_LIFEBOAT, x, y, false, -1, -1, pedIdx);
+}
+
+// Glisse une caisse-bateau en ligne droite vers (tx,ty) sur l'eau ouverte
+// (pas de pathing grille : le naufrage est en eau degagee). Met a jour le cap.
+static void boatSeek(AiCar &c, int tx, int ty, float speed) {
+  float dx = (float)tx - c.x, dy = (float)ty - c.y;
+  float d2 = dx * dx + dy * dy;
+  if (d2 > speed * speed) { float inv = speed / sqrtf(d2); c.x += dx * inv; c.y += dy * inv; }
+  c.dir = (fabsf(dx) > fabsf(dy)) ? (dx > 0 ? DIR_E : DIR_W) : (dy > 0 ? DIR_S : DIR_N);
 }
 
 
@@ -676,6 +789,14 @@ static void responderUpdate(int fcx, int fcy) {
     AiCar &c = r.car;
     if (!c.active) { r.active = false; continue; }
     if (r.phase == RESP_INBOUND) {
+      if (r.kind == RESP_LIFEBOAT) {        // navigue droit vers le naufrage
+        if (r.pedIdx < 0 || aiPeds[r.pedIdx].state != 6) { r.phase = RESP_LEAVING; continue; }
+        r.tgx = (int16_t)aiPeds[r.pedIdx].x; r.tgy = (int16_t)aiPeds[r.pedIdx].y;
+        boatSeek(c, r.tgx, r.tgy, RESPONDER_SPEED);
+        float ddx = (float)r.tgx - c.x, ddy = (float)r.tgy - c.y;
+        if (ddx * ddx + ddy * ddy < 12.0f * 12.0f) r.phase = RESP_WORKING;
+        continue;
+      }
       if (r.kind == RESP_FIRETRUCK && r.fireIsCar) {
         if (r.fireCarIdx >= 0) {
           AiCar &fc = aiCars[r.fireCarIdx];
@@ -689,7 +810,10 @@ static void responderUpdate(int fcx, int fcy) {
       float ddx = (float)r.tgx - c.x, ddy = (float)r.tgy - c.y;
       if (ddx * ddx + ddy * ddy < 14.0f * 14.0f) r.phase = RESP_WORKING;
     } else if (r.phase == RESP_WORKING) {
-      if (r.kind == RESP_AMBULANCE) {
+      if (r.kind == RESP_LIFEBOAT) {        // sur place : on hisse le naufrage (il disparait)
+        if (r.pedIdx >= 0 && aiPeds[r.pedIdx].state == 6) aiPeds[r.pedIdx].active = false;
+        r.phase = RESP_LEAVING;
+      } else if (r.kind == RESP_AMBULANCE) {
         if (!r.medicActive) {
           int best = -1; float bestd = 1e18f;
           for (int q = 0; q < NUM_AI_PEDS; q++) {
@@ -739,7 +863,12 @@ static void responderUpdate(int fcx, int fcy) {
         }
       }
     } else {                                     // RESP_LEAVING : repart et despawn au loin
-      aiCarStepAway(c, fcx, fcy);
+      if (r.kind == RESP_LIFEBOAT) {             // glisse vers le large (pas de pathing route)
+        float ax = c.x - fcx, ay = c.y - fcy; float d = sqrtf(ax * ax + ay * ay) + 0.001f;
+        boatSeek(c, (int)(c.x + ax / d * 64.0f), (int)(c.y + ay / d * 64.0f), RESPONDER_SPEED);
+      } else {
+        aiCarStepAway(c, fcx, fcy);
+      }
       int ddx = (int)c.x - fcx, ddy = (int)c.y - fcy;
       if (ddx * ddx + ddy * ddy > RECYCLE_DIST * RECYCLE_DIST) { c.active = false; r.active = false; }
     }
@@ -755,6 +884,12 @@ static void responderDraw(int camX, int camY) {
   for (int i = 0; i < NUM_RESPONDERS; i++) {
     Responder &r = responders[i];
     if (!r.active || !r.car.active) continue;
+    if (r.kind == RESP_LIFEBOAT) {          // vedette : sprite bateau (livree police maritime)
+      const BoatVariant &bv = BOAT_VARIANTS[r.car.variant];
+      blitBoat(camX, camY, (int)r.car.x, (int)r.car.y, AI_BOAT_FRAME[r.car.dir], bv);
+      if (bv.hasGyro) drawGyro(camX, camY, (int)r.car.x, (int)r.car.y, bv.gyroL, bv.gyroR);
+      continue;
+    }
     const TruckVariant &v = TRUCK_VARIANTS[r.car.variant];
     blitTruck(camX, camY, (int)r.car.x, (int)r.car.y, AI_CAR_FRAME[r.car.dir], v);
     if (v.hasGyro) drawGyro(camX, camY, (int)r.car.x, (int)r.car.y, v.gyroL, v.gyroR);
@@ -772,6 +907,12 @@ static void aiDraw(int camX, int camY) {
   for (int i = 0; i < NUM_AI_CARS; i++) {
     AiCar &c = aiCars[i];
     if (!c.active) continue;
+    if (c.isBoat) {
+      const BoatVariant &v = BOAT_VARIANTS[c.variant];
+      blitBoat(camX, camY, (int)c.x, (int)c.y, AI_BOAT_FRAME[c.dir], v);
+      if (v.hasGyro && wanted.level >= 2) drawGyro(camX, camY, (int)c.x, (int)c.y, v.gyroL, v.gyroR);
+      continue;
+    }
     if (c.isTruck) {
       const TruckVariant &v = TRUCK_VARIANTS[c.variant];
       blitTruck(camX, camY, (int)c.x, (int)c.y, AI_CAR_FRAME[c.dir], v);
@@ -788,7 +929,8 @@ static void aiDraw(int camX, int camY) {
     if (p.state == 1) blitSplat(camX, camY, (int)p.x, (int)p.y);
     else if (p.state == 3) blitDownBody(camX, camY, (int)p.x, (int)p.y, p.color);  // assomme (vol de voiture)
     else if (p.state == 4) blitDownBody(camX, camY, (int)p.x, (int)p.y, p.color);  // corps en attente de l'ambulance
-    else blitPed(camX, camY, (int)p.x, (int)p.y, p.dir, p.frame, p.color);
+    else if (p.state == 6) blitPed(camX, camY, (int)p.x, (int)p.y, p.dir, p.frame, p.color, 2);  // naufrage mi-immerge
+    else blitPed(camX, camY, (int)p.x, (int)p.y, p.dir, p.frame, p.color, 0);
   }
   responderDraw(camX, camY);
 }

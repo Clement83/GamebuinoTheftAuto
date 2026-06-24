@@ -72,6 +72,32 @@ static void blitTruck(int camX, int camY, int worldCx, int worldCy,
 }
 
 
+// Blit recolore d'un sprite bateau : coque partagee (boatFrames), 3 cles
+// (coque/pont/liseree) recolorees selon la livree -- cf. BoatVariant et
+// tools/build_boat.py. Pare-brise et moteur restent des couleurs fixes (baked).
+static void blitBoat(int camX, int camY, int worldCx, int worldCy,
+                     int frameIdx, const BoatVariant &v) {
+  const uint16_t *src = boatFrames[frameIdx];
+  int ox = worldCx - camX - BOAT_BOX / 2;
+  int oy = worldCy - camY - BOAT_BOX / 2;
+  for (int ry = 0; ry < BOAT_BOX; ry++) {
+    int y = oy + ry;
+    if (y < 0 || y >= SCREEN_H) continue;
+    uint16_t *row = fb + y * SCREEN_W;
+    const uint16_t *srow = src + ry * BOAT_BOX;
+    for (int rx = 0; rx < BOAT_BOX; rx++) {
+      uint16_t c = srow[rx];
+      if (c == BOAT_TRANSPARENT) continue;
+      if (c == BOAT_HULL_KEY) c = v.hull;
+      else if (c == BOAT_DECK_KEY) c = v.deck;
+      else if (c == BOAT_TRIM_KEY) c = v.trim;
+      int x = ox + rx;
+      if (x >= 0 && x < SCREEN_W) row[x] = c;
+    }
+  }
+}
+
+
 // Girophare : 2 pixels (gauche/droite) au centre du toit qui ALTERNENT entre
 // colorA et colorB (clignotement) selon la phase d'animation globale. Dessine
 // par-dessus la caisse. Aucun sprite supplementaire en flash. Appele pour les
@@ -243,12 +269,14 @@ static void drawSmoke(int camX, int camY) {
 
 // Blit recolore d'un piéton : direction dir, image de marche frame, centre en
 // (worldCx,worldCy). KEY de t-shirt -> color. Framebuffer direct.
+// clipBottom > 0 : on ne dessine pas les `clipBottom` lignes du bas (jambes
+// sous l'eau) -> rendu mi-immerge pour la nage, sans sprite dedie (0 flash).
 static void blitPed(int camX, int camY, int worldCx, int worldCy,
-                    uint8_t dir, uint8_t frame, uint16_t color) {
+                    uint8_t dir, uint8_t frame, uint16_t color, int clipBottom) {
   const uint16_t *src = playerFrames[dir][frame];
   int ox = worldCx - camX - PLAYER_BOX / 2;
   int oy = worldCy - camY - PLAYER_BOX / 2;
-  for (int ry = 0; ry < PLAYER_BOX; ry++) {
+  for (int ry = 0; ry < PLAYER_BOX - clipBottom; ry++) {
     int y = oy + ry;
     if (y < 0 || y >= SCREEN_H) continue;
     uint16_t *row = fb + y * SCREEN_W;
@@ -364,8 +392,14 @@ static void drawPlayer(int camX, int camY) {
             playerDir, playerFrame, PLAYER_BODY_COLOR);
     return;
   }
+  // Nage : buste qui depasse (jambes coupees) + une ligne d'eau sous le sprite.
+  if (playerSwimming) {
+    blitPed(camX, camY, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2,
+            playerDir, playerFrame, PLAYER_BODY_COLOR, 2);
+    return;
+  }
   blitPed(camX, camY, playerX + PLAYER_W / 2, playerY + PLAYER_H / 2,
-          playerDir, playerFrame, PLAYER_BODY_COLOR);
+          playerDir, playerFrame, PLAYER_BODY_COLOR, 0);
 }
 
 
@@ -381,6 +415,16 @@ static void drawCar(int camX, int camY) {
       (seqPhase == PH_CARRY || seqPhase == PH_CRUSH || seqPhase == PH_EJECT)) return;
   if (carGone) return;
   float a = car.angle;
+  if (drivingBoat) {                                 // bateau : 16 frames (≠ voiture)
+    int bidx = (int)(a / TWO_PI * BOAT_FRAMES + 0.5f);
+    bidx %= BOAT_FRAMES;
+    if (bidx < 0) bidx += BOAT_FRAMES;
+    const BoatVariant &bv = BOAT_VARIANTS[drivingVariant];
+    blitBoat(camX, camY, (int)car.x, (int)car.y, bidx, bv);
+    if (bv.hasGyro && wanted.level >= 2)
+      drawGyro(camX, camY, (int)car.x, (int)car.y, bv.gyroL, bv.gyroR);
+    return;
+  }
   int idx = (int)(a / TWO_PI * CAR_FRAMES + 0.5f);   // TRUCK_FRAMES == CAR_FRAMES : meme formule
   idx %= CAR_FRAMES;
   if (idx < 0) idx += CAR_FRAMES;

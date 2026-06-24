@@ -67,6 +67,6 @@ const MusicPoi musicPoiMap[MUSIC_NUM_POI_MAP] = {
   { "Cedar Grove", 3 },
   { "Commerces", 3 },
   { "Le Casino", 4 },
-  { "Chinatown", 5 },
+  { "La Rose", 5 },
   { "Le Bar", 6 },
 };

@@ -50,7 +50,7 @@ static void addMoney(int32_t amount) {
 }
 
 static void barDrink() {
-  if (playerMoney < 10) { narrate("Le barman: pas de thune, pas de tournee."); gb.sound.tone(120, 120); return; }
+  if (playerMoney < 10) { narrate("Le barman: pas de thune, pas de tournee, minot."); gb.sound.tone(120, 120); return; }
   addMoney(-10);
   narrate(BAR_LINES[aiRngNext(aiRng) % 10]);
   gb.sound.tone(330, 50); gb.sound.tone(294, 70);       // glouglou
@@ -71,10 +71,10 @@ static void robStore() {
   }
   if ((uint8_t)(aiRngNext(aiRng) % 100) < chance) {
     addMoney(100);
-    narrate("Braquage reussi ! +$100");
+    narrate("Braquage reussi, beau bebe ! +$100");
     gb.sound.tone(988, 60); gb.sound.playOK();            // cha-ching
   } else {
-    narrate("Braquage rate ! Le commercant riposte. -1 PV");
+    narrate("Braquage rate ! Le commercant riposte, fada. -1 PV");
     gb.sound.tone(160, 160);
     hurtPlayer(1, false);
   }
@@ -91,7 +91,7 @@ static void bureauVisit() {
   }
   // Braquage eclair : tout le monde se planque, tu rafles la caisse...
   addMoney(200);
-  narrate("Braquage eclair ! Panique, +$200... mais l'alarme hurle !");
+  narrate("Braquage eclair ! Panique, +$200... mais l'alarme hurle, ve !");
   gb.sound.tone(988, 60); gb.sound.playOK();             // cha-ching
   gb.sound.tone(1568, 120); gb.sound.tone(1175, 120);    // alarme stridente
   if (wanted.level < 3) wanted.level = 3;                // ...et te voila a 3 etoiles

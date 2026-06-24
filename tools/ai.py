@@ -17,7 +17,7 @@ LEFT = [DIR_W, DIR_N, DIR_E, DIR_S]
 BACK = [DIR_S, DIR_W, DIR_N, DIR_E]
 
 # Identifiants de tuiles (cf. enum TileId / assets.h).
-GRASS, ROAD_H, ROAD_V, ROAD_CROSS, PAVEMENT = 0, 1, 2, 3, 4
+GRASS, ROAD_H, ROAD_V, ROAD_CROSS, PAVEMENT, WATER = 0, 1, 2, 3, 4, 5
 ROAD_TILES = (ROAD_H, ROAD_V, ROAD_CROSS)
 WALK_TILES = (PAVEMENT, GRASS)   # piétons : trottoirs + herbe (parcs/espaces)
 
@@ -44,6 +44,11 @@ def is_drivable(grid, w, h, tx, ty):
 def is_walkable(grid, w, h, tx, ty):
     """Tuile marchable (trottoir ou herbe) et en bornes."""
     return _in_bounds(w, h, tx, ty) and grid[ty * w + tx] in WALK_TILES
+
+
+def is_navigable(grid, w, h, tx, ty):
+    """Tuile navigable par un bateau : uniquement l'eau. Parité ai.h:aiIsNavigable."""
+    return _in_bounds(w, h, tx, ty) and grid[ty * w + tx] == WATER
 
 
 def is_open(grid, w, h, tx, ty):

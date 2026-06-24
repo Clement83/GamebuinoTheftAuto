@@ -256,17 +256,17 @@ static void buildMissionRuntime(uint8_t m) {
 // (CUT_TAUNT). Selon le titre de la mission. Renvoie false si pas de taunt.
 static bool bossTauntLines(const char *title, const char *&l1, const char *&l2) {
   if (!title) return false;
-  if (strcmp(title, "Rico le Loup") == 0) {
-    l1 = "Rico : Tony t'envoie crever a ma place, gamin ?";
-    l2 = "Rico : approche, que je t'apprenne le respect."; return true;
+  if (strcmp(title, "Le Sanglier") == 0) {
+    l1 = "Jo le Sanglier : Jeannot t'envoie crever a ma place, minot ?";
+    l2 = "Le Sanglier : approche, que je t'apprenne le respect."; return true;
   }
-  if (strcmp(title, "Bruno") == 0) {
-    l1 = "Bruno : tu es alle trop loin. Victor veut ta tete.";
-    l2 = "Bruno : et c'est moi qui vais la lui porter."; return true;
+  if (strcmp(title, "Paulo") == 0) {
+    l1 = "Paulo : t'es alle trop loin. Costa veut ta tete.";
+    l2 = "Paulo : et c'est moi qui vais la lui porter."; return true;
   }
-  if (strcmp(title, "Le dernier appel") == 0) {
-    l1 = "Victor : tu as du cran de venir jusqu'ici.";
-    l2 = "Victor : ca ne te sauvera pas. Comme Marco."; return true;
+  if (strcmp(title, "Le Vieux-Port") == 0) {
+    l1 = "Costa : t'as du cran de venir jusqu'ici, minot.";
+    l2 = "Costa : Marius allait me balancer. J'avais pas le choix."; return true;
   }
   return false;
 }
@@ -277,28 +277,28 @@ static bool bossTauntLines(const char *title, const char *&l1, const char *&l2) 
 // t'attend avec ses gros bras, deux repliques, puis ils chargent (cf. enterObjective).
 static bool ambushTauntLines(const char *title, const char *&l1, const char *&l2) {
   if (!title) return false;
-  if (strcmp(title, "Les assurances") == 0) {
-    l1 = "Le type : Marco t'envoie au charbon, hein ? Mauvaise pioche, petit.";
-    l2 = "Marco : c'est un piege ! Sors les poings, vite !"; return true;
+  if (strcmp(title, "Les protections") == 0) {
+    l1 = "Le type : Marius t'envoie au charbon, hein minot ? Mauvaise pioche.";
+    l2 = "Marius : c'est un piege ! Sors les poings, vite !"; return true;
   }
-  if (strcmp(title, "Mauvaise dette") == 0) {
-    l1 = "Marco : tu sais pourquoi on est la. Paie tes dettes.";
-    l2 = "Le payeur : ...Bossez-le, les gars !"; return true;
+  if (strcmp(title, "Le cousin Remi") == 0) {
+    l1 = "Marius : tu sais pourquoi on est la, Remi. Paie tes dettes.";
+    l2 = "Remi : ...emboucanez-le, les collegues !"; return true;
   }
-  if (strcmp(title, "Message aux Loups") == 0) {
-    l1 = "Un Loup, craneur : t'es perdu, l'ami ? C'est pas ton quartier.";
-    l2 = "Un autre : regarde-le... il va comprendre. Chopez-le !"; return true;
+  if (strcmp(title, "Les Chouf") == 0) {
+    l1 = "Un Chouf, cacou : t'es perdu, collegue ? C'est pas ton quartier.";
+    l2 = "Un autre : ve, regarde-le... il va comprendre. Chopez-le !"; return true;
   }
   if (strcmp(title, "L'entrepot") == 0) {
     l1 = "Un garde : personne entre ici. Fais demi-tour, tant que tu peux.";
-    l2 = "L'autre arme son flingue. Trop tard pour causer."; return true;
+    l2 = "L'autre arme son flingue. Trop tard pour causer, ve."; return true;
   }
-  if (strcmp(title, "Embuscade") == 0) {
-    l1 = "Un homme de Victor : la journaliste est la ! On la veut vivante.";
-    l2 = "Sarah : ils sont partout ! Ne les laisse pas approcher !"; return true;
+  if (strcmp(title, "La cabane") == 0) {
+    l1 = "Un homme de Costa : la comptable est la ! On la veut vivante.";
+    l2 = "Sonia : ils sont partout ! Les laisse pas approcher !"; return true;
   }
-  if (strcmp(title, "Les dossiers") == 0) {
-    l1 = "Un garde : t'as rien a faire dans les Bureaux de M. Victor.";
+  if (strcmp(title, "Les papiers") == 0) {
+    l1 = "Un garde : t'as rien a faire dans les bureaux de M. Costa.";
     l2 = "Il degaine. Les autres rappliquent."; return true;
   }
   return false;
@@ -335,7 +335,7 @@ static void enterObjective() {
     else { marcoX = (float)o.x; marcoY = (float)o.y; }
     marcoDir = DIR_SOUTH; marcoFrame = 0; marcoAnimTimer = 0;
     allyStands = true; allyDead = false; allyHp = ALLY_HP;
-    allyColor = (curDef.title && strcmp(curDef.title, "Embuscade") == 0) ? SARAH_COLOR : TONY_COLOR;
+    allyColor = (curDef.title && strcmp(curDef.title, "La cabane") == 0) ? SARAH_COLOR : TONY_COLOR;
   }
   // Contact de scene scriptee (EV_DELIVERY) : pose un PNJ qui ATTEND a destination.
   // La scene (CUT_DELIVERY) se joue a la completion de l'objectif ; l'ecraser avant
@@ -578,18 +578,18 @@ static void startBossDownCut(const char *endText) {
 // Repliques de la scene de livraison (EV_DELIVERY) selon la mission. l1 = la
 // replique du livreur (compagnon) ou du contact, l2 = la reponse.
 static void deliveryLines(const char *title, const char *&l1, const char *&l2) {
-  if (title && strcmp(title, "Voiture volee") == 0) {      // M7 : receleur (solo)
-    l1 = "Le receleur : la caisse des Loups... beau bebe. Tony sera content.";
-    l2 = "Le receleur : file, petit. Je m'occupe d'elle.";
+  if (title && strcmp(title, "Le fourgon") == 0) {         // M7 : receleur (solo)
+    l1 = "Le receleur : le fourgon des Chouf... beau bebe. Jeannot sera content.";
+    l2 = "Le receleur : file, minot. Je m'occupe de lui.";
     return;
   }
-  if (title && strcmp(title, "Les assurances") == 0) {     // M2 : Marco collecte le loyer
-    l1 = "Marco : tu connais la chanson. Le loyer.";
-    l2 = "Le commercant : ...tiens. C'est tout ce que j'ai.";
+  if (title && strcmp(title, "Les protections") == 0) {    // M2 : Marius collecte la protection
+    l1 = "Marius : tu connais la chanson. La protection.";
+    l2 = "Le commercant : ...tiens. C'est tout ce que j'ai, peuchere.";
     return;
   }
-  l1 = "Marco : tiens, le paquet. C'est tout bon.";        // defaut : M1 (colis aux Quais)
-  l2 = "Le contact : nickel. Filez avant que les flics rappliquent.";
+  l1 = "Marius : tiens, le paquet. C'est tout bon.";       // defaut : M1 (colis aux Quais)
+  l2 = "Le docker : t'es en retard, peuchere. Filez avant les flics.";
 }
 
 
@@ -633,9 +633,9 @@ static void cutsceneUpdate() {
         } else {
           marcoFrame = 0;
           cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
-          narrate(curDef.title && strcmp(curDef.title, "Premier jour") == 0
-                  ? "Marco : bon boulot pour un premier jour. Repose-toi, petit."
-                  : "Marco : bon boulot, petit. On remet ca bientot.");
+          narrate(curDef.title && strcmp(curDef.title, "Le colis du port") == 0
+                  ? "Marius : bon boulot pour un premier jour. Repose-toi, minot."
+                  : "Marius : bon boulot, minot. On remet ca bientot.");
         }
         break;
       }
@@ -747,14 +747,14 @@ static void cutsceneUpdate() {
         marcoDir   = (marcoX < target.x) ? DIR_EAST : DIR_WEST;   // face a face
         target.dir = (target.x < marcoX) ? DIR_EAST : DIR_WEST;
         cutPhase = 1; cutTimer = CUT_LINE_FRAMES;
-        narrate("Marco : t'es l'acheteur ? Bon, montre-moi le fric, on echange.");
+        narrate("Marius : t'es l'acheteur ? Bon, montre le fric, on echange.");
       }
       break;
     }
     case 1:                                              // replique 1 : le deal vire a l'execution
       if (cutPhaseTick()) {
         cutPhase = 2; cutTimer = CUT_LINE_FRAMES;
-        narrate("L'acheteur sort un flingue. Desole, Marco. Rien de personnel.");
+        narrate("L'acheteur degaine. Desole, Marius. Rien de personnel.");
       }
       break;
     case 2:                                              // replique 2 -> il fait feu
@@ -764,7 +764,7 @@ static void cutsceneUpdate() {
         marcoFollow = false; marcoAboard = false;        // Marco tombe comme un PNJ
         targetDownX = (int)marcoX; targetDownY = (int)marcoY;
         targetDownTimer = PED_DOWN_FRAMES * 3;           // le corps reste un moment
-        narrate("Marco s'effondre.");
+        narrate("Marius s'effondre.");
       }
       break;
     case 3:                                              // temps sur le corps -> reprise
@@ -772,7 +772,7 @@ static void cutsceneUpdate() {
         seqKind = SEQ_NONE; cutKind = CUT_NONE;
         killerChase = true; target.chase = true;         // le tueur prend la fuite : a rattraper
         objElapsed = 0;
-        narrate("Le tueur file ! Rattrape-le !");
+        narrate("Le tueur file ! Rattrape-le, ve !");
         gb.sound.playCancel();
       }
       break;
@@ -792,14 +792,14 @@ static void applyMissionScriptFx(const Objective &done, const char *title) {
   // M6 : tabasser trois Loups en pleine rue -> un temoin alerte la police.
   // (la baston est le dernier objectif : la chauffe se vit en roue libre apres,
   //  sans risque d'echec de mission -> premiere lecon recherche/repeinture.)
-  if (strcmp(title, "Message aux Loups") == 0 && done.type == OBJ_BEAT) {
+  if (strcmp(title, "Les Chouf") == 0 && done.type == OBJ_BEAT) {
     scriptForceWanted(2);
     narrate("Un temoin appelle les flics ! Seme-les ou file au Pay'n'Spray.");
   }
   // M16 : voler une caisse de luxe declenche son alarme -> chauffe (les hommes de
   // Victor / la police). Tension voulue par le design ; reste modere car la caisse
   // est requise (failOnCarLoss) et le trajet vers la Casse est court.
-  if (strcmp(title, "Sabotage") == 0 && done.type == OBJ_ENTER_CAR) {
+  if (strcmp(title, "Le sabotage") == 0 && done.type == OBJ_ENTER_CAR) {
     scriptForceWanted(2);
     narrate("Alarme ! File a la Casse avant qu'ils ne t'arretent.");
   }
@@ -868,15 +868,15 @@ static void missionProgress() {
   if (missionTimedOut(cur, objElapsed)) { failMission("Trop tard ! Mission ratee."); return; }
   if (missionCarLossFail(def, s)) { failMission("La caisse est detruite ! Mission ratee."); return; }
   if (missionAllyDeathFail(def, s)) {
-    failMission(def.title && strcmp(def.title, "Embuscade") == 0
-                ? "Sarah est morte ! Mission ratee." : "Tony est mort ! Mission ratee.");
+    failMission(def.title && strcmp(def.title, "La cabane") == 0
+                ? "Sonia est morte ! Mission ratee." : "Jeannot est mort ! Mission ratee.");
     return;
   }
   if (sceneNpcDead) {
-    bool racket = def.title && (strcmp(def.title, "Les assurances") == 0 ||
-                                strcmp(def.title, "Tournee de Marco") == 0);
+    bool racket = def.title && (strcmp(def.title, "Les protections") == 0 ||
+                                strcmp(def.title, "La tournee de Marius") == 0);
     failMission(racket ? "On rackette, on ne tue pas les clients ! Mission ratee."
-                       : "Marco : t'as tue notre contact, abruti ! Mission ratee.");
+                       : "Jeannot : t'as tue notre client, fada ! Mission ratee.");
     return;
   }
   // Rencontre a pied avec Marco (TALK) : on ne la valide qu'une fois qu'il a fini
@@ -1051,8 +1051,8 @@ static void marcoUpdate(int fcx, int fcy) {
   if (!marcoFollow) return;
   if (driving) {                                   // on vient de monter -> Marco embarque
     marcoFollow = false; marcoAboard = true;
-    narrate(allyColor == SARAH_COLOR ? "Sarah : vite, demarre !"
-                                     : "Marco : roule, je monte derriere.");
+    narrate(allyColor == SARAH_COLOR ? "Sonia : vite, demarre !"
+                                     : "Marius : roule, je monte derriere.");
     gb.sound.playOK();
     return;
   }

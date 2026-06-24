@@ -46,6 +46,33 @@ inline bool boxHitsSolid(int px, int py) {
   return false;
 }
 
+// Tuile d'eau (hors-bornes = pas de l'eau). Sert a detecter la nage.
+inline bool isWaterAt(int tx, int ty) {
+  if (tx < 0 || tx >= CITY_W || ty < 0 || ty >= CITY_H) return false;
+  return cityMap[ty * CITY_W + tx] == TILE_WATER;
+}
+
+// Variante NAGE de boxHitsSolid : l'eau ne bloque PAS (le joueur nage), mais le
+// reste du solide (batiments, quais sont marchables donc non concernes) bloque.
+inline bool boxHitsSolidSwim(int px, int py) {
+  int txMin = (px + PLAYER_COL_INSET) >> 3;
+  int txMax = (px + PLAYER_W - 1 - PLAYER_COL_INSET) >> 3;
+  int tyMin = (py + PLAYER_COL_INSET) >> 3;
+  int tyMax = (py + PLAYER_H - 1 - PLAYER_COL_INSET) >> 3;
+  for (int ty = tyMin; ty <= tyMax; ty++)
+    for (int tx = txMin; tx <= txMax; tx++)
+      if (isSolidAt(tx, ty) && !isWaterAt(tx, ty)) return true;
+  return false;
+}
+
+// Deplacement NAGE : collision separee par axe, l'eau franchissable.
+inline void tryMoveSwim(int &x, int &y, int dx, int dy) {
+  int nx = x + dx;
+  if (!boxHitsSolidSwim(nx, y)) x = nx;
+  int ny = y + dy;
+  if (!boxHitsSolidSwim(x, ny)) y = ny;
+}
+
 // Deplacement avec collision separee par axe (glissement le long des murs).
 // Modifie x,y sur place. Parite : engine.try_move.
 inline void tryMove(int &x, int &y, int dx, int dy) {
@@ -85,12 +112,21 @@ static const int   CAR_HALF         = 2;      // demi-boite de collision (px) --
 static const float CAR_REVERSE_EPS  = 0.15f;  // sous cette vitesse avant, B = marche arriere
 static const float CAR_DRIFT_MIN    = 1.0f;   // vitesse avant mini pour partir en drift
 
-inline bool carBoxHitsSolid(float cx, float cy, int half) {
+// Une cellule bloque-t-elle la caisse ? Voiture : tuile solide. Bateau
+// (waterOnly) : tout SAUF l'eau (terre/quai/batiment infranchissables) ->
+// la collision s'inverse, le bateau reste sur l'eau. Hors-bornes = bloquant.
+inline bool cellBlocksVehicle(int tx, int ty, bool waterOnly) {
+  if (tx < 0 || tx >= CITY_W || ty < 0 || ty >= CITY_H) return true;
+  if (waterOnly) return cityMap[ty * CITY_W + tx] != TILE_WATER;
+  return (tileFlags[cityMap[ty * CITY_W + tx]] & TILE_SOLID) != 0;
+}
+
+inline bool carBoxHitsSolid(float cx, float cy, int half, bool waterOnly = false) {
   int x0 = (int)cx - half, x1 = (int)cx + half;
   int y0 = (int)cy - half, y1 = (int)cy + half;
   for (int ty = (y0 >> 3); ty <= (y1 >> 3); ty++)
     for (int tx = (x0 >> 3); tx <= (x1 >> 3); tx++)
-      if (isSolidAt(tx, ty)) return true;
+      if (cellBlocksVehicle(tx, ty, waterOnly)) return true;
   return false;
 }
 
@@ -104,20 +140,23 @@ inline float carForwardSpeed(const CarState &c) {
 // choc qui l'a enfoncee...). Pousse le centre de 1px vers la case libre cardinale
 // la plus proche -> en quelques frames la caisse "sort" du decor au lieu de rester
 // coincee (ne pouvant que pivoter). Vitesse annulee : pas de lutte avec la collision.
-inline void carUnstick(CarState &c) {
-  if (!carBoxHitsSolid(c.x, c.y, CAR_HALF)) return;
+inline void carUnstick(CarState &c, bool waterOnly = false) {
+  if (!carBoxHitsSolid(c.x, c.y, CAR_HALF, waterOnly)) return;
   for (int r = 1; r <= 16; r++) {
-    if (!carBoxHitsSolid(c.x + r, c.y, CAR_HALF)) { c.x += 1.0f; c.vx = c.vy = 0.0f; return; }
-    if (!carBoxHitsSolid(c.x - r, c.y, CAR_HALF)) { c.x -= 1.0f; c.vx = c.vy = 0.0f; return; }
-    if (!carBoxHitsSolid(c.x, c.y + r, CAR_HALF)) { c.y += 1.0f; c.vx = c.vy = 0.0f; return; }
-    if (!carBoxHitsSolid(c.x, c.y - r, CAR_HALF)) { c.y -= 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x + r, c.y, CAR_HALF, waterOnly)) { c.x += 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x - r, c.y, CAR_HALF, waterOnly)) { c.x -= 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x, c.y + r, CAR_HALF, waterOnly)) { c.y += 1.0f; c.vx = c.vy = 0.0f; return; }
+    if (!carBoxHitsSolid(c.x, c.y - r, CAR_HALF, waterOnly)) { c.y -= 1.0f; c.vx = c.vy = 0.0f; return; }
   }
 }
 
 // Avance la voiture d'un pas. throttle/steer dans [-1,1].
 //   drift = grip lateral faible (glisse) ; brake = decel forte sur l'avancee.
-inline void carUpdate(CarState &c, float throttle, float steer, bool drift, bool brake) {
-  carUnstick(c);                               // encastree ? on l'ejecte avant tout
+// waterOnly : caisse pilotee = bateau -> bloquee par tout sauf l'eau (cf.
+// cellBlocksVehicle). Defaut false = voiture/camion (collision classique).
+inline void carUpdate(CarState &c, float throttle, float steer, bool drift, bool brake,
+                      bool waterOnly = false) {
+  carUnstick(c, waterOnly);                    // encastree ? on l'ejecte avant tout
   float cs = cosf(c.angle), sn = sinf(c.angle);
 
   // Braquage proportionnel a la vitesse avant (et a son signe -> AR inverse).
@@ -153,7 +192,7 @@ inline void carUpdate(CarState &c, float throttle, float steer, bool drift, bool
   // (glisse le long du mur, comme le perso a pied) plutot que de rebondir --
   // un rebond renvoyait dans le mur a chaque frame -> voiture coincee/vibrante.
   float nx = c.x + c.vx;
-  if (carBoxHitsSolid(nx, c.y, CAR_HALF)) c.vx = 0.0f; else c.x = nx;
+  if (carBoxHitsSolid(nx, c.y, CAR_HALF, waterOnly)) c.vx = 0.0f; else c.x = nx;
   float ny = c.y + c.vy;
-  if (carBoxHitsSolid(c.x, ny, CAR_HALF)) c.vy = 0.0f; else c.y = ny;
+  if (carBoxHitsSolid(c.x, ny, CAR_HALF, waterOnly)) c.vy = 0.0f; else c.y = ny;
 }

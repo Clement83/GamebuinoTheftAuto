@@ -46,6 +46,14 @@ inline bool aiIsWalkable(const uint8_t *grid, int w, int h, int tx, int ty) {
   return t == 4 || t == 0;             // PAVEMENT ou GRASS (trottoirs + herbe)
 }
 
+// Tuile navigable par un bateau : uniquement l'eau (TILE_WATER == 5). Les
+// bateaux a conducteur errent dessus comme le trafic routier sur les routes.
+// Parite ai.py:is_navigable.
+inline bool aiIsNavigable(const uint8_t *grid, int w, int h, int tx, int ty) {
+  if (!aiInBounds(w, h, tx, ty)) return false;
+  return grid[ty * w + tx] == 5;       // WATER
+}
+
 // Tuile franchissable a pied EN PANIQUE : herbe, trottoir OU route (le piéton
 // paniqué traverse les routes), jamais un batiment. Parite ai.py:is_open.
 inline bool aiIsOpen(const uint8_t *grid, int w, int h, int tx, int ty) {
