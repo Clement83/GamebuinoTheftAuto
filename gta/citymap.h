@@ -5,11 +5,11 @@
 
 #define CITY_W 240
 #define CITY_H 160
-#define PLAYER_START_X 229
-#define PLAYER_START_Y 155
+#define PLAYER_START_X 41
+#define PLAYER_START_Y 10
 #define PLAYER_START_DIR DIR_SOUTH
 
-#define CITY_NUM_POIS 28
+#define CITY_NUM_POIS 35
 
 // Point d'interet : bbox en TUILES (inclus) pour la detection
 // HUD, point-cible (tx,ty) en PX monde pour les missions/fleche.
@@ -32,7 +32,7 @@ extern const CityService citySprays[CITY_NUM_SPRAYS];
 extern const CityService cityAmmus[CITY_NUM_AMMUS];
 
 #define CITY_HAS_CASSE 1
-#define CITY_CASSE_TX 604
-#define CITY_CASSE_TY 212
-#define CITY_CRANE_TX 604
-#define CITY_CRANE_TY 196
+#define CITY_CASSE_TX 860
+#define CITY_CASSE_TY 180
+#define CITY_CRANE_TX 860
+#define CITY_CRANE_TY 164

@@ -1,82 +1,81 @@
-"""Extraction de masques mer/route depuis l'illustration marseille_simple.png.
+"""Extraction de masques mer/route/parc depuis l'illustration de Marseille.
 
-Carte routière stylisée (mer pastel bleue, terre beige, autoroutes jaunes,
-grandes routes orange). On en derive, a la resolution de la grille de jeu :
-  - un masque MER (la vraie cote de Marseille),
-  - un masque ROUTE (les axes reels), ferme morphologiquement pour ponter les
-    pointilles (tunnels) et garantir un reseau carrossable.
+Carte routiere stylisee haut-contraste (mer bleu sature, massifs verts, urbain
+beige, autoroutes rouges + grandes routes orange). On en derive, a la resolution
+de la grille de jeu :
+  - MER   : la vraie cote de Marseille (baies, Vieux-Port, calanques, iles),
+  - ROUTE : les axes reels (rouge/orange),
+  - PARC  : les massifs/espaces verts (l'Etoile, Allauch, Calanques),
+  - le reste = terre urbaine (batie).
 
-I/O image (PIL) -> isole ici ; le generateur (citygen_marseille) reste sinon
-pur. Deterministe : meme image + meme taille => memes masques.
+Les pastilles vertes des libelles de quartiers sont supprimees (filtre de
+petites composantes) pour ne garder que les vrais massifs. I/O image (PIL)
+isolee ici ; le generateur reste sinon pur. Deterministe.
 """
 import colorsys
 
-IMAGE_PATH = "marseille_simple.png"
+IMAGE_PATH = "marseille_hight_contrast.png"
 
-# Coin haut-gauche : titre "MARSEILLE" + encart de legende (traits jaunes/orange
-# parasites + pastille mer). On neutralise la detection de ROUTE dans ce cadre.
-LEGEND_FRAC = (0.0, 0.0, 0.165, 0.205)   # (x0,y0,x1,y1) en fractions de l'image
+MIN_PARK_BLOB = 16        # composantes vertes plus petites = pastilles de label
+
+
+def _hsv(r, g, b):
+    h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+    return h * 360.0, s, v
 
 
 def _is_road(r, g, b):
-    h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-    return 18 <= h * 360 <= 55 and s > 0.5 and v > 0.55
+    h, s, v = _hsv(r, g, b)
+    return s > 0.55 and v > 0.65 and (h <= 48 or h >= 345)
 
 
 def _is_sea(r, g, b):
-    h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-    return b > r + 8 and b > g - 2 and v > 0.6 and h * 360 > 180
+    h, s, v = _hsv(r, g, b)
+    return s > 0.5 and 185 <= h <= 235
 
 
-def _dilate(mask, w, h):
-    out = [False] * (w * h)
-    for y in range(h):
-        for x in range(w):
-            if not mask[y * w + x]:
-                continue
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    nx, ny = x + dx, y + dy
-                    if 0 <= nx < w and 0 <= ny < h:
-                        out[ny * w + nx] = True
-    return out
+def _is_park(r, g, b):
+    h, s, v = _hsv(r, g, b)
+    return s > 0.28 and 55 <= h <= 165
 
 
-def _erode(mask, w, h):
-    out = [False] * (w * h)
-    for y in range(h):
-        for x in range(w):
-            ok = True
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    nx, ny = x + dx, y + dy
-                    if not (0 <= nx < w and 0 <= ny < h and mask[ny * w + nx]):
-                        ok = False
-                        break
-                if not ok:
-                    break
-            out[y * w + x] = ok
-    return out
+def _drop_small_blobs(mask, w, h, min_size):
+    """Met a False les composantes 4-connexes plus petites que min_size."""
+    seen = [False] * (w * h)
+    for s in range(w * h):
+        if not mask[s] or seen[s]:
+            continue
+        comp = [s]; seen[s] = True; k = 0
+        while k < len(comp):
+            i = comp[k]; k += 1
+            x, y = i % w, i // w
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < w and 0 <= ny < h:
+                    j = ny * w + nx
+                    if mask[j] and not seen[j]:
+                        seen[j] = True; comp.append(j)
+        if len(comp) < min_size:
+            for i in comp:
+                mask[i] = False
 
 
 def extract(image_path, w, h):
-    """Retourne (sea[w*h] bool, road[w*h] bool) a la resolution (w,h)."""
+    """Retourne (sea[w*h], road[w*h], park[w*h]) bool a la resolution (w,h)."""
     from PIL import Image
     im = Image.open(image_path).convert("RGB")
     IW, IH = im.size
     px = im.load()
     sx, sy = IW / w, IH / h
-    lx0 = int(LEGEND_FRAC[0] * w); ly0 = int(LEGEND_FRAC[1] * h)
-    lx1 = int(LEGEND_FRAC[2] * w); ly1 = int(LEGEND_FRAC[3] * h)
 
     sea = [False] * (w * h)
     road = [False] * (w * h)
+    park = [False] * (w * h)
     for gy in range(h):
-        in_leg_y = ly0 <= gy < ly1
         for gx in range(w):
             x0, y0 = int(gx * sx), int(gy * sy)
             x1, y1 = int((gx + 1) * sx), int((gy + 1) * sy)
-            nroad = nsea = nland = 0
+            nroad = nsea = npark = nland = 0
             for yy in range(y0, max(y0 + 1, y1), 2):
                 for xx in range(x0, max(x0 + 1, x1), 2):
                     r, g, b = px[xx, yy]
@@ -84,31 +83,38 @@ def extract(image_path, w, h):
                         nroad += 1
                     elif _is_sea(r, g, b):
                         nsea += 1
+                    elif _is_park(r, g, b):
+                        npark += 1
                     else:
                         nland += 1
             i = gy * w + gx
-            in_legend = in_leg_y and lx0 <= gx < lx1
-            if nroad >= 2 and not in_legend:
+            if nroad >= 2:                       # route prioritaire (lignes fines)
                 road[i] = True
-            elif nsea > nland:
+            elif nsea >= nland + npark and nsea > 0:
                 sea[i] = True
-    # fermeture morphologique : ponte les pointilles (tunnels) sans trop epaissir
-    road = _erode(_dilate(road, w, h), w, h)
-    # une route ne traverse pas la mer (les rares cas image -> on garde terre)
-    for i in range(w * h):
+            elif npark > nland:
+                park[i] = True
+    _drop_small_blobs(park, w, h, MIN_PARK_BLOB)
+    for i in range(w * h):                        # une route ne traverse pas la mer
         if road[i] and sea[i]:
             sea[i] = False
-    return sea, road
+    return sea, road, park
 
 
-def debug_render(sea, road, w, h, out_path, scale=3):
-    """PNG de controle : mer bleue, route noire, terre beige."""
+def debug_render(sea, road, park, w, h, out_path, scale=3):
+    """PNG de controle : mer bleue, route rouge, parc vert, urbain beige."""
     from PIL import Image
     img = Image.new("RGB", (w, h))
     o = img.load()
     for y in range(h):
         for x in range(w):
             i = y * w + x
-            o[x, y] = (30, 30, 30) if road[i] else (
-                (110, 180, 235) if sea[i] else (225, 210, 180))
+            if road[i]:
+                o[x, y] = (210, 60, 20)
+            elif sea[i]:
+                o[x, y] = (40, 90, 180)
+            elif park[i]:
+                o[x, y] = (70, 150, 60)
+            else:
+                o[x, y] = (225, 210, 180)
     img.resize((w * scale, h * scale), Image.NEAREST).save(out_path)

@@ -1,7 +1,7 @@
 """Invariants de la carte Marseille (image-driven) critiques pour la campagne.
 
 Verrouille : determinisme, presence de TOUS les POI de campagne, reseau de
-routes connexe, spawn non-solide. L'image marseille_simple.png doit exister a
+routes connexe, spawn non-solide. L'image marseille_hight_contrast.png doit exister a
 la racine du depot (sinon le test est ignore)."""
 import os
 
@@ -36,13 +36,13 @@ NONSOLID = {"grass", "road_h", "road_v", "road_cross", "pavement", "sand",
             "junk_ground", "cons_ground"}
 SI = {i for i, n in enumerate(NAMES) if n not in NONSOLID}
 
-IMG = "marseille_simple.png"
+IMG = "marseille_hight_contrast.png"
 REQUIRED_POIS = {"Planque", "Le Casino", "Commissariat", "Hopital", "Pompiers",
                  "Le Garage", "Le Bar", "Les Bureaux", "Commerces", "La Casse",
                  "Chantier", "Les Quais"}
 
 pytestmark = pytest.mark.skipif(not os.path.exists(IMG),
-                                reason="marseille_simple.png absent")
+                                reason="marseille_hight_contrast.png absent")
 
 W, H, SEED = 240, 160, 7
 

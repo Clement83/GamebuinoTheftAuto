@@ -20,63 +20,51 @@ from tools.citygen import (Z_WATER, Z_PARK, Z_DOWNTOWN, Z_RESIDENTIAL, Z_SAND,
 # Quartiers ancres (fraction x,y de la carte, downtown?). Issus des libelles de
 # l'illustration. Les centraux sont denses (downtown), la peripherie residentielle.
 DISTRICT_SEEDS = [
-    ("estaque",   0.11, 0.13, False),
-    ("stantoine", 0.27, 0.08, False),
-    ("larose",    0.55, 0.07, False),
-    ("stjerome",  0.41, 0.16, False),
-    ("gombert",   0.63, 0.17, False),
-    ("allauch",   0.82, 0.18, False),
-    ("stcharles", 0.36, 0.27, True),
-    ("blancarde", 0.55, 0.28, True),
-    ("sthenri",   0.13, 0.31, False),
-    ("panier",    0.33, 0.36, True),
-    ("vieuxport", 0.29, 0.41, True),
-    ("plaine",    0.46, 0.38, True),
-    ("stbarnabe", 0.63, 0.38, False),
-    ("prado",     0.41, 0.48, True),
-    ("lodi",      0.55, 0.47, True),
-    ("roucas",    0.30, 0.55, False),
-    ("stemarg",   0.51, 0.57, False),
-    ("goudes",    0.11, 0.43, False),
-    ("calanques", 0.64, 0.57, False),
+    ("estaque",   0.22, 0.12, False),
+    ("stantoine", 0.40, 0.10, False),
+    ("larose",    0.65, 0.09, False),
+    ("laviste",   0.33, 0.20, False),
+    ("stjerome",  0.47, 0.21, False),
+    ("standre",   0.62, 0.25, False),
+    ("gombert",   0.80, 0.28, False),
+    ("allauch",   0.90, 0.42, False),
+    ("stcharles", 0.42, 0.33, True),
+    ("belledmai", 0.55, 0.38, True),
+    ("blancarde", 0.66, 0.37, True),
+    ("sthenri",   0.33, 0.40, False),
+    ("panier",    0.35, 0.46, True),
+    ("plaine",    0.55, 0.46, True),
+    ("stbarnabe", 0.66, 0.46, False),
+    ("timone",    0.63, 0.52, True),
+    ("vieuxport", 0.38, 0.54, True),
+    ("corniche",  0.25, 0.58, False),
+    ("prado",     0.52, 0.60, True),
+    ("stemarg",   0.62, 0.62, False),
+    ("vivaux",    0.78, 0.55, False),
+    ("roucas",    0.45, 0.68, False),
+    ("mazargues", 0.55, 0.72, False),
+    ("sttronc",   0.78, 0.70, False),
+    ("goudes",    0.12, 0.65, False),
+    ("calanques", 0.62, 0.82, False),
 ]
 
-HILL_DIST = 7          # terre a plus de N tuiles d'une route/mer -> colline (parc)
 BEACH_W = 2            # largeur de plage (sable) le long de la mer
 
 
-def _bfs_dist(src, w, h):
-    """Distance Manhattan (BFS 4-connexe multi-source) ; -1 si inatteignable."""
-    INF = -1
-    dist = [INF] * (w * h)
-    q = []
-    for i, on in enumerate(src):
-        if on:
-            dist[i] = 0
-            q.append(i)
-    head = 0
-    while head < len(q):
-        i = q[head]; head += 1
-        x, y = i % w, i // w
-        d = dist[i] + 1
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < w and 0 <= ny < h:
-                j = ny * w + nx
-                if dist[j] == INF:
-                    dist[j] = d
-                    q.append(j)
-    return dist
+def build_terrain(seed, w, h, sea, road, park):
+    """(zones[w*h], sea[w*h], district_id[w*h], seed_type[ndist]) depuis les masques.
 
-
-def build_terrain(seed, w, h, sea, road):
-    """(zones[w*h], sea[w*h], district_id[w*h], seed_type[ndist]) depuis les masques."""
-    z = [Z_RESIDENTIAL] * (w * h)
+    La terre urbaine (beige de l'image) est UNIFORMEMENT dense (Z_DOWNTOWN) : le
+    vert vient des massifs extraits, pas des trous du remplissage residentiel.
+    seed_type reste varie pour la distribution des THEMES (port/casse/chantier)."""
+    z = [Z_DOWNTOWN] * (w * h)
     for i in range(w * h):
         if sea[i]:
             z[i] = Z_WATER
+        elif park[i]:                             # massifs verts extraits de l'image
+            z[i] = Z_PARK
 
-    # plage : terre a <= BEACH_W de la mer
+    # plage : terre a <= BEACH_W de la mer (override le parc cotier)
     near = [False] * (w * h)
     for y in range(h):
         for x in range(w):
@@ -90,39 +78,6 @@ def build_terrain(seed, w, h, sea, road):
     for i in range(w * h):
         if near[i] and z[i] != Z_WATER:
             z[i] = Z_SAND
-
-    # noyau urbain : disque autour des quartiers DENSES (downtown). Hors de ce
-    # noyau, la terre loin des routes devient massif (parc) -> ville dense
-    # entouree de collines (l'Etoile, Allauch, les Calanques).
-    dt_seeds = [(int(fx * w), int(fy * h))
-                for (_, fx, fy, dt) in DISTRICT_SEEDS if dt]
-    r_core = 0.30 * w
-
-    def in_core(x, y):
-        return any((x - sx) ** 2 + (y - sy) ** 2 <= r_core ** 2
-                   for sx, sy in dt_seeds)
-
-    # collines (parcs) : terre loin des routes/mer, hors du noyau urbain.
-    seed_src = [sea[i] or road[i] for i in range(w * h)]
-    dist = _bfs_dist(seed_src, w, h)
-    nf = citygen.noise_field(seed + 16, w, h, scale=max(6.0, w / 12.0))
-    for y in range(h):
-        for x in range(w):
-            i = y * w + x
-            if z[i] in (Z_WATER, Z_SAND):
-                continue
-            d = dist[i]
-            if d >= HILL_DIST and not in_core(x, y) and nf[y][x] < 0.55:
-                z[i] = Z_PARK
-
-    # legende/titre de l'image (coin haut-gauche) -> parc (cache le rectangle)
-    lx1 = int(marseille_map.LEGEND_FRAC[2] * w)
-    ly1 = int(marseille_map.LEGEND_FRAC[3] * h)
-    for y in range(ly1):
-        for x in range(lx1):
-            i = y * w + x
-            if z[i] != Z_WATER:
-                z[i] = Z_PARK
 
     # districts (Voronoi sur graines ancrees ; eau ignoree au remplissage)
     seeds = [(int(fx * w), int(fy * h)) for (_, fx, fy, _) in DISTRICT_SEEDS]
@@ -174,6 +129,67 @@ def _local_streets(mask, w, h, z, seed):
                     if not (0 <= lx < w and 0 <= ly < h) or z[ly * w + lx] == Z_WATER:
                         break
                     mask[ly * w + lx] = True
+
+
+def _thin(mask, w, h):
+    """Squelettisation Zhang-Suen : amincit les axes epais a 1 tuile de large
+    (preserve la connexite) -> classement h/v propre, libere de la place."""
+    M = list(mask)
+
+    def nb(x, y):
+        return [M[(y - 1) * w + x], M[(y - 1) * w + x + 1], M[y * w + x + 1],
+                M[(y + 1) * w + x + 1], M[(y + 1) * w + x], M[(y + 1) * w + x - 1],
+                M[y * w + x - 1], M[(y - 1) * w + x - 1]]   # P2..P9 horaire
+
+    changed = True
+    while changed:
+        changed = False
+        for step in (0, 1):
+            todel = []
+            for y in range(1, h - 1):
+                for x in range(1, w - 1):
+                    if not M[y * w + x]:
+                        continue
+                    p = nb(x, y)
+                    b = sum(p)
+                    if b < 2 or b > 6:
+                        continue
+                    a = sum(1 for k in range(8) if not p[k] and p[(k + 1) % 8])
+                    if a != 1:
+                        continue
+                    if step == 0:
+                        if p[0] and p[2] and p[4]:
+                            continue
+                        if p[2] and p[4] and p[6]:
+                            continue
+                    else:
+                        if p[0] and p[2] and p[6]:
+                            continue
+                        if p[0] and p[4] and p[6]:
+                            continue
+                    todel.append(y * w + x)
+            if todel:
+                changed = True
+                for i in todel:
+                    M[i] = False
+    for i in range(w * h):
+        mask[i] = M[i]
+
+
+def _orthogonalize(mask, w, h):
+    """Apres amincissement (squelette 8-connexe), ponte les liens diagonaux pour
+    garantir la 4-connexite (escalier orthogonal) requise par l'IA trafic."""
+    add = []
+    for y in range(h - 1):
+        for x in range(w - 1):
+            a = mask[y * w + x]; b = mask[y * w + x + 1]
+            c = mask[(y + 1) * w + x]; d = mask[(y + 1) * w + x + 1]
+            if a and d and not b and not c:        # diagonale \\ -> ajoute droite-haut
+                add.append((x + 1, y))
+            elif b and c and not a and not d:       # diagonale / -> ajoute gauche-haut
+                add.append((x, y))
+    for x, y in add:
+        mask[y * w + x] = True
 
 
 def _keep_main_component(mask, w, h):
@@ -228,7 +244,9 @@ def _classify(mask, w, h):
 def build_roads(seed, w, h, z, road):
     """Codes routes depuis le masque extrait + rues locales + connexite."""
     mask = [bool(road[i]) and z[i] != Z_WATER for i in range(w * h)]
-    _local_streets(mask, w, h, z, seed)
+    _thin(mask, w, h)                       # axes epais de l'image -> 1 tuile
+    _orthogonalize(mask, w, h)              # squelette 8-connexe -> 4-connexe
+    _local_streets(mask, w, h, z, seed)     # eperons (deja fins) greffes dessus
     _keep_main_component(mask, w, h)
     return _classify(mask, w, h)
 
@@ -240,8 +258,8 @@ def generate_into(city, seed, tile_index, solid_index,
     """Genere la carte Marseille depuis l'image puis delegue a citygen.assemble."""
     idx = citygen.resolve_tile_idx(tile_index)
     w, h = city.w, city.h
-    sea, road = marseille_map.extract(image_path, w, h)
-    z, sea, district_id, seed_type = build_terrain(seed, w, h, sea, road)
+    sea, road, park = marseille_map.extract(image_path, w, h)
+    z, sea, district_id, seed_type = build_terrain(seed, w, h, sea, road, park)
     r = build_roads(seed, w, h, z, road)
     return citygen.assemble(city, seed, tile_index, solid_index, idx, z, sea, r,
                             district_id, seed_type, density)
